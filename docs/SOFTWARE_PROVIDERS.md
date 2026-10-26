@@ -1,0 +1,112 @@
+# Software installation providers
+
+Software delivery is independent of container provisioning. Application packages
+keep their image recipes, configuration, protocols and native acceptance. Shared
+software providers resolve and install an application's reviewed software source.
+Factorio keeps its official headless download provider; Steam applications use a
+SteamCMD provider. A shared SteamCMD image is an explicit pinned dependency, not
+an application or an implicit source-tree dependency.
+
+## Compatibility and current scope
+
+The existing software policy remains version 1. Runtime policies may optionally
+declare versioned capabilities: supported Linux platforms, anonymous or account
+authentication, discovery, repair, updates, historical versions and adoption.
+An opted-in policy cannot exceed its trusted registered provider's capabilities.
+Policies without capabilities retain their exact public metadata and provider
+interface. Image-delivered applications cannot declare runtime capabilities.
+
+New installation records are additive. They do not replace Factorio's existing
+version:1 receipts, rename installed files, enable updates or adopt old data.
+The record validators and transitions are pure functions. Persistence, locking,
+read-only inspection and effect execution belong to the provider/operation
+implementation. A revision check must be coupled to the existing operation lock
+and atomic record publication; a validated record alone is not evidence that
+software was installed.
+
+## Exact software and verified completion
+
+Selections have format 1, provider and application IDs, an exact Linux platform,
+an exact softwareVersion and a source:
+
+- Steam: dedicated-server appId, branch, resolved buildId and sorted unique depot
+  IDs/manifest IDs. softwareVersion is the buildId. Numeric Steam identities are
+  decimal strings so 64-bit manifest IDs cannot lose precision in JSON.
+- Archive: the reviewed provider's SHA-256 checksum. Download URLs are resolved
+  inside the provider, not supplied by requests or persisted in selections.
+
+The canonical selection key covers all these fields. A public branch is a
+requested channel, never an exact installation identity. If its resolved build
+moves during staging, activation must refuse that different build.
+
+A completed receipt contains the selection and a SHA-256 inventory digest with
+file and byte counts. The full inventory is provider-owned and must be verified
+against files before the receipt is trusted. The shared envelope bounds file
+counts to one million and software bytes to 1 TiB; each provider must set suitable
+smaller operational limits. The record does not contain credentials, arbitrary
+commands, URLs or host paths.
+
+## Installation state and recovery
+
+The serializable record includes a revision and one of:
+
+| State | Meaning |
+| --- | --- |
+| uninstalled | No completed software receipt has been recorded |
+| preparing | A fresh operation is preparing an installation |
+| downloading | An exact target is being staged |
+| validating | Staged software is being checked |
+| activating | Activation has been submitted; uncertainty now needs inspection |
+| installed | The completed receipt identifies the active installation |
+| failed | Failure before activation preserves the prior installed receipt |
+| recovery-required | The outcome is uncertain; new work is fenced |
+
+Every transition checks the expected revision. Active work keeps its operation
+ID and target; a safe retry needs a new operation ID. The prior installed receipt
+remains in the record throughout an update. Failed-state error values are bounded
+codes; provider error text and authentication responses are not public progress.
+
+After activation, failure cannot be represented as an ordinary safe-to-retry
+failure. Recovery requires explicit review and a trusted read-only observation
+of the previous or target installation. A missing artifact does not prove a
+worker is stopped: an inspector must establish both the installation identity
+and that no operation remains active. Unknown outcomes remain fenced.
+
+Legacy adoption is a separate explicit operation. Its read-only inspector must
+verify the software and application/provider/platform identity before publishing
+a completed record. Adoption cannot download, run Steam validation, overwrite
+software, stop a server or reset world/configuration/mod data.
+
+## Delivery sequence
+
+1. Contract and compatibility: capability declarations, exact identities,
+   bounded receipts and guarded state/recovery/adoption transitions.
+2. SteamCMD base and provider: private staging, durable publication, verified
+   completion, progress and safe restart/retry. Start with anonymous Linux
+   dedicated-server downloads.
+3. Rust integration and managed software updates: real server build discovery,
+   mod-aware staging, save barriers, paired software/data recovery and failure
+   injection. Keep old image defaults and installations until explicit adoption.
+4. Setup experience: capability-driven host/version choices, preflight,
+   installation progress, useful retry and session-expiry regression coverage.
+5. Package authoring: generator, validator, documentation and native acceptance
+   scaffolding that select reviewed providers.
+6. Second Steam integration: Valheim, using its publisher's dedicated-server
+   requirements. Confirm the actual server app/depot identity through Valve
+   metadata when implementing the provider. Its log-based readiness and SIGINT
+   shutdown exercise different protocols from Rust's WebRCON. Begin with vanilla
+   Steam-backend hosting; declare optional backends only after their own tests.
+7. Native architectures: validated platform selection through image tooling,
+   managed profiles, fleet, agents, migration, broker and Factorio's eligible
+   download/helper paths. Historical pinned versions remain unchanged.
+
+Each step is a separate PR. Complete review, address feedback and pass CI before
+merging and starting the next PR. Validate real games only on explicitly selected
+disposable hosts. Release/package changes must retain frozen v0.2.0 and v0.3.3
+updater compatibility and existing source layouts. Publication and operational
+adoption/deployment are separate actions; these changes do not authorize
+accessing existing worlds or changing running servers.
+
+Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
+[Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
+[Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).
