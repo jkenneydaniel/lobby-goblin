@@ -76,15 +76,15 @@ results from the previous binary.
 From a source checkout or compatible extracted source package:
 
 ```sh
-python3 -B images/factorio/test_runtime.py
-python3 -B images/factorio/test_runtime_install.py
+python3 -B panel/applications/factorio/images/test_runtime.py
+python3 -B panel/applications/factorio/images/test_runtime_install.py
 node --test panel/test/factorio-runtime.test.js
 node tools/factorio-image.mjs runtime-build
 node tools/factorio-image.mjs runtime-test
 ```
 
 Extracted releases retain the historical `factorio-image/` source path in place
-of `images/factorio/`. The build tool resolves either layout. The runtime test
+of `panel/applications/factorio/images/`. The build tool resolves either layout. The runtime test
 creates uniquely named volumes and containers, publishes no ports, uses no host
 bind mounts, and removes its test resources. It checks first installation,
 offline recreation, an actual preview, a real stable upgrade, a failed checksum,

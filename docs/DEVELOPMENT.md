@@ -4,7 +4,7 @@ Use Node.js 24 or newer. Install the locked WebSocket and SSH dependencies befor
 testing; container builds install them automatically. Manual installation remains
 independent of npm; automatic SSH setup runs from the installed panel runtime.
 Keep the full checkout layout when testing: Rust image fixtures are under
-`images/rust/`, outside the panel runtime directory. See [repository layout](REPOSITORY.md).
+`panel/applications/rust/images/`, outside the panel runtime directory. See [repository layout](REPOSITORY.md).
 See [the shared-core/module contract](ARCHITECTURE.md) before adding game behavior.
 The [Rust module guide](RUST.md) documents its separate, prepare-only installation.
 `node panel/test/rust-ui-preview.js` serves a synthetic Rust panel on loopback
@@ -36,8 +36,8 @@ loopback controllers, the actual SSH handshake and fake-Docker update rollback.
 ```sh
 npm ci --prefix panel --ignore-scripts
 npm test --prefix panel
-node --test images/factorio/test-build.mjs
-python3 -B images/factorio/test_runtime.py
+node --test panel/applications/factorio/images/test-build.mjs
+python3 -B panel/applications/factorio/images/test_runtime.py
 ```
 
 Tests create temporary fixtures and a mock Docker API; they never connect to the
@@ -120,16 +120,16 @@ locally in advance. Releases do not upgrade installed servers automatically.
 
 ## Game images in this repository
 
-See [the image guide](../images/factorio/README.md) for the pinned build definition,
+See [the image guide](../panel/applications/factorio/images/README.md) for the pinned build definition,
 first-party startup/RCON runtime, isolated Python tests and separate container
-acceptance/publication workflow. The [Rust image guide](../images/rust/README.md) covers its bootstrap and native
+acceptance/publication workflow. The [Rust image guide](../panel/applications/rust/images/README.md) covers its bootstrap and native
 acceptance. Both image sources stay in this repository with independent versions.
 Local changes must not deploy or migrate the running server. The compatibility baseline is Factorio 2.0.77 on linux/amd64.
 
 ## Game image migration acceptance
 
 See [the image migration contract](IMAGE_MIGRATION.md) and
-[the Rust image build/acceptance guide](../images/rust/README.md).
+[the Rust image build/acceptance guide](../panel/applications/rust/images/README.md).
 The shared migration and standalone/host coordination tests simulate Docker;
 `panel/test/image-acceptance.mjs` deliberately uses a real Linux amd64 Docker
 socket, new labelled resources and no published ports. Never aim it at existing

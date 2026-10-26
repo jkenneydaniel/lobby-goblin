@@ -99,7 +99,7 @@ signal.signal(signal.SIGTERM, interrupted)
 created_volume = False
 try:
     WORKER_SOURCE = Path(__file__).with_name('worker.py').read_bytes()
-    CANDIDATE_SOURCE = (REPO / 'images/factorio/entrypoint.py').read_bytes()
+    CANDIDATE_SOURCE = (REPO / 'panel/applications/factorio/images/entrypoint.py').read_bytes()
     RESULT['sources_sha256'] = {name: hashlib.sha256(source).hexdigest() for name, source in
                                 [('worker', WORKER_SOURCE), ('entrypoint', CANDIDATE_SOURCE)]}
     metadata = json.loads(docker(['image', 'inspect', OPTIONS.image]))[0]

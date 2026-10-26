@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Application packages own image recipes, runtime sources and checks. Shared image tooling and CI discover registered packages.
+- Added a reusable single-container provider with shared lifecycle, health, JSON settings and stopped-data snapshots; Status Page proves a third package without panel code.
+- Preserved historical updater layouts and existing game defaults. No deployments or existing-world migrations.
+
 ## 0.3.8-alpha — 2026-10-24
 
 - Restore fleet update discovery with management release notes and host update

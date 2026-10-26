@@ -12,14 +12,14 @@ RUN test "$TARGETARCH" = amd64 \
  && tar -xzf /tmp/steamcmd.tar.gz -C /opt/steamcmd && rm /tmp/steamcmd.tar.gz \
  && chown -R node:node /opt/steamcmd /home/node/.steam /steamcmd/rust
 WORKDIR /app
-COPY panel/package.json panel/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
-COPY panel/applications/rust/transport.js ./transport.js
-COPY panel/games/rust/image/entrypoint.mjs ./entrypoint.mjs
+COPY transport.js ./transport.js
+COPY entrypoint.mjs ./entrypoint.mjs
 LABEL org.opencontainers.image.title="Lobby Goblin Rust server" \
  org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
  org.opencontainers.image.licenses="MIT" \
- io.lobby-goblin.rust-mods="1" io.lobby-goblin.game="rust" io.lobby-goblin.compatibility="1" io.lobby-goblin.image-revision="2"
+ io.lobby-goblin.rust-mods="1" io.lobby-goblin.game="rust" io.lobby-goblin.compatibility="1" io.lobby-goblin.image-revision="3"
 ENV HOME=/home/node RUST_SERVER_IDENTITY=lobby-goblin-rust RUST_SERVER_PORT=28015 RUST_SERVER_QUERYPORT=28017 RUST_RCON_PORT=28016
 EXPOSE 28015/udp 28017/udp 28016/tcp
 STOPSIGNAL SIGTERM

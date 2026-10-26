@@ -22,6 +22,13 @@ export function createServerDialog({
       game = creationGames.find((game) => game.id === f.elements.game.value);
     if (!game) return;
     const policy = game.creation;
+    const isGame = !game.kind || game.kind === 'game';
+    $('#starting-data-label').textContent = isGame
+      ? 'Starting world'
+      : 'Starting data';
+    f.elements.maxPlayers.closest('label').hidden = !isGame;
+    f.elements.maxPlayers.disabled = !isGame;
+    f.elements.seed.closest('label').hidden = !isGame;
     if (!policy)
       throw Error('Update this host to provide its game creation options.');
     $('#software-mode-field').hidden = !game.softwareModes?.includes('runtime');
@@ -40,7 +47,7 @@ export function createServerDialog({
       )
       .join('');
     f.elements.snapshotId.innerHTML =
-      '<option value="">New world</option>' +
+      `<option value="">${isGame ? 'New world' : 'New application data'}</option>` +
       snapshots
         .filter(
           (snapshot) =>
@@ -77,7 +84,7 @@ export function createServerDialog({
     }
     f.elements.softwareMode.disabled =
       clone || !game?.softwareModes?.includes('runtime');
-    f.elements.seed.disabled = clone;
+    f.elements.seed.disabled = clone || (!!game?.kind && game.kind !== 'game');
     for (const field of game?.creation?.fields || [])
       f.elements[field.key].disabled = clone && field.lockOnClone === true;
   }
@@ -101,7 +108,7 @@ export function createServerDialog({
         .join('');
       configureCreation(snapshotId);
       $('#creation-host-help').textContent =
-        'This server and its world will be created on ' + host.name + '.';
+        'This application and its data will be created on ' + host.name + '.';
       $('#create-submit').textContent = 'Create on ' + host.name;
       $('#create-submit').disabled = hostBusy(host.id);
     } catch (e) {

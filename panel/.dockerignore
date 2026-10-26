@@ -2,3 +2,5 @@ test
 quality
 node_modules
 *.log
+
+applications/*/images

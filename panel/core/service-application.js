@@ -23,10 +23,17 @@ import {withStorageLock} from './storage/coordination.js';
 
 // Reusable non-game adapter. Runtime and backup providers are trusted registered
 // code, chosen at package registration, never functions/paths from a request.
-// Docker-host provisioning for these service profiles is a separate integration.
+// A managed runtime provider supplies Docker-host provisioning when supported.
 export function createServiceApplication(
   definition,
-  {configuration, profiles, backup, secretProviders = {}},
+  {
+    configuration,
+    profiles,
+    backup,
+    secretProviders = {},
+    configurationFile,
+    configurationSaved,
+  },
 ) {
   definition = applicationDefinition(definition);
   serviceOrder(definition);
@@ -259,7 +266,9 @@ export function createServiceApplication(
         }
       }
       const runtime = new ApplicationServices(definition, drivers, {sanitize}),
-        file = path.join(ctx.config.state, 'application-configuration.json');
+        file = configurationFile
+          ? configurationFile(ctx)
+          : path.join(ctx.config.state, 'application-configuration.json');
       let recent = null;
       function validateValues(values) {
         assert(
@@ -331,7 +340,7 @@ export function createServiceApplication(
           ...state,
           ...(state.running === null ? {running: undefined} : {}),
           name: definition.name,
-          connection: ctx.env.APPLICATION_ADDRESS || '',
+          connection: ctx.env.APPLICATION_ADDRESS || ctx.env.GAME_ADDRESS || '',
           activeJob: ctx.active,
         };
         return recent;
@@ -372,6 +381,7 @@ export function createServiceApplication(
                     409,
                   );
                   await writeJSON(file, params.values);
+                  await configurationSaved?.(file);
                   return 'Configuration saved. It applies at the next start.';
                 }),
             }

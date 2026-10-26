@@ -35,7 +35,7 @@ function packagedText(text,file,name,targetPath=value=>value){
 async function walk(relative=''){
   for(const entry of await fs.readdir(path.join(root,relative),{withFileTypes:true})){
     const file=(relative?relative+'/':'')+entry.name;
-    if(!sourceExact.has(file)&&!sourcePrefixes.some(prefix=>file.startsWith(prefix)||prefix.startsWith(file+'/'))&&![...sourceExact].some(name=>name.startsWith(file+'/'))&&file!=='tools'&&!['tools/release.mjs','tools/factorio-image.mjs'].includes(file))continue;
+    if(!sourceExact.has(file)&&!sourcePrefixes.some(prefix=>file.startsWith(prefix)||prefix.startsWith(file+'/'))&&![...sourceExact].some(name=>name.startsWith(file+'/'))&&file!=='tools'&&!['tools/release.mjs','tools/factorio-image.mjs','tools/application-images.mjs'].includes(file))continue;
     if(entry.isSymbolicLink())throw new Error('Symlink in source allowlist: '+file);
     if(/^(?:data|backups|\.panel-data|import|users\.json|controller-token|registration-link\.txt|initial-login\.txt|rconpw|server-settings\.json|map\.json)$/.test(entry.name))throw new Error('Runtime/private path in source: '+file);
     if(entry.isDirectory()){
@@ -43,7 +43,7 @@ async function walk(relative=''){
       await walk(file);continue;
     }
     if(!entry.isFile())throw new Error('Unexpected source entry: '+file);
-    if(file.startsWith('tools/')&&!['tools/release.mjs','tools/factorio-image.mjs'].includes(file))continue;
+    if(file.startsWith('tools/')&&!['tools/release.mjs','tools/factorio-image.mjs','tools/application-images.mjs'].includes(file))continue;
     const name=installationPath(file);
     if(!exact.has(name)&&!/(?:\.(?:js|mjs|json|lua|html|css|md|yml|yaml|py|ini|sh)|\/Dockerfile|\/LICENSE|\/\.dockerignore)$/.test(file))throw new Error('Unexpected source file type: '+file);
     const data=await fs.readFile(path.join(root,file));

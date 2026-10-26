@@ -5,7 +5,11 @@ import {registeredDefinitions} from './registry.js';
 export const imagePolicies = Object.freeze(
   Object.fromEntries(
     registeredDefinitions()
-      .filter((definition) => definition.kind === 'game')
+      .filter((definition) =>
+        definition.services.some((service) =>
+          ['managed-game-v1', 'managed-container-v1'].includes(service.profile),
+        ),
+      )
       .map((definition) => [
         definition.id,
         definition.services.find((service) => service.id === definition.primary)

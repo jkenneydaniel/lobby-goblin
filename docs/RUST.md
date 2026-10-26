@@ -286,4 +286,4 @@ the host Docker socket. Stop it with Ctrl+C to remove its temporary files.
 
 Protocol references: [Facepunch WebRCON client](https://github.com/Facepunch/webrcon/blob/gh-pages/js/rconService.js),
 [server configuration](https://wiki.facepunch.com/rust/Creating-a-server#servercfg).
-The current image contract is documented in [the first-party image README](../images/rust/README.md).
+The current image contract is documented in [the first-party image README](../panel/applications/rust/images/README.md).

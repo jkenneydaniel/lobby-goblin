@@ -1,9 +1,0 @@
-{
-  "format": 1,
-  "repository": "ghcr.io/jkenneydaniel/factorio-server",
-  "baseImage": "debian:bookworm-slim@sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
-  "platform": "linux/amd64",
-  "compatibility": 1,
-  "mode": "runtime",
-  "revision": 1
-}

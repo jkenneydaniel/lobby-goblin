@@ -1,0 +1,103 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "id": "server",
+      "manifest": "images/image.json",
+      "dockerfile": "Dockerfile",
+      "files": [
+        {
+          "source": "images/Dockerfile",
+          "target": "Dockerfile"
+        },
+        {
+          "source": "images/entrypoint.py",
+          "target": "entrypoint.py"
+        },
+        {
+          "source": "images/docker-entrypoint.sh",
+          "target": "docker-entrypoint.sh"
+        },
+        {
+          "source": "images/config.ini",
+          "target": "config.ini"
+        },
+        {
+          "source": "images/rcon.py",
+          "target": "rcon.py"
+        },
+        {
+          "source": "images/runtime.py",
+          "target": "runtime.py"
+        },
+        {
+          "source": "images/LICENSE",
+          "target": "LICENSE"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage",
+        "FACTORIO_VERSION": "version",
+        "IMAGE_REVISION": "revision",
+        "HEADLESS_SHA256": "headlessSha256"
+      },
+      "checks": [
+        {
+          "runner": "python",
+          "file": "images/test_runtime.py"
+        },
+        {
+          "runner": "node-test",
+          "file": "images/test-build.mjs"
+        }
+      ],
+      "acceptance": [
+        "images/acceptance.mjs"
+      ]
+    },
+    {
+      "id": "runtime",
+      "manifest": "images/runtime/image.json",
+      "dockerfile": "runtime/Dockerfile",
+      "files": [
+        {
+          "source": "images/runtime/Dockerfile",
+          "target": "runtime/Dockerfile"
+        },
+        {
+          "source": "images/entrypoint.py",
+          "target": "entrypoint.py"
+        },
+        {
+          "source": "images/docker-entrypoint.sh",
+          "target": "docker-entrypoint.sh"
+        },
+        {
+          "source": "images/rcon.py",
+          "target": "rcon.py"
+        },
+        {
+          "source": "images/runtime.py",
+          "target": "runtime.py"
+        },
+        {
+          "source": "images/LICENSE",
+          "target": "LICENSE"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage",
+        "IMAGE_REVISION": "revision"
+      },
+      "checks": [
+        {
+          "runner": "python",
+          "file": "images/test_runtime_install.py"
+        }
+      ],
+      "acceptance": [
+        "images/runtime/acceptance.mjs"
+      ]
+    }
+  ]
+}

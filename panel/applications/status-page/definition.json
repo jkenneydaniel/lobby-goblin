@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "id": "status-page",
+  "name": "Status Page",
+  "revision": 1,
+  "kind": "application",
+  "primary": "web",
+  "services": [
+    {
+      "id": "web",
+      "role": "web",
+      "profile": "managed-container-v1",
+      "required": true,
+      "dependsOn": [],
+      "configuration": {
+        "version": 1,
+        "imagePolicy": {
+          "version": 1,
+          "defaultImage": "ghcr.io/jkenneydaniel/status-page:1-lg.1",
+          "referencePattern": "^ghcr\\.io/jkenneydaniel/status-page:1-lg\\.(?<revision>[1-9]\\d*)$",
+          "architecture": "amd64",
+          "labels": {
+            "io.lobby-goblin.compatibility": "1",
+            "io.lobby-goblin.application": "status-page"
+          },
+          "captureLabels": {
+            "io.lobby-goblin.image-revision": "revision"
+          }
+        },
+        "catalog": {
+          "version": "1",
+          "cpu": 0.5,
+          "memoryGiB": 1,
+          "creation": {
+            "minMemoryGiB": 1,
+            "maxMemoryGiB": 8,
+            "maxPlayers": 1,
+            "defaultPlayers": 1,
+            "fields": [],
+            "help": "A configurable HTTP status page. Edit its content in Settings while stopped."
+          },
+          "snapshotHelp": "Stop the application before publishing a consistent data snapshot."
+        },
+        "storage": {
+          "dataTarget": "/data",
+          "backupDirectory": "archives"
+        },
+        "ports": [
+          {
+            "key": "gamePort",
+            "containerPort": 8080,
+            "protocol": "tcp",
+            "offset": 0
+          }
+        ],
+        "helpers": {
+          "archiveReadPaths": [],
+          "execCommands": []
+        },
+        "environment": {
+          "server": {},
+          "controller": {
+            "STATUS_PAGE_CONTAINER": [
+              {
+                "field": "container"
+              }
+            ],
+            "GAME_ADDRESS": [
+              {
+                "field": "address"
+              },
+              {
+                "literal": ":"
+              },
+              {
+                "field": "gamePort"
+              }
+            ]
+          }
+        },
+        "snapshots": {
+          "includesPlayerData": false
+        },
+        "secrets": [],
+        "settings": {
+          "version": 1,
+          "file": "settings.json",
+          "fields": [
+            {
+              "key": "title",
+              "label": "Page title",
+              "type": "text",
+              "max": 100,
+              "required": true,
+              "default": "Service status"
+            },
+            {
+              "key": "message",
+              "label": "Message",
+              "type": "textarea",
+              "max": 4000,
+              "required": true,
+              "default": "All systems operational."
+            }
+          ]
+        }
+      },
+      "software": {
+        "version": 1,
+        "mode": "image"
+      }
+    }
+  ]
+}

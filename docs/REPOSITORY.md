@@ -10,8 +10,7 @@ directories, reset update baselines, change configuration or deploy services.
 ```text
 Install.sh / Install.ps1 / Install.command   Primary new-installation entrypoints
 panel/                                     Web, controllers, core and game modules
-images/factorio/                           Factorio image runtime, manifest and tests
-images/rust/                               Rust image runtime, manifest and tests
+panel/applications/<id>/                    Definitions, adapters, image sources and tests
 scripts/install/                           Explicit Docker installation helper
 scripts/standalone/                        Existing Factorio setup and start tools
 scripts/fleet/                             Advanced host-manager launchers
@@ -38,7 +37,7 @@ installation state, saves or credentials in source directories.
 
 Release source paths are an installed compatibility contract. Older updaters
 validate every ZIP entry against their own fixed allowlist before executing any
-new code. Merely teaching a new updater about `images/` or `scripts/` cannot make
+new code. Merely teaching a new updater about source package paths or `scripts/` cannot make
 an already-installed updater accept those directories.
 
 `panel/source-layout.js` defines the source-to-installation mapping, used by
@@ -46,8 +45,8 @@ an already-installed updater accept those directories.
 
 | Canonical checkout source | Complete release bundle path |
 | --- | --- |
-| `images/factorio/` | `factorio-image/` |
-| `images/rust/` | `panel/games/rust/image/` |
+| `panel/applications/factorio/images/` | `factorio-image/` |
+| `panel/applications/rust/images/` | `panel/games/rust/image/` |
 | `scripts/standalone/*` | Historical root `Setup.*` / `Start-Server.*` |
 | `scripts/fleet/*` | Root `Fleet.*` |
 | `scripts/windows/*` | Historical root Windows helper names |
@@ -71,15 +70,15 @@ with local source edits should continue to fail the updater's baseline check.
 ## Ownership and workflows
 
 - `panel/core/`, `panel/fleet/` and `panel/applications/` own application and controller
-  behavior. Image bootstraps belong in `images/`, not inside a game adapter.
-- `.github/workflows/game-images.yml` builds/tests Factorio and Rust and supports
+  behavior. Image bootstraps, tests and build manifests belong in each application package.
+- `.github/workflows/game-images.yml` discovers registered package images and supports
   deliberate image publication. `.github/workflows/panel-image.yml` owns the
   shared panel/controller runtime; `release.yml` owns downloadable release assets.
-- The Rust build still reuses the panel dependency lockfile and WebRCON transport.
+- The Rust image owns its dependency lockfile and reuses its package WebRCON transport.
   The builder sends only the required public files in a temporary build context.
 - Publishing images or release artifacts is separate from changing a running
   installation. Refactoring and fixture checks must not access live game storage.
 
 For commands and validation boundaries see [development](DEVELOPMENT.md),
-[updates](UPDATES.md), [Factorio image](../images/factorio/README.md) and
-[Rust image](../images/rust/README.md).
+[updates](UPDATES.md), [Factorio image](../panel/applications/factorio/images/README.md) and
+[Rust image](../panel/applications/rust/images/README.md).
