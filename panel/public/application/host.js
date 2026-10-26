@@ -64,8 +64,22 @@ export async function mountApplication({extensions = {}} = {}) {
       }
     },
   });
+  const accountRequest = createApi();
   const session = createSessionController({
-    request,
+    async request(route, options) {
+      if (route !== '/login' || !serverPath('')) return request(route, options);
+      // Fleet credentials use the central login and its shared attempt limit.
+      // Only the scoped session can supply this application's permissions.
+      await accountRequest(route, options);
+      try {
+        return await request('/session');
+      } catch (error) {
+        // The account may no longer have this server, or its host may be down.
+        // Authentication succeeded, so continue at the accessible server list.
+        location.assign('/');
+        throw error;
+      }
+    },
     onChange: (value) => {
       user = value;
       shell?.session(value);

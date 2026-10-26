@@ -27,7 +27,7 @@ services:
     networks: [rust-private]
   controller:
     build: ./panel
-    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1}
+    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.10-alpha}
     container_name: lobby-goblin-rust-controller-${RUST_INSTANCE_ID}
     user: '0:0'
     restart: unless-stopped
@@ -53,7 +53,7 @@ services:
     networks: [rust-private]
   panel:
     build: ./panel
-    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1}
+    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.10-alpha}
     container_name: lobby-goblin-rust-panel-${RUST_INSTANCE_ID}
     user: '${PANEL_UID:-1000}:${PANEL_GID:-1000}'
     restart: unless-stopped
