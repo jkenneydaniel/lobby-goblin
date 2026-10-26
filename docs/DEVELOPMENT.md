@@ -66,7 +66,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/lobby-goblin:0.3.9-alpha panel
+docker build -t local/lobby-goblin:0.3.9-alpha.1 panel
 docker compose --env-file .env.example config --quiet
 ```
 
@@ -112,6 +112,10 @@ Publishing a GitHub Release tagged `v<version>` matching `panel/package.json` ru
 workflow and attaches both source bundles, checksums, manifests and installer
 metadata. The separate **Lobby Goblin game images** workflow (`game-images.yml`) builds
 and tests both games before optional GHCR publication; it never deploys installations.
+
+Release image admission uses each registered application's provisioning provider
+and separately checks the Factorio runtime image. The legacy image-migration
+validator applies only to Factorio/Rust migrations, not arbitrary applications.
 
 Before publishing, enable private vulnerability reporting, confirm the release
 notes and supported platforms, review the source archive, and tag only tested

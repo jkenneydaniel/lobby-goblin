@@ -33,23 +33,17 @@ jobs:
       - run: npm test --prefix panel
       - run: docker compose --project-directory . --env-file deploy/fleet/.env.example -f deploy/fleet/compose.yaml config --quiet
       - run: docker compose --env-file .env.example config --quiet
-      - run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha panel
-      - name: Require all published game images before attaching release assets
+      - run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1 panel
+      - name: Require published application images before attaching release assets
         run: |
           docker run --rm --network none --user 0:0 \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha --input-type=module -e '
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1 --input-type=module -e '
               import {docker} from "./core/docker.js";
-              import {ensureOwnedImage} from "./core/image-migration.js";
-              import {ownedImages} from "./core/game-images.js";
-              import {ensureGameImage} from "./core/image-policy.js";
+              import {verifyPublishedApplicationImages} from "./core/published-application-images.js";
               import {runtimeImagePolicy} from "./applications/factorio/runtime.js";
-              for (const [game,image] of Object.entries(ownedImages)) {
-                await ensureOwnedImage(docker,game,image);
-                console.log(game+" published image verified");
-              }
-              await ensureGameImage(docker,runtimeImagePolicy,runtimeImagePolicy.defaultImage);
-              console.log("factorio runtime published image verified");
+              const images=await verifyPublishedApplicationImages(docker,{additionalPolicies:[runtimeImagePolicy]});
+              for (const image of images) console.log(image.id+" published image verified");
             '
       - name: Verify updater registry TLS and a build inside its restricted container
         run: |
@@ -59,7 +53,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD/panel,target=/source,readonly" \
-            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha -ec '
+            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1 -ec '
               export DOCKER_HOST=unix:///var/run/docker.sock DOCKER_CONFIG=/tmp/lobby-goblin-docker
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/lobby-goblin:updater-smoke /source
@@ -71,7 +65,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount "type=bind,source=$PWD/dist,target=/release,readonly" \
             --mount "type=bind,source=$PWD/panel/test/installer-image-smoke.js,target=/installer-image-smoke.mjs,readonly" \
-            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha /installer-image-smoke.mjs
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1 /installer-image-smoke.mjs
       - name: Attach source and checksums
         env:
           GH_TOKEN: ${{ github.token }}

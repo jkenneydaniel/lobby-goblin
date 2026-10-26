@@ -32,7 +32,7 @@ services:
         max-file: "3"
 
   panel-controller:
-    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
+    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1}
     build: ./panel
     container_name: ${CONTROLLER_CONTAINER:-factorio-panel-controller}
     restart: always
@@ -66,7 +66,7 @@ services:
       options: {max-size: "5m", max-file: "2"}
 
   panel:
-    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
+    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1}
     build: ./panel
     container_name: ${PANEL_CONTAINER:-factorio-panel}
     restart: always
@@ -96,7 +96,7 @@ services:
   # Explicit one-time setup. It has no Docker socket and cannot manage servers.
   setup:
     profiles: [setup]
-    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
+    image: ${PANEL_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha.1}
     build: ./panel
     user: "0:0"
     network_mode: none
