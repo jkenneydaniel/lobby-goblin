@@ -28,7 +28,7 @@ existing installation update, running-server command or world access was used.
 
 | Check | Result |
 | --- | --- |
-| Full Node suite after PR feedback | 603 tests: 602 passed, zero failed, one macOS platform skip |
+| Full Node suite after release admission fix | 605 tests: 604 passed, zero failed, one macOS platform skip |
 | Linux setup ownership | All four setup tests passed as root, including the skipped case |
 | Static quality | Lint, formatting, strict shared browser contracts, four quality self-tests and 135 served-module checks passed |
 | Existing browser regression | 138 desktop/mobile checks passed |
@@ -92,6 +92,22 @@ temporary local files and mocked stopped-state Docker responses, with no engine
 or existing installation access. The full 603-test suite (602 passed, one macOS
 platform skip), quality checks and historical updater compatibility checks passed
 after this change. Logs are in `output/application-packages/zip-overhead-*.log`.
+
+## Release admission follow-up
+
+The first 0.3.9-alpha packaging run verified Factorio and Rust, then rejected
+Status Page because its final gate called the legacy game-migration validator,
+whose revision parser only understands Factorio/Rust tag formats. No download
+assets were attached; that incomplete release was returned to draft. Its signed
+tag and already-published runtime image remain unchanged.
+
+The 0.3.9-alpha.1 gate delegates to each registered application's provisioning
+provider and retains the separate Factorio runtime check. Two regression tests
+cover all three default application images and the extra runtime image, plus
+rejection of incorrect revisions, root users, missing health checks and missing
+publication digests. The complete suite passed (605 tests: 604 passed, one
+platform skip), along with quality and frozen updater/source-package checks.
+This adds no server/world operations or new data-state contract.
 
 ## Disposable runtime boundary
 

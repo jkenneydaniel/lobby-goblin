@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.9-alpha.1 — 2026-10-26
+
+- Verify published application images through each package's runtime provider, including Status Page's image revision, non-root user and health checks. Keep Factorio/Rust migration checks specialized to those games.
+- Supersedes the incomplete 0.3.9-alpha draft; published image and Git tags remain immutable.
+
 ## 0.3.9-alpha — 2026-10-26
 
 - Application packages own image recipes, runtime sources and checks. Shared image tooling and CI discover registered packages.
