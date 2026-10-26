@@ -2,7 +2,7 @@
 name: lobby-goblin-fleet-${FLEET_ID:?Run Fleet.ps1 or Fleet.sh first}
 services:
   docker-broker:
-    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.8-alpha}
+    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
     container_name: lobby-goblin-docker-broker-${FLEET_ID}
     user: '0:0'
     restart: unless-stopped
@@ -26,7 +26,7 @@ services:
       - broker-transport:/broker-transport
     logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
   fleet-controller:
-    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.8-alpha}
+    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
     build: ./panel
     container_name: lobby-goblin-host-${FLEET_ID}
     user: '0:0'
@@ -45,7 +45,7 @@ services:
       DOCKER_BROKER_SOCKET: /broker/socket/docker.sock
       DOCKER_BROKER_TOKEN_FILE: /broker/credential/token
       FLEET_BROKER_VOLUME: lobby-goblin-fleet-${FLEET_ID}-broker-transport
-      FLEET_IMAGE: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.8-alpha}
+      FLEET_IMAGE: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
       FLEET_HOST_CONTAINER: lobby-goblin-host-${FLEET_ID}
       FLEET_STATE_VOLUME: lobby-goblin-fleet-${FLEET_ID}-state
       FLEET_LIBRARY_VOLUME: lobby-goblin-fleet-${FLEET_ID}-library
@@ -73,7 +73,7 @@ services:
     networks: [management]
     logging: {driver: json-file, options: {max-size: 5m, max-file: '2'}}
   fleet-web:
-    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.8-alpha}
+    image: ${FLEET_IMAGE:-ghcr.io/jkenneydaniel/lobby-goblin:0.3.9-alpha}
     container_name: lobby-goblin-host-web-${FLEET_ID}
     user: '0:0'
     restart: unless-stopped

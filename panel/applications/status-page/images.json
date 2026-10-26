@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "id": "server",
+      "manifest": "images/image.json",
+      "dockerfile": "Dockerfile",
+      "files": [
+        {
+          "source": "images/Dockerfile",
+          "target": "Dockerfile"
+        },
+        {
+          "source": "images/server.mjs",
+          "target": "server.mjs"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage"
+      },
+      "checks": [
+        {
+          "runner": "node-test",
+          "file": "images/server.test.mjs"
+        }
+      ],
+      "acceptance": [
+        "images/acceptance.mjs"
+      ]
+    }
+  ]
+}

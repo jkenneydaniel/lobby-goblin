@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-const root=await fs.stat(new URL('../../panel/package.json',import.meta.url)).catch(()=>null)?new URL('../../',import.meta.url):new URL('../',import.meta.url);
+const root=(await import('node:fs')).existsSync(new URL('../../../package.json',import.meta.url))?new URL('../../../../',import.meta.url):(await fs.stat(new URL('../../panel/package.json',import.meta.url)).catch(()=>null)?new URL('../../',import.meta.url):new URL('../',import.meta.url));
 const {gameSources,parseGameImage}=await import(new URL('panel/applications/factorio/public/game-images.js',root));
 const {imageDefinition,buildImage,testImage}=await import(new URL('tools/factorio-image.mjs',root));
 const {runtimeImageDefinition,buildRuntimeImage}=await import(new URL('tools/factorio-image.mjs',root));
@@ -13,7 +13,7 @@ const owned=gameSources.factory.repository;
 test('runtime image metadata and build sources ship independently from the bundled release',async()=>{
   const definition=await runtimeImageDefinition(),calls=[];await buildRuntimeImage(definition,async args=>calls.push(args));
   assert.equal(definition.image,owned+':runtime-fc.1');assert.equal(definition.version,undefined);
-  assert.deepEqual(calls[0].slice(0,5),['buildx','build','--load','--platform','linux/amd64']);
+  assert.deepEqual(calls[0].slice(0,5),['build','--platform','linux/amd64','--file',calls[0][4]]);
   assert.ok(calls[0].some(value=>value.endsWith('runtime/Dockerfile')));
   for(const name of ['factorio-image/runtime/Dockerfile','factorio-image/runtime/image.json','factorio-image/runtime.py','factorio-image/test_runtime_install.py','panel/applications/factorio/runtime.js','panel/applications/factorio/runtime-update.js'])assert.equal(publicSource(name),true,name);
   const ignore=await fs.readFile(new URL('./.dockerignore',import.meta.url),'utf8');assert.match(ignore,/^!runtime\.py$/m);
@@ -21,7 +21,7 @@ test('runtime image metadata and build sources ship independently from the bundl
 test('the independent image definition pins Debian, the official archive and the x86 platform and owns deployment defaults',async()=>{
   const definition=await imageDefinition(),calls=[];await buildImage(definition,async args=>calls.push(args));
   assert.equal(definition.image,owned+':2.0.77-fc.3');assert.match(definition.baseImage,/^debian:.*@sha256:/);
-  assert.equal(calls.length,1);assert.deepEqual(calls[0].slice(0,5),['buildx','build','--load','--platform','linux/amd64']);
+  assert.equal(calls.length,1);assert.deepEqual(calls[0].slice(0,5),['build','--platform','linux/amd64','--file',calls[0][4]]);
   const dockerfile=await fs.readFile(new URL('./Dockerfile',import.meta.url),'utf8');
   assert.ok(!dockerfile.includes('factoriotools'));assert.match(dockerfile,/www.factorio.com\/get-download/);assert.match(dockerfile,/sha256sum -c/);
   assert.match(await fs.readFile(new URL('compose.yaml',root),'utf8'),/FACTORIO_IMAGE:-ghcr.io\/jkenneydaniel\/factorio-server:2.0.77-fc.3/);
@@ -68,7 +68,7 @@ test('image CI watches the Factorio image validator implementation for pushes an
   for(const event of ['push','pull_request']){
     const paths=workflow.match(new RegExp('  '+event+':\\n    paths: (\\[[^\\n]+\\])'))?.[1];
     assert.ok(paths,event+' must have image path filters');
-    assert.ok(paths.includes("'panel/applications/factorio/update-worker.js'"),event+' must watch the implementation');
+    assert.ok(paths.includes("'panel/applications/**'"),event+' must watch the implementation');
     assert.ok(paths.includes("'panel/update-worker.js'"),event+' must keep watching the wrapper');
   }
 });

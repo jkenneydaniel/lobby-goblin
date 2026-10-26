@@ -76,7 +76,7 @@ existing servers are not restarted merely to enable mods. See
 | Source organization and installed compatibility | [Repository layout](docs/REPOSITORY.md) |
 | Shared runtime and game-module boundaries | [Architecture](docs/ARCHITECTURE.md) |
 | Local tests, builds and release preparation | [Development](docs/DEVELOPMENT.md) |
-| Game image sources and compatibility contracts | [Factorio](images/factorio/README.md), [Rust](images/rust/README.md) |
+| Game image sources and compatibility contracts | [Factorio](panel/applications/factorio/images/README.md), [Rust](panel/applications/rust/images/README.md) |
 | Recorded validation and remaining limits | [Verification](docs/VERIFICATION.md), [installer acceptance](docs/INSTALLER_ACCEPTANCE.md) |
 | Features, security and release history | [Panel](panel/README.md), [security](SECURITY.md), [changelog](CHANGELOG.md) |
 

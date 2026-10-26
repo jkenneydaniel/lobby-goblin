@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "id": "server",
+      "manifest": "images/image.json",
+      "dockerfile": "Dockerfile",
+      "files": [
+        {
+          "source": "images/Dockerfile",
+          "target": "Dockerfile"
+        },
+        {
+          "source": "images/entrypoint.mjs",
+          "target": "entrypoint.mjs"
+        },
+        {
+          "source": "images/package.json",
+          "target": "package.json"
+        },
+        {
+          "source": "images/package-lock.json",
+          "target": "package-lock.json"
+        },
+        {
+          "source": "transport.js",
+          "target": "transport.js"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage",
+        "STEAMCMD_SHA256": "steamcmdSha256"
+      },
+      "checks": [
+        {
+          "runner": "node-test",
+          "file": "images/test-runtime.test.mjs"
+        }
+      ],
+      "acceptance": [
+        "images/acceptance.mjs"
+      ]
+    }
+  ]
+}

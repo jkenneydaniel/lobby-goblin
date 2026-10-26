@@ -24,11 +24,15 @@ function declaration(definition) {
   const services = serviceOrder(definition),
     service = services[0];
   assert(
-    definition.kind === 'game' &&
+    ((definition.kind === 'game' &&
+      service.role === 'game' &&
+      service.profile === 'managed-game-v1') ||
+      (['application', 'service'].includes(definition.kind) &&
+        ['web', 'service', 'worker'].includes(service.role) &&
+        service.profile === 'managed-container-v1')) &&
       services.length === 1 &&
       service.id === definition.primary &&
-      service.role === 'game' &&
-      service.profile === 'managed-game-v1',
+      service.required === true,
     'The compatibility runtime profile needs one managed game service.',
   );
   assert(
@@ -48,6 +52,7 @@ function declaration(definition) {
       'environment',
       'snapshots',
       'secrets',
+      ...(service.profile === 'managed-container-v1' ? ['settings'] : []),
     ]) && data.version === 1,
     'Unsupported managed runtime declaration.',
   );
@@ -256,14 +261,33 @@ export function compileManagedDefinition(definition, adapter) {
     ...(adapter.legacyMigration
       ? {legacyMigration: Object.freeze({...adapter.legacyMigration})}
       : {}),
-    ensureImage: (docker, image) =>
-      ensureGameImage(
+    ensureImage: async (docker, image) => {
+      const resolved = await ensureGameImage(
         docker,
         adapter.runtime && imageMatch(adapter.runtime.imagePolicy, image)
           ? adapter.runtime.imagePolicy
           : data.imagePolicy,
         image,
-      ),
+      );
+      if (definition.services[0].profile === 'managed-container-v1')
+        assert(
+          /^[1-9][0-9]{0,4}:0$/.test(resolved.image.Config?.User || '') &&
+            Number(resolved.image.Config.User.split(':')[0]) <= 65535,
+          'Container images must use a numeric non-root UID and group 0 for their scoped data claim.',
+          409,
+        );
+      if (definition.services[0].profile === 'managed-container-v1')
+        assert(
+          Array.isArray(resolved.image.Config?.Healthcheck?.Test) &&
+            ['CMD', 'CMD-SHELL'].includes(
+              resolved.image.Config.Healthcheck.Test[0],
+            ) &&
+            resolved.image.Config.Healthcheck.Test.length > 1,
+          'Container images must declare a Docker health check.',
+          409,
+        );
+      return resolved;
+    },
     creationFromSnapshot: adapter.creationFromSnapshot || ((input) => input),
     gameEnvironment: (item) =>
       renderEnvironment(data.environment.server, publicFields(item), {

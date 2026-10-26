@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "repository": "ghcr.io/jkenneydaniel/status-page",
+  "tag": "1-lg.1",
+  "platform": "linux/amd64",
+  "baseImage": "node:24.22.0-bookworm-slim@sha256:ec857ea6bb60cb3d0fa4d97495590c5fe7d51be8572c307b55957eeb06569cf7"
+}

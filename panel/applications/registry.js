@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import ids from './registry.json' with {type: 'json'};
 import {assert} from '../common.js';
 import {applicationDefinition} from '../core/application-definition.js';
+import {containerPresentation} from '../core/container-application.js';
 
 // This is an installation-owned list, never a request parameter or import path.
 // Adding a package requires one registry entry; image metadata follows it.
@@ -24,10 +25,12 @@ for (const id of ids) {
         'utf8',
       ),
     );
-  const definition = applicationDefinition(
-    await read('definition.json'),
-    await read('presentation.json'),
-  );
+  const source = await read('definition.json');
+  const presentation = await read('presentation.json').catch((error) => {
+    if (error.code !== 'ENOENT') throw error;
+    return containerPresentation(source);
+  });
+  const definition = applicationDefinition(source, presentation);
   assert(
     definition.id === id,
     'Application package identity differs from its registry entry.',

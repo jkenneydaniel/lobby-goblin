@@ -50,7 +50,7 @@ game-version and worker-path compatibility change.
 
 Sources: [Compose platform](https://docs.docker.com/reference/compose-file/services/#platform),
 [Docker emulation](https://docs.docker.com/build/building/multi-platform/#qemu).
-See also the [first-party image contract](../images/factorio/README.md).
+See also the [first-party image contract](../panel/applications/factorio/images/README.md).
 
 ## Guided setup
 

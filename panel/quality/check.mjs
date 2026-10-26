@@ -16,11 +16,7 @@ async function files(directory) {
   }
   return found;
 }
-const source = [
-  ...(await files('panel')),
-  ...(await files('tools')),
-  ...(await files('images')),
-];
+const source = [...(await files('panel')), ...(await files('tools'))];
 const javascript = source.filter((file) => /\.m?js$/.test(file));
 const formatted = source.filter(
   (file) =>

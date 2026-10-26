@@ -172,6 +172,7 @@ export function gameCatalog(module) {
   return {
     id: module.id,
     name: module.name,
+    kind: module.definition?.kind || 'game',
     ...(module.managed.runtime?{softwareModes:['image','runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage}:{}),
     ...structuredClone(module.managed.catalog),
   };

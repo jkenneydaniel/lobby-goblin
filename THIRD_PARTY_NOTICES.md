@@ -13,7 +13,7 @@ respective owners.
   test input. Its Docker wrapper is MIT licensed; this does not relicense the
   Factorio game. It is referenced, not vendored here. Our optional image is built
   independently from Debian and the official Wube headless download; its startup
-  and RCON tools are maintained in `images/factorio/`.
+  and RCON tools are maintained in `panel/applications/factorio/images/`.
 - [Rust](https://rust.facepunch.com/) is proprietary software from Facepunch
   Studios. The Rust module downloads its dedicated server separately through a
   reviewed [Didstopia image](https://github.com/Didstopia/rust-server). Neither

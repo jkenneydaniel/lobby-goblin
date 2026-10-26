@@ -1,0 +1,8 @@
+{
+  "name": "lobby-goblin-rust-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}

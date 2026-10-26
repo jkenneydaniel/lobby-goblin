@@ -12,7 +12,7 @@ export async function verifyImageContents(files,imageRoot){
     const relative=name.startsWith('panel/')?name.slice(6):'';
     // Release archives retain this historical image-source path for old
     // updaters. The shared runtime does not ship independent game builders.
-    if(relative.startsWith('games/rust/image/'))continue;
+    if(relative.startsWith('games/rust/image/')||/^applications\/[^/]+\/images\//.test(relative))continue;
     if(relative&&(['public/','core/','applications/','fleet/'].some(prefix=>relative.startsWith(prefix))||!relative.includes('/')&&(/\.(js|json|lua)$/.test(relative)||relative==='LICENSE')))assert.deepEqual(await fs.readFile(path.join(imageRoot,relative)),data,'Image/package mismatch: '+name);
   }
 }

@@ -149,7 +149,7 @@ and `linux/amd64` are supported; ARM retains Docker's amd64 emulation policy.
 
 Our image is built directly from Debian and the official Factorio download,
 without using Factorio Tools as its base. Its build and deliberate publication
-procedure is in [factorio-image/README.md](../images/factorio/README.md). The tag
+procedure is in [factorio-image/README.md](../panel/applications/factorio/images/README.md). The tag
 must be published and publicly pullable before it can be installed.
 
 Review shows the exact target image and explains a same-version change. After

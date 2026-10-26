@@ -1,13 +1,16 @@
 # Application packages
 
-Each supported game or application has one directory here. Register its ID in
+Each supported game or application has one directory here, including its image
+sources, tests and build declarations. Register its ID in
 `registry.json`; the loader reads only those explicitly registered packages.
 
 ```text
 applications/example/
   definition.json       Docker/runtime configuration and supported capabilities
   presentation.json     Shared screens and declared custom extensions
-  index.js              Default export of the application adapter
+  index.js              Optional adapter for specialized runtime behavior
+  images.json           Package image recipes and checks
+  images/               Image sources, metadata and native acceptance
   public/               Custom browser code, templates and styles, when needed
 ```
 
@@ -23,13 +26,16 @@ screens and operation history. Standard screens need no application-specific
 browser code. Definitions use a fixed data format; runtime behavior belongs to
 registered code.
 
-The adapter exports the application through `index.js` and uses the checked
+Packages selecting `managed-container-v1` receive an adapter and default
+presentation automatically. See the [authoring guide](../../docs/APPLICATION_PACKAGES.md).
+
+A specialized adapter exports the application through `index.js` and uses the checked
 definition from `definitionFor(id)` in `../registry.js`. Existing games use the
 shared managed Docker profile with adapters for their protocols and save formats.
 The reusable service-application factory supplies the equivalent controller and
-screens for non-game service profiles. Production non-game Docker providers and
-Laravel hosting are still separate unfinished work; the current non-game tests
-use synthetic providers.
+screens for non-game service profiles. The single-service container profile provides production Docker provisioning.
+Multi-service Docker providers and Laravel hosting remain separate work; their
+current conformance tests use synthetic providers.
 
 ## Custom functionality
 

@@ -23,6 +23,8 @@ for (const module of registeredApplications()) {
     const instance = 'a'.repeat(32),
       env = {
         RELEASE_CHECKS: 'false',
+        [module.id.replaceAll('-', '_').toUpperCase()+'_CONTAINER']: 'lobby-goblin-'+module.id+'-'+instance,
+        [module.id.replaceAll('-', '_').toUpperCase()+'_ROOT']: root,
         STATE_DIR: path.join(root, 'state'),
         BACKUPS_DIR: path.join(root, 'backups'),
         FACTORIO_DATA: path.join(root, 'factorio'),

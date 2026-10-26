@@ -99,7 +99,7 @@ try:
     assert RESULT['host']['cpus'] >= 2
     own = images['factory']['reference']
     client_source = Path(__file__).with_name('saving-client.py').read_text()
-    rcon_source = (REPO / 'images/factorio/rcon.py').read_text()
+    rcon_source = (REPO / 'panel/applications/factorio/images/rcon.py').read_text()
     fixture_source = Path(__file__).with_name('worker.py').read_text()
     RESULT['sources_sha256'] = {label: hashlib.sha256(source.encode()).hexdigest() for label, source in
                                 [('client', client_source), ('rcon', rcon_source), ('fixture', fixture_source)]}

@@ -67,6 +67,9 @@ test('compatible release bundles contain an importable core/module runtime and p
       const childEnv={...process.env};delete childEnv.NODE_TEST_CONTEXT;
       const checked=await run(process.execPath,['--test','factorio-image/test-build.mjs','panel/games/rust/image/test-runtime.test.mjs','panel/test/host-setup.test.js','panel/test/installation.test.js'],{cwd:complete,env:childEnv,timeout:15000});
       assert.match(checked.stdout,/tests [1-9]\d*/,'Packaged acceptance must execute its tests, not inherit the parent test-runner context');
+      for(const command of ['describe','runtime-describe']){const described=await run(process.execPath,['tools/factorio-image.mjs',command],{cwd:complete,timeout:5000});assert.match(JSON.parse(described.stdout).image,/ghcr.io\/jkenneydaniel\/factorio-server:/);}
+      const catalogue=await run(process.execPath,['tools/application-images.mjs','matrix'],{cwd:complete,timeout:5000});
+      assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='status-page/server'));
       // Repack an extracted source bundle without changing its installed paths.
       await run(process.execPath,['tools/release.mjs'],{cwd:complete,timeout:10000});
       continue;

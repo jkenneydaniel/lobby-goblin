@@ -2,10 +2,14 @@
 
 Status: the checked definition, shared presentation and service-lifecycle paths
 are implemented locally. Factorio and Rust use the package model; the non-game
-conformance package uses synthetic providers. Production non-game runtime
-providers, multi-service host provisioning and Laravel hosting remain future
+conformance package uses synthetic providers. A production single-container provider is available. Multi-service host
+provisioning and Laravel hosting remain future
 product work. Current acceptance is tracked in the
 [completion ledger](verification/platform-completion.md).
+
+The single-service production container provider and package-driven builds are
+documented in [application packages](APPLICATION_PACKAGES.md). Multi-service
+Docker hosting remains separate work.
 
 ## Package layout
 

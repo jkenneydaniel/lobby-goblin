@@ -1,124 +1,50 @@
-name: Lobby Goblin game images
+name: Lobby Goblin application images
 on:
   push:
-    paths: ['images/factorio/**', 'images/rust/**', 'panel/applications/rust/transport.js', 'panel/applications/rust/mods.js', 'panel/applications/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/applications/factorio/update-worker.js', '.github/workflows/game-images.yml']
+    paths: ['panel/applications/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
   pull_request:
-    paths: ['images/factorio/**', 'images/rust/**', 'panel/applications/rust/transport.js', 'panel/applications/rust/mods.js', 'panel/applications/rust/mod-packages.js', 'panel/core/image-migration.js', 'panel/core/game-images.js', 'panel/test/image-acceptance.mjs', 'panel/package*.json', 'panel/source-layout.js', 'tools/factorio-image.mjs', 'panel/public/game-images.js', 'panel/update-worker.js', 'panel/applications/factorio/update-worker.js', '.github/workflows/game-images.yml']
+    paths: ['panel/applications/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
   workflow_dispatch:
     inputs:
-      game:
-        description: Image to build, test and optionally publish
+      image:
+        description: Application/image from the package catalogue, or all
         required: true
-        default: both
-        type: choice
-        options: [both, factorio, factorio-runtime, rust]
+        default: all
+        type: string
       publish:
-        description: Publish the tested image to GHCR (does not deploy servers)
+        description: Publish tested immutable images (does not deploy applications)
         required: true
         default: false
         type: boolean
 permissions:
   contents: read
 concurrency:
-  group: game-images
+  group: application-images
   cancel-in-progress: false
 jobs:
-  compatible-image:
-    if: github.event_name != 'workflow_dispatch' || (inputs.game != 'rust' && inputs.game != 'factorio-runtime')
+  discover:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    outputs:
+      matrix: ${{ steps.catalogue.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - uses: docker/setup-buildx-action@v4
-      - run: node --test panel/test/game-images.test.js images/factorio/test-build.mjs
-      - run: python3 -B images/factorio/test_runtime.py
-      - name: Build the pinned compatible image
-        run: node tools/factorio-image.mjs build
-      - name: Test old-save loading, RCON, settings, graceful save and reload
-        run: node tools/factorio-image.mjs test
-      - name: Native automatic image migration and backup recovery
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
+      - id: catalogue
+        env:
+          SELECTED_IMAGE: ${{ inputs.image }}
         run: |
-          docker build -t local/lobby-goblin-factorio-acceptance panel
-          docker run --rm --network none --user 0:0 --memory 1g \
-            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --mount "type=bind,source=$PWD,target=/source,readonly" --workdir /source \
-            -e ACCEPTANCE_PANEL_IMAGE=local/lobby-goblin-factorio-acceptance \
-            --entrypoint node local/lobby-goblin-factorio-acceptance panel/test/image-acceptance.mjs factorio
-      - name: Select the tested tag
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        run: node --input-type=module -e "import {imageDefinition} from './tools/factorio-image.mjs'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV,'IMAGE_TAG='+(await imageDefinition()).image+'\n')"
-      - uses: docker/login-action@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse an existing tag, then publish the tested image
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        shell: bash
-        run: |
-          if docker buildx imagetools inspect "$IMAGE_TAG" > /tmp/existing-image 2> /tmp/image-error; then
-            echo "This image tag already exists. Increment the image revision instead of overwriting it."
-            exit 1
+          if [ -z "$SELECTED_IMAGE" ] || [ "$SELECTED_IMAGE" = all ]; then
+            echo "matrix=$(node tools/application-images.mjs matrix)" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(node tools/application-images.mjs matrix "$SELECTED_IMAGE")" >> "$GITHUB_OUTPUT"
           fi
-          if ! grep -qi 'manifest unknown\|not found' /tmp/image-error; then
-            cat /tmp/image-error
-            exit 1
-          fi
-          docker push "$IMAGE_TAG"
-
-  factorio-runtime:
-    if: github.event_name != 'workflow_dispatch' || inputs.game != 'rust'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - uses: docker/setup-buildx-action@v4
-      - run: python3 -B images/factorio/test_runtime.py
-      - run: python3 -B images/factorio/test_runtime_install.py
-      - run: node --test panel/test/factorio-runtime.test.js
-      - name: Build the independent Factorio runtime image
-        run: node tools/factorio-image.mjs runtime-build
-      - name: Test installation, offline restart, matching previews, upgrade and paired recovery
-        run: node tools/factorio-image.mjs runtime-test
-      - name: Select the tested runtime tag
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        run: node --input-type=module -e "import {runtimeImageDefinition} from './tools/factorio-image.mjs'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV,'IMAGE_TAG='+(await runtimeImageDefinition()).image+'\n')"
-      - uses: docker/login-action@v4
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse an existing tag, then publish the tested runtime image
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        shell: bash
-        run: |
-          if docker buildx imagetools inspect "$IMAGE_TAG" > /tmp/existing-runtime 2> /tmp/runtime-error; then
-            echo "This runtime tag already exists. Increment its image revision instead of overwriting it."
-            exit 1
-          fi
-          if ! grep -qi 'manifest unknown\|not found' /tmp/runtime-error; then
-            cat /tmp/runtime-error
-            exit 1
-          fi
-          docker push "$IMAGE_TAG"
-
-  rust-image:
-    if: github.event_name != 'workflow_dispatch' || (inputs.game != 'factorio' && inputs.game != 'factorio-runtime')
+  image:
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -130,39 +56,34 @@ jobs:
         with:
           node-version: '24'
       - uses: docker/setup-buildx-action@v4
-      - run: node --test images/rust/test-runtime.test.mjs
-      - name: Build the independent pinned Rust bootstrap
-        run: node images/rust/build.mjs build
-      - name: Native migration and backup recovery before deliberate publication
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        run: |
-          docker build -t local/lobby-goblin-rust-acceptance panel
-          docker run --rm --network none --user 0:0 --memory 1g \
-            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --mount "type=bind,source=$PWD,target=/source,readonly" --workdir /source \
-            -e ACCEPTANCE_PANEL_IMAGE=local/lobby-goblin-rust-acceptance \
-            --entrypoint node local/lobby-goblin-rust-acceptance panel/test/image-acceptance.mjs rust
-          docker run --rm --network none --user 0:0 --memory 1g \
-            --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
-            --mount "type=bind,source=$PWD,target=/source,readonly" --workdir /source \
-            -e ACCEPTANCE_PANEL_IMAGE=local/lobby-goblin-rust-acceptance \
-            --entrypoint node local/lobby-goblin-rust-acceptance panel/test/image-acceptance.mjs rust --fresh --mods
-      - name: Select the tested tag
-        if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        run: node --input-type=module -e "import {imageDefinition} from './images/rust/build.mjs'; import fs from 'node:fs'; fs.appendFileSync(process.env.GITHUB_ENV,'IMAGE_TAG='+(await imageDefinition()).image+'\n')"
+        with:
+          driver: docker
+      - run: npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+      - name: Check package-owned sources
+        env:
+          IMAGE_KEY: ${{ matrix.key }}
+        run: node tools/application-images.mjs check "$IMAGE_KEY"
+      - name: Build an allowlisted isolated context
+        env:
+          IMAGE_KEY: ${{ matrix.key }}
+        run: node tools/application-images.mjs build "$IMAGE_KEY"
+      - name: Run package-owned native acceptance
+        env:
+          IMAGE_KEY: ${{ matrix.key }}
+        run: node tools/application-images.mjs acceptance "$IMAGE_KEY"
       - uses: docker/login-action@v4
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Refuse an existing tag, then publish the tested image
+      - name: Refuse existing tags before deliberate publication
         if: github.event_name == 'workflow_dispatch' && inputs.publish && github.repository == 'jkenneydaniel/lobby-goblin'
-        shell: bash
+        env:
+          IMAGE_TAG: ${{ matrix.image }}
         run: |
           if docker buildx imagetools inspect "$IMAGE_TAG" > /tmp/existing-image 2> /tmp/image-error; then
-            echo "This image tag already exists. Increment the image revision instead of overwriting it."
+            echo 'This tag already exists. Increment the package image revision.'
             exit 1
           fi
           if ! grep -qi 'manifest unknown\|not found' /tmp/image-error; then

@@ -21,9 +21,9 @@ test('built-in packages bind their checked definitions and keep custom assets in
       './applications/' + module.id + '/',
       new URL('../', import.meta.url),
     );
-    for (const file of ['definition.json', 'presentation.json', 'index.js'])
+    for (const file of module.web.publicRoot ? ['definition.json', 'presentation.json', 'index.js'] : ['definition.json'])
       assert.ok((await fs.stat(new URL(file, root))).isFile());
-    assert.equal(module.web.publicRoot.href, new URL('public/', root).href);
+    if(module.web.publicRoot)assert.equal(module.web.publicRoot.href, new URL('public/', root).href);
     for (const [file] of Object.values(module.web.assets))
       assert.ok((await fs.stat(new URL(file, module.web.publicRoot))).isFile());
   }
@@ -85,14 +85,14 @@ export default createServiceApplication(definitionFor('web-stack'),{
     );
     const registry = path.join(runtime, 'applications/registry.json'),
       ids = JSON.parse(await fs.readFile(registry, 'utf8'));
-    assert.deepEqual(ids, ['factorio', 'rust', 'arena']);
+    assert.deepEqual(ids, ['factorio', 'rust', 'status-page', 'arena']);
     await fs.writeFile(registry, JSON.stringify([...ids, 'web-stack']));
     const check = `
 import assert from 'node:assert/strict';
 import {registeredApplications,selectedApplication} from './applications/index.js';
 import {definitionFor} from './applications/registry.js';
 import {imagePolicies} from './applications/image-policies.js';
-assert.deepEqual(registeredApplications().map(module=>module.id),['factorio','rust','arena','web-stack']);
+assert.deepEqual(registeredApplications().map(module=>module.id),['factorio','rust','status-page','arena','web-stack']);
 assert.equal(imagePolicies.arena.defaultImage,'node:24-alpine');
 const app=selectedApplication('web-stack');
 assert.equal(app.definition,definitionFor('web-stack'));

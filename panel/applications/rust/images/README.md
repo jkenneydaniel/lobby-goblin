@@ -34,13 +34,13 @@ and worlds are reused. Managed Carbon disables its framework and hook self-updat
 before startup so its DLLs stay at the reviewed package checksum and remain
 verifiable for backup, recovery and framework switching. Other Carbon settings
 are preserved; framework updates go through the panel's review/install flow.
-See [mod management](../../docs/RUST.md#mods-and-plugins).
+See [mod management](../../../../docs/RUST.md#mods-and-plugins).
 
 From the repository root, on a disposable Linux amd64 Docker host:
 
 ```sh
-node --test images/rust/test-runtime.test.mjs
-node images/rust/build.mjs build
+node --test panel/applications/rust/images/test-runtime.test.mjs
+node panel/applications/rust/images/build.mjs build
 docker build -t local/lobby-goblin-image-test panel
 docker run --rm --network none --user 0:0 \
   --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
@@ -59,7 +59,7 @@ volume instead of a legacy fixture, plus native Carbon/Oxide loading, plugin
 compilation/reload, complete modded recovery and Vanilla restoration. Each run removes only its own resources.
 It requires enough RAM/disk for an actual Rust server; ARM emulation is unverified.
 
-The canonical sources live in `images/rust/`. Release packaging maps them back
+The canonical sources live in `panel/applications/rust/images/`. Release packaging maps them back
 to `panel/games/rust/image/` so historical updater path validation stays compatible. The build helper creates a temporary context
 containing only the five required public source files. Regular CI builds/tests without publication;
 the **Lobby Goblin game images** workflow publishes deliberately after acceptance,

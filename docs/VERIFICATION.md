@@ -977,8 +977,8 @@ maps organized sources back to historical installed paths.
 Local validation used Node 24.21.0 and the existing locked dependencies:
 
 - `npm test --prefix panel`: 267 passed, zero failures, one Lua/platform skip.
-- `node --test images/factorio/test-build.mjs`: four passed, with simulated Docker.
-- `python3 -B images/factorio/test_runtime.py`: 20 passed.
+- `node --test panel/applications/factorio/images/test-build.mjs`: four passed, with simulated Docker.
+- `python3 -B panel/applications/factorio/images/test_runtime.py`: 20 passed.
 - The release fixture validates the compatible ZIP with frozen v0.2.0-alpha and
   v0.3.3-alpha updater code, extracts both bundle types, checks both bundles'
   documentation links, exercises packaged setup/image fixtures, and repackages

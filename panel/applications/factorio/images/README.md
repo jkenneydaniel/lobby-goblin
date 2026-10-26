@@ -37,17 +37,17 @@ this same-version compatibility migration.
 The first-party startup and RCON programs are MIT licensed. Factorio remains
 proprietary; its license is not changed by the container wrapper.
 
-The canonical build source is in `images/factorio/`. The complete `.source.zip`
+The canonical build source is in `panel/applications/factorio/images/`. The complete `.source.zip`
 places it at the historical `factorio-image/` path; the regular update ZIP retains
-its older allowlist. See [repository and release layout](../../docs/REPOSITORY.md).
+its older allowlist. See [repository and release layout](../../../../docs/REPOSITORY.md).
 
 ## Build and verify
 
 For development, use Node 24 and Python 3 for the isolated source tests:
 
 ```sh
-node --test panel/test/game-images.test.js panel/test/update-install.test.js images/factorio/test-build.mjs
-python3 -B images/factorio/test_runtime.py
+node --test panel/test/game-images.test.js panel/test/update-install.test.js panel/applications/factorio/images/test-build.mjs
+python3 -B panel/applications/factorio/images/test_runtime.py
 node tools/factorio-image.mjs describe
 ```
 
@@ -99,6 +99,6 @@ need repository package permissions/visibility configured in GitHub.
 
 Publishing does not deploy or migrate servers. Installing the v0.3.4 controller
 subsequently performs the one-time same-version migration described in
-[image migration](../../docs/IMAGE_MIGRATION.md). Later game-version changes still
+[image migration](../../../../docs/IMAGE_MIGRATION.md). Later game-version changes still
 use Settings → Updates with a verified backup and reviewed image selection.
 Keep the old container/image and pre-change backup until acceptance is complete.

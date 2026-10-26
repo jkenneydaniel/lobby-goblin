@@ -1,11 +1,11 @@
 // Run inside the panel image on a disposable amd64 Docker host, with only the
 // Docker socket and this PUBLIC source mounted. Never uses deployment .env/data.
 import fs from 'node:fs/promises';import crypto from 'node:crypto';import assert from 'node:assert/strict';import {execFile} from 'node:child_process';import {promisify} from 'node:util';
-import {docker,demultiplex} from '../core/docker.js';import {migrateImage,assertCleanStop} from '../core/image-migration.js';import {ownedImages} from '../core/game-images.js';import {sanitizeLogs} from '../applications/rust/transport.js';
+import {docker,demultiplex} from '../core/docker.js';import {migrateImage,assertCleanStop} from '../core/image-migration.js';import {acceptanceTarget,validateAcceptanceImage} from './image-acceptance-target.js';import {sanitizeLogs} from '../applications/rust/transport.js';
 const execute=promisify(execFile),game=process.argv[2]||'rust',fresh=process.argv.includes('--fresh'),mods=process.argv.includes('--mods');assert.ok(!mods||fresh&&game==='rust','Mod acceptance requires a fresh disposable Rust server');assert.ok(['rust','factorio'].includes(game));assert.ok(!fresh||game==='rust','Fresh install acceptance is specific to Rust');
 const id=crypto.randomBytes(12).toString('hex'),instance=id.padEnd(32,'0'),prefix='lobby-goblin-acceptance-'+id,name=prefix+'-game',volume=prefix+'-data',archive=prefix+'-backup',network=prefix+'-net',password=crypto.randomBytes(32).toString('hex'),label='io.lobby-goblin.acceptance='+id;
 const panel=process.env.ACCEPTANCE_PANEL_IMAGE,rconName=prefix+'-rcon',controllerName=prefix+'-controller';assert.ok(panel,'Select the disposable panel image, never an installed deployment image');
-const target=ownedImages[game],legacy=game==='rust'?'didstopia/rust-server@sha256:f935f9631e53ad1a235b446496716e1ae65a8d179a3b620abf38e29b9877f88e':'factoriotools/factorio:2.0.77';
+const {target,expectedId}=acceptanceTarget(game),legacy=game==='rust'?'didstopia/rust-server@sha256:f935f9631e53ad1a235b446496716e1ae65a8d179a3b620abf38e29b9877f88e':'factoriotools/factorio:2.0.77';
 const cmd=async args=>{try{return (await execute('docker',args,{timeout:1800000,maxBuffer:8*1024**2})).stdout.trim();}catch{throw Error('Disposable Docker operation failed: '+args[0]);}};
 const helper=async(code,{write=false}={})=>cmd(['run','--rm','--platform','linux/amd64','--network','none','--label',label,'--user','0:0','--mount',`type=volume,source=${volume},target=/game${write?'':',readonly'}`,'--mount',`type=volume,source=${archive},target=/evidence`,'--entrypoint','node',panel,'--input-type=module','-e',code]);
 // One long-lived connection: Rust limits connection attempts per source IP.
@@ -13,9 +13,10 @@ const rcon=async(command)=>game==='rust'?cmd(['exec',rconName,'node','--input-ty
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function ready(){for(let n=0;n<900;n++){const info=JSON.parse(await cmd(['inspect',name]))[0];assert.ok(info.State.Running&&!info.State.OOMKilled,'The disposable game crashed');try{const result=await rcon(game==='rust'?'serverinfo':'/version');if(game==='factorio'){assert.match(result,/2\.0\.77/);return;}if(JSON.parse(result).Players===0){const logs=demultiplex(await docker('GET','/containers/'+name+'/logs?'+new URLSearchParams({stdout:'1',stderr:'1',tail:'500',since:String(Math.floor(Date.parse(info.State.StartedAt)/1000))}),undefined,{raw:true}));if(/Server startup complete/.test(logs))return;}}catch{}await wait(2000);}throw Error('Disposable game did not become ready');}
 async function cleanStop(){if(game==='rust')await rcon('server.save');await cmd(['stop','--timeout','-1',name]);const info=JSON.parse(await cmd(['inspect',name]))[0];await assertCleanStop(docker,info,game);}
-let journal=null;const report={game,id,fresh,mods,checks:[],publishedImageResolution:false};
+let journal=null;const report={game,id,fresh,mods,checks:[],publishedImageResolution:false,targetImage:target,targetImageId:expectedId};
 try{
  assert.equal((await docker('GET','/info')).OSType,'linux');assert.ok(['x86_64','amd64'].includes((await docker('GET','/info')).Architecture));
+ const selectedImage=await docker('GET','/images/'+encodeURIComponent(target)+'/json');validateAcceptanceImage(game,target,expectedId,selectedImage);report.targetImageId=selectedImage.Id;
  for(const v of [volume,archive])await cmd(['volume','create','--label',label,v]);await cmd(['network','create','--label',label,network]);
  if(!fresh)await cmd(['pull','--platform','linux/amd64',legacy]);
  if(game==='rust'){
@@ -35,12 +36,12 @@ try{
  const inventory=()=>helper("import fs from 'node:fs/promises';import crypto from 'node:crypto';const result={};for(const p of "+hashCode+")result[p]=crypto.createHash('sha256').update(await fs.readFile('/game/'+p)).digest('hex');console.log(JSON.stringify(result));");
  const modList=()=>helper("import fs from 'node:fs/promises';console.log(await fs.readFile('/game/mods/mod-list.json','utf8'));");
  report.before=JSON.parse(await inventory());if(game==='factorio')report.initialMods=JSON.parse(await modList());
- const original=JSON.parse(await cmd(['inspect',name]))[0];
+ const original=JSON.parse(await cmd(['inspect',name]))[0];if(fresh)assert.equal(original.Image,report.targetImageId,'Fresh install must run the selected build');
  const owned=async info=>{assert.equal(info.Config.Labels['io.lobby-goblin.acceptance'],id);assert.ok(info.Mounts.some(m=>m.Name===volume&&m.Destination===(game==='rust'?'/steamcmd/rust':'/factorio')));};
  const migrationOptions={docker,name,game,target,owned,journal:null,save:async value=>{journal=structuredClone(value);},
   // Acceptance uses the locally built unpublished image. Production always
   // calls ensureOwnedImage, requiring an actual GHCR digest and contract labels.
-  resolveImage:async()=>{const image=await docker('GET','/images/'+encodeURIComponent(target)+'/json');assert.equal(image.Architecture,'amd64');assert.equal(image.Config.Labels['io.lobby-goblin.compatibility'],'1');return {image,reference:target};},
+  resolveImage:async()=>{const image=await docker('GET','/images/'+encodeURIComponent(target)+'/json');validateAcceptanceImage(game,target,report.targetImageId,image);return {image,reference:target};},
   backupStop:async()=>{await cleanStop();if(game==='factorio'){report.stopped=JSON.parse(await inventory());report.stoppedMods=JSON.parse(await modList());assert.deepEqual(report.stoppedMods,report.initialMods,'The old game must preserve its mod selections during its own shutdown');for(const key of ['config/server-settings.json','config/rconpw'])assert.equal(report.stopped[key],report.before[key]);}if(game==='rust')return helper("import {writeArchive,verifyArchive} from './applications/rust/archive.js';await writeArchive('/evidence/before.tar.gz','/game/server/lobby-goblin-rust',{identity:'lobby-goblin-rust',instance:'"+id.padEnd(32,'0')+"',label:'before-image-migration'});console.log(JSON.stringify(await verifyArchive('/evidence/before.tar.gz')));");return helper("import fs from 'node:fs/promises';import {makeZip,zipEntries} from './core/archive.js';const files=[];for(const d of ['saves','config','mods'])for(const n of await fs.readdir('/game/'+d)){const p=d+'/'+n;if((await fs.stat('/game/'+p)).isFile())files.push({name:p,data:await fs.readFile('/game/'+p)});}const zip=makeZip(files);await fs.writeFile('/evidence/before.zip',zip);console.log(zipEntries(zip).length);");},configured:async()=>{},ready};
  const result=fresh?await(async()=>{await migrationOptions.backupStop();await cmd(['start',name]);await ready();return {phase:'complete'};})():await migrateImage(migrationOptions);
  assert.equal(result.phase,'complete');report.after=JSON.parse(await inventory());assert.deepEqual(report.after,game==='factorio'?report.stopped:report.before);report.checks.push(fresh?'first-party-fresh-start':'image-migration','configuration-and-binaries-unchanged','same-world-ready');
@@ -90,7 +91,7 @@ try{
   await cmd(['stop','--timeout','10',controllerName]);assert.equal(JSON.parse(await cmd(['inspect',controllerName]))[0].State.ExitCode,0,'Disposable HTTP controller must exit cleanly');await cmd(['rm',controllerName]);
  }
  await cleanStop();await cmd(['start',name]);await ready();await cleanStop();report.checks.push('clean-stop-start-restart');
- const final=JSON.parse(await cmd(['inspect',name]))[0];assert.deepEqual(final.HostConfig.PortBindings,original.HostConfig.PortBindings);assert.equal(final.HostConfig.Memory,original.HostConfig.Memory);assert.equal(final.HostConfig.NanoCpus,original.HostConfig.NanoCpus);report.checks.push('resources-and-ports-preserved');
+ const final=JSON.parse(await cmd(['inspect',name]))[0];assert.equal(final.Image,report.targetImageId,'Acceptance must exercise the selected build');assert.deepEqual(final.HostConfig.PortBindings,original.HostConfig.PortBindings);assert.equal(final.HostConfig.Memory,original.HostConfig.Memory);assert.equal(final.HostConfig.NanoCpus,original.HostConfig.NanoCpus);report.checks.push('resources-and-ports-preserved');
  if(process.env.ACCEPTANCE_REPORT_DIR){await fs.mkdir(process.env.ACCEPTANCE_REPORT_DIR,{recursive:true});await fs.writeFile(process.env.ACCEPTANCE_REPORT_DIR+'/'+game+'.passed.json',JSON.stringify(report,null,2));}
  console.log(JSON.stringify(report));
 }catch(error){
