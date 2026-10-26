@@ -28,7 +28,7 @@ existing installation update, running-server command or world access was used.
 
 | Check | Result |
 | --- | --- |
-| Full Node suite after review | 600 tests: 599 passed, zero failed, one macOS platform skip |
+| Full Node suite after PR feedback | 603 tests: 602 passed, zero failed, one macOS platform skip |
 | Linux setup ownership | All four setup tests passed as root, including the skipped case |
 | Static quality | Lint, formatting, strict shared browser contracts, four quality self-tests and 135 served-module checks passed |
 | Existing browser regression | 138 desktop/mobile checks passed |
@@ -73,6 +73,25 @@ compatibility test. Existing browser checks and four native recipe builds above
 were performed before review; this review made no browser behavior changes.
 Full native Factorio/Rust migration/mod acceptance remains an explicit manual
 publication gate and was not rerun locally.
+
+## PR feedback: ZIP overhead
+
+PR #13 identified that a full 64 MiB payload could be admitted for backup but
+rejected during ZIP verification or snapshot collection because headers and
+filenames added bytes. The generic provider now separates its unchanged
+64 MiB data limit from a 65 MiB complete-archive limit. It estimates the stored
+ZIP size, including UTF-8 filenames in both headers, before opening any data;
+verification and collection use the same complete-archive limit.
+
+Three added regression tests pass: a full 64 MiB backup is created and verified,
+published as a snapshot and cloned with matching content hashes; 4096 UTF-8-named
+files at the payload limit produce a valid archive; and excessive path metadata,
+over-limit uncompressed data and oversized archive inputs remain bounded.
+The metadata rejection occurs before content files are opened. Validation uses
+temporary local files and mocked stopped-state Docker responses, with no engine
+or existing installation access. The full 603-test suite (602 passed, one macOS
+platform skip), quality checks and historical updater compatibility checks passed
+after this change. Logs are in `output/application-packages/zip-overhead-*.log`.
 
 ## Disposable runtime boundary
 

@@ -37,8 +37,11 @@ its command and must supply a Docker health check. The provider supplies:
   public non-secret values; the application can read them through its scoped group as mode 0640.
 - Stopped-data ZIP backups, verification and snapshot cloning into a fresh
   instance with fresh controller credentials. Files are bounded to 4096 and
-  64 MiB. Metadata traversal is capped at 8192 entries and 32 directory levels
-  before file contents are read. Links and unsafe paths are rejected. This profile does not offer
+  64 MiB of data, with a separate 65 MiB limit for the complete ZIP including
+  headers and UTF-8 filenames. Both limits are checked before reading contents;
+  verification and snapshot collection use the same ZIP limit. Metadata traversal
+  is capped at 8192 entries and 32 directory levels before file contents are read.
+  Links and unsafe paths are rejected. This profile does not offer
   in-place restore or automatically stop processes for a backup.
 - A private installation marker pinning the definition revision and content hash.
   Changing a definition cannot silently adopt an existing instance.

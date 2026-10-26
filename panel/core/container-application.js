@@ -11,6 +11,10 @@ import {zipEntries} from './archive.js';
 import {boundedFileInventory, safeSnapshotPath} from './snapshot-files.js';
 import {regularFile} from './storage/files.js';
 
+const maxBackupFiles = 4096,
+  maxBackupBytes = 64 * 1024 * 1024,
+  maxArchiveBytes = 65 * 1024 * 1024;
+
 // A bounded production profile for one image-owned process and one data claim.
 // Multi-service provisioning and database-consistent backups need other profiles.
 export function containerPresentation(source) {
@@ -153,13 +157,13 @@ export function createContainerApplication(definition) {
     );
   const archive = (buffer) => {
     assert(
-      buffer.length <= 64 * 1024 * 1024,
+      buffer.length <= maxArchiveBytes,
       'Application archive is too large.',
     );
     const entries = zipEntries(buffer);
     assert(
-      entries.reduce((sum, entry) => sum + entry.size, 0) <= 64 * 1024 * 1024 &&
-        entries.length <= 4096 &&
+      entries.reduce((sum, entry) => sum + entry.size, 0) <= maxBackupBytes &&
+        entries.length <= maxBackupFiles &&
         entries.every((entry) => safeSnapshotPath(entry.name)),
       'Unsupported application archive.',
     );
@@ -168,16 +172,29 @@ export function createContainerApplication(definition) {
   };
   async function files(root) {
     const inventory = await boundedFileInventory(root, {
-      maxFiles: 4096,
-      maxBytes: 64 * 1024 * 1024,
+      maxFiles: maxBackupFiles,
+      maxBytes: maxBackupBytes,
       maxEntries: 8192,
       maxDepth: 32,
     });
     assert(
       inventory.length > 0 &&
-        inventory.length <= 4096 &&
-        inventory.reduce((sum, item) => sum + item.size, 0) <= 64 * 1024 * 1024,
+        inventory.length <= maxBackupFiles &&
+        inventory.reduce((sum, item) => sum + item.size, 0) <= maxBackupBytes,
       'Application backups require 1–4096 files within 64 MiB.',
+    );
+    // makeZip stores each name in its 30-byte local and 46-byte central
+    // headers, followed by a 22-byte end record. Check the complete ZIP size
+    // before reading data, including UTF-8 names in both headers.
+    assert(
+      22 +
+        inventory.reduce(
+          (sum, item) =>
+            sum + item.size + 76 + 2 * Buffer.byteLength(item.name),
+          0,
+        ) <=
+        maxArchiveBytes,
+      'Application backup including ZIP metadata exceeds 65 MiB.',
     );
     const result = [];
     for (const item of inventory) {
@@ -303,7 +320,7 @@ export function createContainerApplication(definition) {
         (!from.includes('@') || !to.includes('@') || from === to),
       async collect({backup, content}) {
         for (const entry of archive(
-          await regularFile(backup, {max: 64 * 1024 * 1024}),
+          await regularFile(backup, {max: maxArchiveBytes}),
         )) {
           const file = path.join(content, entry.name);
           await fs.mkdir(path.dirname(file), {recursive: true});
@@ -321,7 +338,7 @@ export function createContainerApplication(definition) {
           await fs.writeFile(
             file,
             await regularFile(path.join(root, item.name), {
-              max: 64 * 1024 * 1024,
+              max: maxBackupBytes,
             }),
             {flag: 'wx', mode: 0o660},
           );
