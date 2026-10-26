@@ -66,7 +66,7 @@ simulations only; real lifecycle, account writes and installations stay blocked.
 ## Build without deploying
 
 ```sh
-docker build -t local/lobby-goblin:0.3.8-alpha panel
+docker build -t local/lobby-goblin:0.3.9-alpha panel
 docker compose --env-file .env.example config --quiet
 ```
 
