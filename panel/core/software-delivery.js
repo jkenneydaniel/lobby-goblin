@@ -1,5 +1,10 @@
 import {assert} from '../common.js';
 import {definitionData, freezeDefinition} from './definition-data.js';
+import {
+  softwareCapabilities,
+  softwareSelection,
+  softwareReceipt,
+} from './software-installation.js';
 
 const imageDelivery = freezeDefinition({version: 1, mode: 'image'});
 const identifier = (value) =>
@@ -23,6 +28,7 @@ export function softwareDelivery(value) {
       'initial',
       'storage',
       'updates',
+      'capabilities',
     ]) &&
       value.version === 1 &&
       ['image', 'runtime'].includes(value.mode),
@@ -64,6 +70,8 @@ export function softwareDelivery(value) {
       value.updates === 'manual',
       'Runtime software changes require an explicit reviewed update.',
     );
+    if (value.capabilities !== undefined)
+      softwareCapabilities(value.capabilities);
   }
   return freezeDefinition(value);
 }
@@ -79,6 +87,9 @@ export function publicSoftwareDelivery(value) {
         initial: policy.initial,
         updates: policy.updates,
         updateKind: 'software',
+        ...(policy.capabilities === undefined
+          ? {}
+          : {capabilities: softwareCapabilities(policy.capabilities)}),
       };
 }
 
@@ -94,6 +105,24 @@ export function validateSoftwareProvider(policy, providers) {
       ),
     'Runtime software needs a reviewed installation provider.',
   );
+  if (policy.capabilities !== undefined) {
+    const requested = softwareCapabilities(policy.capabilities);
+    const supported = softwareCapabilities(provider.capabilities);
+    assert(
+      requested.authentication === supported.authentication &&
+        requested.platforms.every((platform) =>
+          supported.platforms.includes(platform),
+        ) &&
+        [
+          'discovery',
+          'repair',
+          'updates',
+          'historicalVersions',
+          'adoption',
+        ].every((key) => !requested[key] || supported[key]),
+      'Software policy exceeds its registered provider capabilities.',
+    );
+  }
   return provider;
 }
 
@@ -106,41 +135,59 @@ export async function initialSoftwareVersion(policy, {providers, receipt}) {
     'Image-bundled software is provided by its image.',
   );
   const provider = validateSoftwareProvider(policy, providers);
+  function platformAllowed(identity) {
+    if (identity.format !== 1) return;
+    const supported = softwareCapabilities(provider.capabilities);
+    assert(
+      supported.platforms.includes(identity.platform) &&
+        (policy.capabilities === undefined ||
+          policy.capabilities.platforms.includes(identity.platform)),
+      'Software selection is unavailable on this platform.',
+      409,
+    );
+  }
   if (receipt !== null && receipt !== undefined) {
     definitionData(receipt);
+    const verified = receipt.format === 1 ? softwareReceipt(receipt) : receipt;
+    const identity = verified.format === 1 ? verified.selection : verified;
     assert(
-      receipt.version === 1 &&
-        receipt.provider === policy.provider &&
-        typeof receipt.softwareVersion === 'string' &&
-        /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(receipt.softwareVersion) &&
+      (verified.format === 1 || verified.version === 1) &&
+        identity.provider === policy.provider &&
+        typeof identity.softwareVersion === 'string' &&
+        /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(identity.softwareVersion) &&
         !['latest', 'stable', 'experimental', 'public'].includes(
-          receipt.softwareVersion,
+          identity.softwareVersion,
         ),
       'Installed software receipt needs recovery; no version was changed.',
       409,
     );
+    platformAllowed(identity);
     assert(
-      await provider.installed(receipt),
+      await provider.installed(verified),
       'Installed software is missing or differs from its receipt. Recover it before starting.',
       409,
     );
-    return {selection: structuredClone(receipt), install: false};
+    return {selection: structuredClone(verified), install: false};
   }
   assert(
     await provider.empty(),
     'Existing application storage has no software receipt. Explicit migration or recovery is required.',
     409,
   );
-  const selected = await provider.resolve(structuredClone(policy.initial));
+  const resolved = await provider.resolve(structuredClone(policy.initial));
+  definitionData(resolved);
+  const selected =
+    resolved?.format === 1 ? softwareSelection(resolved) : resolved;
   definitionData(selected);
   assert(
-    selected?.version === 1 &&
+    (selected?.format === 1 || selected?.version === 1) &&
       selected.provider === policy.provider &&
       typeof selected.softwareVersion === 'string' &&
       /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(selected.softwareVersion),
     'Software provider did not resolve an exact version.',
     503,
   );
+  platformAllowed(selected);
   assert(
     !['latest', 'stable', 'experimental', 'public'].includes(
       selected.softwareVersion,
