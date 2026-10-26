@@ -995,7 +995,10 @@ for (const remote of [false, true])
     expect(renewed.csrf).not.toBe(previous.csrf);
     expect(renewed.username).toBe(username);
     if (!remote) {
-      expect(renewed.permissions).toEqual(['server.view', 'server.operate']);
+      expect([...renewed.permissions].sort()).toEqual([
+        'server.operate',
+        'server.view',
+      ]);
       await expect(
         nav(page).getByRole('link', {name: 'Mods', exact: true}),
       ).toBeHidden();
