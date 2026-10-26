@@ -930,6 +930,111 @@ test('expired fleet sessions clear the shell and return to sign-in', async ({
   await expect(page.locator('#login [name=password]')).toHaveValue('');
 });
 
+for (const remote of [false, true])
+  test(`expired ${remote ? 'remote' : 'local'} server sessions can sign in and resume with server permissions`, async ({
+    page,
+  }) => {
+    const username = remote ? 'Preview' : 'Assigned';
+    await login(page, 'fleet', username);
+    const previous = await (
+      await page.request.get(origins.fleet + '/api/session')
+    ).json();
+    if (remote) {
+      const host = await page.request.post(origins.fleet + '/api/hosts', {
+        headers: {'x-csrf-token': previous.csrf, origin: origins.fleet},
+        data: {},
+      });
+      expect(host.ok()).toBe(true);
+    }
+    const prefix = remote
+      ? '/hosts/' + 'd'.repeat(32) + '/servers/' + 'e'.repeat(32)
+      : '/servers/' + 'b'.repeat(32);
+    await page.goto(origins.fleet + prefix + '/#overview');
+    await expect(
+      page.getByRole('button', {name: 'Save now', exact: true}),
+    ).toBeEnabled();
+    const writes = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().includes('/api/jobs'))
+        writes.push(request.url());
+    });
+    const expired = await page.request.post(origins.fleet + '/api/logout', {
+      headers: {'x-csrf-token': previous.csrf, origin: origins.fleet},
+      data: {},
+    });
+    expect(expired.ok()).toBe(true);
+    await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+    await expect(page.locator('#shell')).toBeHidden();
+    await expect(page.locator('#auth')).toBeVisible();
+    await page.getByLabel('Username', {exact: true}).fill(username);
+    await page.getByLabel('Password', {exact: true}).fill('wrong-password');
+    const rejected = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        response.url().endsWith('/api/login'),
+    );
+    await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+    const failure = await rejected;
+    expect(failure.url()).toBe(origins.fleet + '/api/login');
+    expect(failure.status()).toBe(401);
+    await expect(page.locator('#auth-error')).toContainText(
+      'password is incorrect',
+    );
+    await page
+      .getByLabel('Password', {exact: true})
+      .fill('isolated-panel-preview-password');
+    await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+    await expect(page.locator('#shell')).toBeVisible();
+    await expect(page).toHaveURL(origins.fleet + prefix + '/#accounts');
+    await expect(
+      page.getByRole('heading', {name: 'Signed-in sessions', exact: true}),
+    ).toBeVisible();
+    const renewed = await (
+      await page.request.get(origins.fleet + prefix + '/api/session')
+    ).json();
+    expect(renewed.csrf).not.toBe(previous.csrf);
+    expect(renewed.username).toBe(username);
+    if (!remote) {
+      expect([...renewed.permissions].sort()).toEqual([
+        'server.operate',
+        'server.view',
+      ]);
+      await expect(
+        nav(page).getByRole('link', {name: 'Mods', exact: true}),
+      ).toBeHidden();
+    }
+    await nav(page).getByRole('link', {name: 'Overview', exact: true}).click();
+    await expect(
+      page.getByRole('button', {name: 'Save now', exact: true}),
+    ).toBeEnabled();
+    expect(writes).toEqual([]);
+  });
+
+test('signing in as an account without the current server returns to its server list', async ({
+  page,
+}) => {
+  await login(page, 'fleet', 'Preview');
+  const previous = await (
+    await page.request.get(origins.fleet + '/api/session')
+  ).json();
+  await page.goto(origins.fleet + '/servers/' + 'c'.repeat(32) + '/#overview');
+  await expect(page.locator('#shell')).toBeVisible();
+  await page.request.post(origins.fleet + '/api/logout', {
+    headers: {'x-csrf-token': previous.csrf, origin: origins.fleet},
+    data: {},
+  });
+  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await expect(page.locator('#auth')).toBeVisible();
+  await page.getByLabel('Username', {exact: true}).fill('Assigned');
+  await page
+    .getByLabel('Password', {exact: true})
+    .fill('isolated-panel-preview-password');
+  await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+  await expect(page).toHaveURL(origins.fleet + '/');
+  await expect(page.locator('#servers')).toContainText('Friday factory');
+  await expect(page.locator('#servers')).not.toContainText('Island crew');
+});
+
 test('interrupted operations can be inspected and acknowledged without replaying them', async ({
   page,
 }, testInfo) => {

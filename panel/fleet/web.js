@@ -34,7 +34,7 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
     json(res,200,{servers});return true;
    }
    const match=url.pathname.match(/^((?:\/hosts\/[a-f0-9]{32})?\/servers\/([a-f0-9]{32}))(\/.*)?$/);if(!match)return false;
-   const user=await context.session(req);if(!user){if(match[3]?.startsWith('/api/'))json(res,401,{error:'Sign in from the server list to continue.'});else{res.writeHead(302,{location:'/'});res.end();}return true;}
+   const user=await context.session(req);if(!user){if(match[3]?.startsWith('/api/'))json(res,401,{error:'Your session has ended. Please sign in again.'});else{res.writeHead(302,{location:'/'});res.end();}return true;}
    const prefix=match[1],id=match[2],tail=match[3];requireAssignment(user,prefix);if(!tail){res.writeHead(302,{location:prefix+'/'});res.end();return true;}
    // Always re-read registration; removed instances cannot retain a working web route.
    const response=await fetch(controller+prefix,{headers:{authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});assert(response.ok,response.status===404?'Server not found.':'This host is unavailable or access was revoked.',response.status===404?404:502);const info=await response.json();assert(info.state!=='removed','This server was removed. Its data volume was kept.',410);

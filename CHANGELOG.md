@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.10-alpha — 2026-10-26
+
+- Fix sign-in after session expiry inside a local or remote server view. Authenticate centrally, refresh server permissions and resume the current screen.
+- Return newly unassigned accounts to their accessible server list. Preserve central login protections and avoid replaying server operations.
+- Preserve historical updater formats and game image defaults. Publishing does not change existing installations, servers or worlds.
+
 ## 0.3.9-alpha.1 — 2026-10-26
 
 - Verify published application images through each package's runtime provider, including Status Page's image revision, non-root user and health checks. Keep Factorio/Rust migration checks specialized to those games.
