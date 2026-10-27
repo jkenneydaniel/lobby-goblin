@@ -38,7 +38,7 @@ export async function prepareRust({directory,image=ownedImages.rust,address='htt
     await fs.writeFile(path.join(target,'rust.env'),`RUST_RCON_PASSWORD=${password}\n`,{mode:0o600});
     await fs.writeFile(path.join(target,'data/server/lobby-goblin-rust/cfg/server.cfg'),'server.hostname "Rust server"\nserver.description ""\nserver.maxplayers 50\nserver.saveinterval 600\n',{mode:0o600});
     const port=url.port||String(url.protocol==='https:'?443:80);
-    await fs.writeFile(path.join(target,'.env'),`RUST_INSTANCE_ID=${instance}\nRUST_IMAGE=${image}\nPANEL_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.11-alpha\nRUST_HOST_DATA='${target}/data'\nRUST_PANEL_HOSTS=${url.hostname},localhost,127.0.0.1\nRUST_PANEL_PORT=${port}\nRUST_PANEL_BIND=127.0.0.1\nRUST_GAME_ADDRESS=localhost:28015\nPANEL_UID=${process.getuid?.()??1000}\nPANEL_GID=${process.getgid?.()??1000}\n`,{mode:0o600});
+    await fs.writeFile(path.join(target,'.env'),`RUST_INSTANCE_ID=${instance}\nRUST_IMAGE=${image}\nPANEL_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.12-alpha\nRUST_HOST_DATA='${target}/data'\nRUST_PANEL_HOSTS=${url.hostname},localhost,127.0.0.1\nRUST_PANEL_PORT=${port}\nRUST_PANEL_BIND=127.0.0.1\nRUST_GAME_ADDRESS=localhost:28015\nPANEL_UID=${process.getuid?.()??1000}\nPANEL_GID=${process.getgid?.()??1000}\n`,{mode:0o600});
     await fs.writeFile(path.join(target,'installation.json'),JSON.stringify({game:'rust',version:1,instance,image,container,identity:'lobby-goblin-rust'},null,2)+'\n',{mode:0o600});
     return {directory:target,instance,link};
   }catch(error){await fs.rm(target,{recursive:true,force:true});throw error;}

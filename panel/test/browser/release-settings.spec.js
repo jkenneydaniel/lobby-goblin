@@ -18,7 +18,7 @@ test('administrator can enable release checks, choose a channel, and recover fro
   });
   await page.route(/\/api\/updates(?:\/check)?$/,route=>{
     if(route.request().method()==='POST')checks++;
-    return route.fulfill({json:{current:'0.3.11-alpha',state:settings.enabled?'current':'disabled',channel:settings.channel,available:false,checkedAt:settings.enabled?'2026-10-27T12:00:00Z':null}});
+    return route.fulfill({json:{current:'0.3.12-alpha',state:settings.enabled?'current':'disabled',channel:settings.channel,available:false,checkedAt:settings.enabled?'2026-10-27T12:00:00Z':null}});
   });
   await page.goto(origins.fleet);
   await page.getByLabel('Username',{exact:true}).fill('Preview');
