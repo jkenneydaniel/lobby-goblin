@@ -23,10 +23,13 @@ export function createServerDialog({
     $('#creation-check-note').textContent = '';
   }
   function creationBody(f) {
-    return {
+    const body = {
       ...Object.fromEntries(new FormData(f)),
       autoStart: f.elements.autoStart.checked,
     };
+    if (f.elements.softwareMode.disabled && f.elements.softwareMode.value)
+      body.softwareMode = f.elements.softwareMode.value;
+    return body;
   }
   async function checkSetup(f) {
     const revision = ++setupRevision,

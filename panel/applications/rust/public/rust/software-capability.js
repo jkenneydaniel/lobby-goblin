@@ -28,7 +28,7 @@ export const rustSoftware = {
       !!(value?.installation?.recoveryRequired || value?.change?.pending);
     const metadataOnly = () =>
       recoveryKind() === 'software' &&
-      ['checking-software', 'reviewed'].includes(value?.change?.phase);
+      value.change.metadataOnlyRecovery === true;
     const allowed = (name) =>
       !working && !hostBusy() && !recoveryRequired() && canAction(name);
     function controls() {

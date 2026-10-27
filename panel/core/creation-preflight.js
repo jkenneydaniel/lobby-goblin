@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import {validateManagedCreation} from './managed-game.js';
 import {selectedRuntime} from './runtime-option.js';
+import {imageMatch} from './image-policy.js';
 import {publicSoftwareDelivery} from './software-delivery.js';
 
 const GiB = 1024 ** 3;
@@ -8,9 +9,21 @@ const GiB = 1024 ** 3;
 // Advisory inspection only: no image pulls, port/volume reservations, workers,
 // snapshot reads or game controls. Creation independently rechecks admission.
 export async function creationPreflight(manager, request) {
-  const module = manager.module(request?.game),
-    input = validateManagedCreation(request, module),
-    runtime = selectedRuntime(module.managed, input),
+  const module = manager.module(request?.game);
+  let input = validateManagedCreation(request, module);
+  const snapshot = input.snapshotId ? manager.snapshot(input.snapshotId) : null;
+  // Disabled selectors are omitted by browsers and older clients. Infer only
+  // from the snapshot ledger here; creation still verifies its exact receipt.
+  if (snapshot && !input.softwareMode && module.managed.runtime) {
+    const option = module.managed.runtime;
+    input = {
+      ...input,
+      softwareMode: imageMatch(option.imagePolicy, snapshot.image)
+        ? option.key || 'runtime'
+        : module.managed.software?.mode || 'image',
+    };
+  }
+  const runtime = selectedRuntime(module.managed, input),
     policy = runtime?.software || module.managed.software,
     checks = [];
   const add = (id, label, status, message) =>
@@ -76,9 +89,9 @@ export async function creationPreflight(manager, request) {
         : 'The selected installation method is supported.'
       : 'Update this host to use private software preparation.',
   );
-  if (input.snapshotId) {
-    const snapshot = manager.snapshot(input.snapshotId),
-      image = runtime?.imagePolicy.defaultImage || module.managed.catalog.image,
+  if (snapshot) {
+    const image =
+        runtime?.imagePolicy.defaultImage || module.managed.catalog.image,
       compatible =
         snapshot.game === module.id &&
         module.managed.snapshots.compatible(snapshot.image, image);

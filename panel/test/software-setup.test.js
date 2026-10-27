@@ -32,6 +32,16 @@ test('creation preflight reports admission failures using host and snapshot meta
   host.MemTotal = 8 * 1024 ** 3; assert.equal(await check('memory')(), 'fail'); host.MemTotal = 32 * 1024 ** 3;
   const copied = await creationPreflight(manager, {...input, snapshotId: 'a'.repeat(32)});
   assert.equal(copied.ready, true); assert.equal(snapshots, 1);
+  manager.snapshot = () => ({game: 'factorio', image: selectedApplication('factorio').managed.runtime.imagePolicy.defaultImage});
+  const runtimeClone = await creationPreflight(manager, {...input, snapshotId: 'a'.repeat(32)});
+  assert.equal(runtimeClone.ready, true); assert.equal(runtimeClone.softwareMode, 'runtime');
+  manager.snapshot = () => ({game: 'rust', image: selectedApplication('rust').managed.runtime.imagePolicy.defaultImage});
+  const managedClone = {game: 'rust', name: 'Managed clone', snapshotId: 'a'.repeat(32), memoryGiB: 12, cpu: 2};
+  assert.equal((await creationPreflight(manager, managedClone)).softwareMode, 'managed');
+  assert.equal((await creationPreflight(manager, managedClone)).ready, true);
+  manager.broker = null;
+  assert.equal((await creationPreflight(manager, managedClone)).checks.find(item => item.id === 'preparation').status, 'fail');
+  manager.broker = {};
   manager.snapshot = () => ({game: 'rust', image: 'unrelated'});
   assert.equal((await creationPreflight(manager, {...input, snapshotId: 'a'.repeat(32)})).ready, false);
   manager.broker = null;
@@ -48,6 +58,11 @@ test('Rust setup metadata does not inspect world contents, resolve software or e
   const value = await rustSoftwareSummary({software, changes, framework: unused, activeJob: {message: 'Preparing exact build', secret: 'private'}});
   assert.equal(value.framework, 'carbon'); assert.equal(value.installation.version, '123');
   assert.equal(value.change.observation, undefined); assert.equal(value.activeJob.secret, undefined);
+  for (const [phase, record, allowed] of [['checking-software', {}, true], ['checking-software', {prepareId: 'retained'}, false], ['checking-software', {world: 'retained'}, false], ['reviewed', {}, false]]) {
+    changes.inspect = async () => ({pending: true, kind: 'software', phase, previousFramework: 'none', observation: {record}});
+    assert.equal((await rustSoftwareSummary({software, changes, framework: unused})).change.metadataOnlyRecovery, allowed);
+  }
+
   const module = selectedApplication('rust');
   assert.equal(module.contract.policy.routes['/software-setup'].GET, 'images.change');
   assert.equal(module.presentation.screens.find(screen => screen.id === 'software').permission, 'images.change');

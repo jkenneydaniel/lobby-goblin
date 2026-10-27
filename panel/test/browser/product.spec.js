@@ -25,7 +25,7 @@ const test = base.extend({
 });
 const nav = (page) => page.getByRole('navigation', {name: /navigation/});
 
-async function softwareFixture(page, {phase = 'ready', framework = 'none', expired = false} = {}) {
+async function softwareFixture(page, {phase = 'ready', framework = 'none', expired = false, running = false} = {}) {
   const selection = build => ({format: 1, provider: 'steamcmd', application: 'rust', softwareVersion: build, channel: 'public', platform: 'linux/amd64', artifacts: [{id: '258551', version: '12345678901234567890'}]});
   const state = {
     managed: true, source: 'Valve SteamCMD · public branch · exact recorded build', framework,
@@ -34,7 +34,7 @@ async function softwareFixture(page, {phase = 'ready', framework = 'none', expir
     updates: {available: false, pending: false}, activeJob: null,
   };
   const jobs = [], submissions = [];
-  await page.route('**/api/status', async route => {const response = await route.fetch(); await route.fulfill({json: {...await response.json(), running: false, activeJob: null}});});
+  await page.route('**/api/status', async route => {const response = await route.fetch(); await route.fulfill({json: {...await response.json(), running, activeJob: null}});});
   await page.route('**/api/software-setup', route => route.fulfill({json: state}));
   await page.route('**/api/software-change', route => route.fulfill({json: {phase: state.change.phase, review: 'a'.repeat(64)}}));
   await page.route(/\/api\/jobs(?:\?.*)?$/, async route => {
@@ -135,6 +135,40 @@ test('Rust changed recovery observations require another inspection and are neve
   await expect(page.locator('[data-error]')).toContainText('Inspect again');
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
   expect(fixture.submissions).toHaveLength(0);
+});
+
+test('running Rust recovery follows the backend metadata-only decision', async ({page}) => {
+  const fixture = await softwareFixture(page, {phase: 'recovery', running: true});
+  fixture.state.change.phase = 'checking-software'; fixture.state.change.metadataOnlyRecovery = true;
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeEnabled();
+  await expect(page.locator('[data-recovery-note]')).toContainText('without stopping');
+  fixture.state.change.metadataOnlyRecovery = false;
+  await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+  await expect(page.locator('[data-recovery-note]')).not.toContainText('without stopping');
+  fixture.state.change.phase = 'reviewed';
+  await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+  expect(fixture.submissions).toHaveLength(0);
+});
+
+test('runtime snapshot creation preserves its disabled installation selector in preflight and submission', async ({page}) => {
+  await page.route('**/api/snapshots', async route => {const response = await route.fetch(), data = await response.json(); data.snapshots = data.snapshots.map(item => ({...item, image: 'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'})); await route.fulfill({json: data});});
+  const checked = [], created = [];
+  await page.route('**/api/creation-preflight', async route => {checked.push(route.request().postDataJSON()); await route.fulfill({json: {ready: true, checks: []}});});
+  await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
+  await login(page, 'fleet', 'Preview'); await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  const form = page.locator('#create'); await form.locator('[name=name]').fill('Runtime copy');
+  await form.locator('[name=snapshotId]').selectOption('f'.repeat(32));
+  await expect(form.locator('[name=softwareMode]')).toBeDisabled();
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
+  await page.locator('#create-submit').click(); await expect.poll(() => created.length).toBe(1);
+  expect(checked[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
+  expect(created[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
 });
 
 test('creation checks block failures and discard a late result after input changes', async ({page}) => {

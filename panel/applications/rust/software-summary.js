@@ -26,6 +26,13 @@ export async function rustSoftwareSummary({
       phase: change.phase,
       framework: change.framework,
       previousFramework: change.previousFramework,
+      metadataOnlyRecovery:
+        change.pending === true &&
+        change.kind === 'software' &&
+        change.phase === 'checking-software' &&
+        !!change.observation?.record &&
+        !change.observation.record.prepareId &&
+        !change.observation.record.world,
     },
     updates,
     activeJob: activeJob
