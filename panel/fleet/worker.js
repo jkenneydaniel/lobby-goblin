@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assert, writeJSON, readJSON} from '../common.js';
+import {storageWorkerFailure} from './storage-worker.js';
 import {validId} from '../core/instance.js';
 import {validateManagedGame} from '../core/managed-game.js';
 import {selectedApplication} from '../applications/index.js';
@@ -100,11 +101,9 @@ if (
     const result = await runWorker(config);
     await writeJSON('/setup/result.json', result);
   } catch (error) {
-    console.error(
-      error.status
-        ? error.message
-        : 'The isolated storage operation failed. Check storage space and permissions.',
-    );
+    const failure = storageWorkerFailure(error);
+    await writeJSON('/setup/failure.json', failure).catch(() => {});
+    console.error(failure.error);
     process.exitCode = 1;
   }
 }

@@ -199,3 +199,12 @@ New Factorio servers can explicitly choose runtime software installation in the
 creation dialog. The bundled image remains the compatible default. Runtime
 servers manage Factorio versions independently of their image and clone snapshots
 with an exact software receipt. See [Factorio runtime software](FACTORIO_RUNTIME.md).
+
+
+Storage workers can read private game-owned backup files while retaining their
+existing network isolation and three scoped storage mounts. Snapshot publication
+errors identify permission, disk/quota, missing-file, archive-validation or memory
+failures when available. If a requested snapshot fails, removal stops before
+container/network deletion; the server data volume is always retained. Review
+the failed operation before retrying. Retrying removal may stop the selected
+server as part of the normal save/stop sequence.

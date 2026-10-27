@@ -296,3 +296,32 @@ test('managed Rust snapshots and fresh clone bootstrap retain exact Steam softwa
  await assert.rejects(publishSnapshot({library:f.library,backup:legacy,record:{id:'e'.repeat(32),sourceId:one,title:'Missing software',game:'rust',image,seed:456,worldSize:1000}}),/exact software identity/);
  assert.throws(()=>module.managed.creationFromSnapshot({softwareMode:'managed'},{seed:456,worldSize:1000}),/no exact managed software/);
 });
+
+test('real isolated helper reports bounded storage failures and cleans only its request and worker',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Private backup'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'}),original=f.manager.docker;
+ f.manager.docker=async(method,route,data,...rest)=>{
+  if(route.includes('/wait?')){
+   const spec=f.calls.filter(call=>call.route.startsWith('/containers/create?')).at(-1).data;
+   assert.deepEqual(spec.HostConfig.CapAdd,['DAC_OVERRIDE']);assert.deepEqual(spec.HostConfig.CapDrop,['ALL']);
+   assert.equal(spec.HostConfig.Mounts[1].ReadOnly,true);assert.equal(spec.HostConfig.NetworkMode,'none');
+   await writeJSON(path.join(f.manager.root,spec.HostConfig.Mounts[0].VolumeOptions.Subpath,'failure.json'),{version:1,error:'Storage is full. Free space for the snapshot before retrying.'});
+   const worker=f.containers.get(new URL(route,'http://docker').pathname.split('/')[2]);worker.State.Running=false;
+   return {StatusCode:1};
+  }
+  return original(method,route,data,...rest);
+ };
+ await assert.rejects(FleetManager.prototype.helper.call(f.manager,item,{action:'snapshot'}),/Storage is full/);
+ assert.deepEqual(await fs.readdir(path.join(f.manager.root,'requests')),[]);
+ assert.ok(f.volumes.has(item.volume));assert.equal(f.containers.get(neighbor.container).State.Running,true);
+ assert.ok(![...f.containers.keys()].some(name=>name.startsWith('lobby-goblin-worker-')));
+});
+test('requested snapshot failure blocks removal and preserves source storage and neighboring resources',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Keep source'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'});
+ f.containers.get(item.container).State.Running=false;
+ f.manager.publish=async()=>{throw Object.assign(Error('Storage access was denied.'),{status:409});};
+ const before=f.calls.length,job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
+ assert.equal(job.state,'failed');assert.match(job.message,/access was denied/);
+ assert.notEqual(item.state,'removed');assert.ok(f.volumes.has(item.volume));assert.ok(f.containers.has(item.container));assert.ok(f.containers.has(item.controller));assert.ok(f.networks.has(item.network));
+ assert.equal(f.containers.get(neighbor.container).State.Running,true);
+ assert.ok(!f.calls.slice(before).some(call=>call.method==='DELETE'));
+});

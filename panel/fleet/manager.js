@@ -1,3 +1,5 @@
+import {storageWorkerCapabilities,storageWorkerMessage} from './storage-worker.js';
+import {regularFile,parseStorageJSON} from '../core/storage/files.js';
 import {creationPreflight} from '../core/creation-preflight.js';
 import {publicSoftwareDelivery} from '../core/software-delivery.js';
 import {brokerSocket,brokerToken} from '../core/broker-client.js';
@@ -126,7 +128,11 @@ export class FleetManager{
  async helper(item,config,{write=false}={}){
   await this.ownedVolume(item.volume,item.id);const requestId=crypto.randomBytes(16).toString('hex'),directory=path.join(this.root,'requests',requestId);await fs.mkdir(directory,{recursive:true});await writeJSON(path.join(directory,'request.json'),{...config,fleet:this.fleet,id:item.id,game:item.game});
   const name=`lobby-goblin-worker-${requestId}`;let created=false;
-  try{await this.docker('POST','/containers/create?'+new URLSearchParams({name}),{Image:this.runtimeImage||this.image,User:'0:0',Entrypoint:['node','/app/fleet/worker.js'],Labels:{...labels(this.fleet,item.id,item.game),'io.lobby-goblin.worker':'true'},HostConfig:{NetworkMode:'none',CapDrop:['ALL'],SecurityOpt:['no-new-privileges:true'],Memory:512*1024**2,NanoCpus:1000000000,Mounts:[{Type:'volume',Source:this.stateVolume,Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:item.volume,Target:'/instance',ReadOnly:!write},{Type:'volume',Source:this.libraryVolume,Target:'/library',ReadOnly:config.action!=='snapshot'}]}});created=true;await this.docker('POST',`/containers/${name}/start`);const result=await this.docker('POST',`/containers/${name}/wait?condition=not-running`,undefined,{timeout:1200000});assert(result.StatusCode===0,'The isolated storage operation failed. Check disk space and snapshot compatibility.',409);return await readJSON(path.join(directory,'result.json'),null);
+  try{await this.docker('POST','/containers/create?'+new URLSearchParams({name}),{Image:this.runtimeImage||this.image,User:'0:0',Entrypoint:['node','/app/fleet/worker.js'],Labels:{...labels(this.fleet,item.id,item.game),'io.lobby-goblin.worker':'true'},HostConfig:{NetworkMode:'none',CapDrop:['ALL'],CapAdd:[...storageWorkerCapabilities],SecurityOpt:['no-new-privileges:true'],Memory:512*1024**2,NanoCpus:1000000000,Mounts:[{Type:'volume',Source:this.stateVolume,Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:item.volume,Target:'/instance',ReadOnly:!write},{Type:'volume',Source:this.libraryVolume,Target:'/library',ReadOnly:config.action!=='snapshot'}]}});created=true;await this.docker('POST',`/containers/${name}/start`);const result=await this.docker('POST',`/containers/${name}/wait?condition=not-running`,undefined,{timeout:1200000});if(result.StatusCode!==0){
+    const worker=await this.ownedContainer(name,item.id);let failure=null;
+    try{const bytes=await regularFile(path.join(directory,'failure.json'),{optional:true,max:4096});if(bytes)failure=parseStorageJSON(bytes);}catch{}
+    assert(false,storageWorkerMessage(failure,{oomKilled:worker.State?.OOMKilled,exitCode:result.StatusCode}),409);
+   }return await readJSON(path.join(directory,'result.json'),null);
   }finally{if(created){const worker=await this.ownedContainer(name,item.id);if(worker.State?.Running)await this.docker('POST',`/containers/${name}/stop?t=15`);await this.docker('DELETE',`/containers/${name}`);}await fs.rm(directory,{recursive:true,force:true});}
  }
  preflight(input){return creationPreflight(this,input);}

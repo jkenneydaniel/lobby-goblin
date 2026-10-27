@@ -27,17 +27,22 @@ export class ReleaseChecks{
   constructor({repository='jkenneydaniel/lobby-goblin',current,channel='preview',enabled=true,fetcher=fetch,now=Date.now,interval=6*3600000}={}){
     repository=canonicalRepository(repository);
     Object.assign(this,{repository,current,channel,enabled,fetcher,now,interval});
-    this.checked=0;this.pending=null;this.etag=null;this.releases=[];
+    this.generation=0;this.checked=0;this.pending=null;this.etag=null;this.releases=[];
     this.result={state:enabled?'unchecked':'disabled',current,channel,repository,available:false,installation:'manual',checkedAt:null};
+  }
+  configure({enabled,channel}){
+    if(enabled===this.enabled&&channel===this.channel)return;
+    this.generation++;this.enabled=enabled;this.channel=channel;this.checked=0;this.pending=null;this.etag=null;this.releases=[];
+    this.result={state:enabled?'unchecked':'disabled',current:this.current,channel,repository:this.repository,available:false,installation:'manual',checkedAt:null};
   }
   async check({force=false}={}){
     if(!this.enabled)return this.result;
     if(this.pending)return this.pending;
     if(this.checked&&this.now()-this.checked<(force?Math.min(this.interval,60000):this.interval))return this.result;
-    this.pending=this.run();try{return await this.pending;}finally{this.pending=null;}
+    const pending=this.run();this.pending=pending;try{return await pending;}finally{if(this.pending===pending)this.pending=null;}
   }
   async run(){
-    this.checked=this.now();
+    const generation=this.generation,channel=this.channel;this.checked=this.now();
     try{
       if(!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_.-]{1,100}$/.test(this.repository)||!version(this.current)||!['stable','preview'].includes(this.channel))throw new Error('Invalid release-check configuration.');
       const headers={accept:'application/vnd.github+json','user-agent':'Lobby Goblin-release-check','x-github-api-version':'2022-11-28'};
@@ -51,11 +56,13 @@ export class ReleaseChecks{
         for await(const chunk of response.body){size+=chunk.length;if(size>2*1024*1024)throw new Error('Release response exceeds the size limit.');chunks.push(chunk);}
         const releases=JSON.parse(Buffer.concat(chunks).toString());
         if(!Array.isArray(releases)||releases.length>100)throw new Error('Invalid release response.');
+        if(generation!==this.generation)return this.result;
         this.releases=releases.filter(r=>r&&typeof r==='object');this.etag=response.headers.get('etag');
       }
-      const latest=selectRelease(this.releases,this.channel),available=!!latest&&compareVersions(latest.tag_name,this.current)>0;
+      if(generation!==this.generation)return this.result;
+      const latest=selectRelease(this.releases,channel),available=!!latest&&compareVersions(latest.tag_name,this.current)>0;
       this.result={...this.result,state:latest?available?'available':'current':'no-releases',available,latest:latest?{tag:latest.tag_name,published:latest.published_at,notes:typeof latest.body==='string'?latest.body.slice(0,16000):'',url:`https://github.com/${this.repository}/releases/tag/${encodeURIComponent(latest.tag_name)}`} :null,error:null};
-    }catch(error){this.result={...this.result,state:'unavailable',available:false,latest:null,error:['Invalid release-check configuration.','Release repository is unavailable or not public.','GitHub rate limit or access restriction. Checks will retry later.','Release response exceeds the size limit.','Invalid release response.'].includes(error.message)?error.message:'Cannot reach GitHub. The server can keep running; release checks will retry later.'};}
+    }catch(error){if(generation!==this.generation)return this.result;this.result={...this.result,state:'unavailable',available:false,latest:null,error:['Invalid release-check configuration.','Release repository is unavailable or not public.','GitHub rate limit or access restriction. Checks will retry later.','Release response exceeds the size limit.','Invalid release response.'].includes(error.message)?error.message:'Cannot reach GitHub. The server can keep running; release checks will retry later.'};}
     this.result.checkedAt=new Date(this.checked).toISOString();return this.result;
   }
 }

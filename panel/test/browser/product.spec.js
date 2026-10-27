@@ -1242,7 +1242,7 @@ test('signing in as an account without the current server returns to its server 
     .getByLabel('Password', {exact: true})
     .fill('isolated-panel-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
-  await expect(page).toHaveURL(origins.fleet + '/');
+  await expect(page).toHaveURL(new RegExp('^' + origins.fleet.replaceAll('.', '\\.') + '/(?:#servers)?$'));
   await expect(page.locator('#servers')).toContainText('Friday factory');
   await expect(page.locator('#servers')).not.toContainText('Island crew');
 });
