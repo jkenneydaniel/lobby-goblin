@@ -10,7 +10,7 @@ import {
 } from './mod-packages.js';
 import {oxideCompiler} from './mod-layout.js';
 import {createWebRcon} from './transport.js';
-import {packagedCarbonHooks} from '../mod-components.js';
+import {packagedCarbonHooks} from './mod-components.js';
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
