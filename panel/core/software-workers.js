@@ -34,8 +34,14 @@ import {
 } from './software-worker-policy.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+const fields = (value, keys) =>
+  value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.keys(value).every((key) => keys.includes(key));
 const terminal = new Set(['complete', 'failed', 'closed']);
 const phases = new Set([
+  'initializing',
   'reserved',
   'creating',
   'created',
@@ -53,6 +59,96 @@ const optional = async (work) => {
     throw error;
   }
 };
+const missingRecord = () => ({
+  value: null,
+  fingerprint: {status: 'missing', sha256: null, bytes: 0},
+});
+
+// Inspection retains a bounded digest of invalid JSON/protocol bytes without
+// accepting those bytes as a result or exposing their contents in diagnostics.
+async function inspectRecord(file, max, validate, code) {
+  let handle;
+  try {
+    handle = await fs.open(
+      file,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error.code === 'ENOENT') return missingRecord();
+    throw error;
+  }
+  let bytes;
+  try {
+    const before = await handle.stat();
+    assert(
+      before.isFile() &&
+        before.nlink === 1 &&
+        Number.isSafeInteger(before.size),
+      'Inspection requires regular records without links.',
+      409,
+    );
+    const buffer = Buffer.alloc(Math.min(before.size + 1, max + 1));
+    let count = 0;
+    while (count < buffer.length) {
+      const read = await handle.read(
+        buffer,
+        count,
+        buffer.length - count,
+        null,
+      );
+      if (!read.bytesRead) break;
+      count += read.bytesRead;
+    }
+    const after = await handle.stat();
+    assert(
+      count === Math.min(before.size, max + 1) &&
+        after.nlink === 1 &&
+        after.size === before.size &&
+        after.mtimeMs === before.mtimeMs &&
+        after.ctimeMs === before.ctimeMs,
+      'Software record changed during inspection.',
+      409,
+    );
+    bytes = buffer.subarray(0, count);
+    if (before.size > max)
+      return {
+        value: null,
+        fingerprint: {
+          status: 'invalid',
+          sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+          bytes: before.size,
+          hashedBytes: bytes.length,
+          modified: before.mtimeMs,
+          changed: before.ctimeMs,
+          error: 'record-too-large',
+        },
+      };
+  } finally {
+    await handle.close();
+  }
+  const fingerprint = {
+    status: 'valid',
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+  };
+  let value;
+  try {
+    value = JSON.parse(bytes);
+  } catch {
+    return {
+      value: null,
+      fingerprint: {...fingerprint, status: 'invalid', error: 'invalid-json'},
+    };
+  }
+  try {
+    return {value: validate(value), fingerprint};
+  } catch {
+    return {
+      value: null,
+      fingerprint: {...fingerprint, status: 'invalid', error: code},
+    };
+  }
+}
 
 // Trusted controller code supplies the adapter, declaration and root. The
 // request protocol cannot select a path, image, credential or executable.
@@ -223,10 +319,23 @@ export class SoftwareWorkers {
       path.join(this.location(id), 'operation.json'),
       {max: 4096},
     );
+    return this.validateRecord(id, record);
+  }
+  validateRecord(id, record) {
     assert(
-      record.format === 1 &&
+      fields(record, [
+        'format',
+        'id',
+        'action',
+        'phase',
+        'containerId',
+        'exitCode',
+      ]) &&
+        record.format === 1 &&
         record.id === id &&
-        ['resolve', 'prepare'].includes(record.action) &&
+        (['resolve', 'prepare'].includes(record.action) ||
+          (record.action === null &&
+            ['initializing', 'attention', 'closed'].includes(record.phase))) &&
         phases.has(record.phase) &&
         (record.containerId === null ||
           (typeof record.containerId === 'string' &&
@@ -237,6 +346,37 @@ export class SoftwareWorkers {
       409,
     );
     return record;
+  }
+  async operationObservation(id) {
+    await directory(this.location(id));
+    const operation = await inspectRecord(
+      path.join(this.location(id), 'operation.json'),
+      4096,
+      (value) => this.validateRecord(id, value),
+      'invalid-operation',
+    );
+    const record = operation.value || {
+      format: 1,
+      id,
+      action: null,
+      phase:
+        operation.fingerprint.status === 'missing'
+          ? 'initializing'
+          : 'attention',
+      containerId: null,
+      exitCode: null,
+    };
+    return {record, fingerprint: operation.fingerprint};
+  }
+  async protocolObservation(id, child, file, max, validate, code) {
+    const root = path.join(this.location(id), child);
+    try {
+      await directory(root);
+    } catch (error) {
+      if (error.code === 'ENOENT') return missingRecord();
+      throw error;
+    }
+    return inspectRecord(path.join(root, file), max, validate, code);
   }
   async history() {
     await directory(this.paths.requests);
@@ -250,7 +390,9 @@ export class SoftwareWorkers {
       409,
     );
     return Promise.all(
-      entries.filter(softwareWorkerId).map((id) => this.record(id)),
+      entries
+        .filter(softwareWorkerId)
+        .map(async (id) => (await this.operationObservation(id)).record),
     );
   }
   async request(id) {
@@ -260,6 +402,10 @@ export class SoftwareWorkers {
         max: 64 * 1024,
       }),
     );
+    return this.validateRequest(id, request);
+  }
+  validateRequest(id, request) {
+    request = softwareWorkerRequest(request);
     assert(
       request.id === id &&
         same(request.source, this.scope.declaration.source) &&
@@ -271,7 +417,13 @@ export class SoftwareWorkers {
   }
   response(request, value) {
     assert(
-      value?.format === 1 &&
+      fields(
+        value,
+        value?.ok
+          ? ['format', 'id', 'action', 'ok', 'result']
+          : ['format', 'id', 'ok', 'error'],
+      ) &&
+        value?.format === 1 &&
         value.id === request.id &&
         typeof value.ok === 'boolean',
       'Inspect the incomplete software worker result.',
@@ -279,7 +431,8 @@ export class SoftwareWorkers {
     );
     if (!value.ok) {
       assert(
-        value.error?.code === 'software-worker-failed' &&
+        fields(value.error, ['code', 'status', 'message']) &&
+          value.error?.code === 'software-worker-failed' &&
           [400, 409, 413, 503, 504, 507].includes(value.error.status) &&
           typeof value.error.message === 'string' &&
           value.error.message.length <= 1000,
@@ -314,7 +467,8 @@ export class SoftwareWorkers {
       );
     if (request.action === 'prepare')
       assert(
-        value.result.operationId === request.id &&
+        fields(value.result, ['operationId', 'revision', 'receipt']) &&
+          value.result.operationId === request.id &&
           Number.isSafeInteger(value.result.revision) &&
           value.result.revision >= 0 &&
           softwareSelectionKey(target) ===
@@ -325,9 +479,16 @@ export class SoftwareWorkers {
     return value;
   }
   async inspect(id) {
-    const record = await this.record(id),
-      request = await this.request(id);
-    await directory(path.join(this.location(id), 'result'));
+    const operation = await this.operationObservation(id),
+      {record} = operation;
+    const request = await this.protocolObservation(
+      id,
+      'request',
+      'request.json',
+      64 * 1024,
+      (value) => this.validateRequest(id, value),
+      'invalid-request',
+    );
     const worker = await optional(() =>
       this.docker(
         'GET',
@@ -343,12 +504,34 @@ export class SoftwareWorkers {
       'Software worker identity changed.',
       409,
     );
-    const value = await readRecord(
-      path.join(this.location(id), 'result/result.json'),
-      {optional: true, max: 256 * 1024},
+    const result = await this.protocolObservation(
+      id,
+      'result',
+      'result.json',
+      256 * 1024,
+      (value) => {
+        assert(request.value, 'Request is unavailable.');
+        return this.response(request.value, value);
+      },
+      'invalid-response',
     );
+    if (
+      result.value &&
+      worker?.State?.Running === false &&
+      result.value.ok !== (worker.State.ExitCode === 0)
+    ) {
+      result.value = null;
+      result.fingerprint = {
+        ...result.fingerprint,
+        status: 'invalid',
+        error: 'exit-result-mismatch',
+      };
+    }
     return {
       record,
+      operation: operation.fingerprint,
+      request: request.fingerprint,
+      result: result.fingerprint,
       worker: worker
         ? {
             id: worker.Id,
@@ -357,9 +540,11 @@ export class SoftwareWorkers {
             status: worker.State?.Status,
             exitCode: worker.State?.ExitCode,
             oomKilled: worker.State?.OOMKilled === true,
+            startedAt: worker.State?.StartedAt,
+            finishedAt: worker.State?.FinishedAt,
           }
         : null,
-      response: value ? this.response(request, value) : null,
+      response: result.value,
       lease: await inspectStorageLock(this.paths.requests),
     };
   }
@@ -390,7 +575,7 @@ export class SoftwareWorkers {
   }
   async cancel(id, {confirm = false} = {}) {
     assert(confirm === true, 'Confirm cancellation of this software worker.');
-    await this.request(id);
+    await directory(this.location(id));
     return this.stopped(id, {stop: true});
   }
   async run(
@@ -584,6 +769,9 @@ export class SoftwareWorkers {
         },
         {timeout: 0},
       );
+    } catch (error) {
+      error.workerRequestId = id;
+      throw error;
     } finally {
       this.busy = false;
     }

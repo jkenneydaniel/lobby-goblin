@@ -354,6 +354,7 @@ test('malformed, foreign and missing results remain fenced after the worker exit
     () => null,
     (value) => ({...value, id: randomUUID()}),
     (value) => ({...value, result: {...value.result, application: 'other'}}),
+    (value) => ({...value, privateExtra: 'must-not-surface'}),
   ]) {
     const f = await fixture(t),
       id = randomUUID();
@@ -365,6 +366,14 @@ test('malformed, foreign and missing results remain fenced after the worker exit
       f.fresh().run('resolve', {channel: 'public'}),
       /interrupted/,
     );
+    const helper = f.fresh(),
+      review = await helper.inspect(id);
+    assert.equal(review.response, null);
+    assert.ok(!JSON.stringify(review).includes('must-not-surface'));
+    assert.ok(['missing', 'invalid'].includes(review.result.status));
+    await helper.close(review, {confirm: true, offline: true});
+    assert.equal((await helper.record(id)).phase, 'closed');
+    assert.equal(f.containers.size, 0);
   }
 });
 
@@ -503,4 +512,120 @@ test('unacknowledged request history is bounded before Docker or provider storag
   );
   assert.equal(f.calls.length, 0);
   assert.equal(await fs.stat(f.helper.paths.software).catch(() => null), null);
+});
+
+test('invalid JSON and oversized responses can be inspected and closed without accepting their contents', async (t) => {
+  for (const bytes of [
+    '{"truncated":',
+    JSON.stringify({private: 'x'.repeat(300 * 1024)}),
+  ]) {
+    const f = await fixture(t),
+      id = randomUUID();
+    await assert.rejects(
+      f.helper.run(
+        'resolve',
+        {channel: 'public'},
+        {
+          id,
+          progress: async (value) => {
+            if (value.phase === 'exited')
+              await fs.writeFile(
+                path.join(f.helper.location(id), 'result/result.json'),
+                bytes,
+              );
+          },
+        },
+      ),
+    );
+    const review = await f.helper.inspect(id);
+    assert.equal(review.result.status, 'invalid');
+    assert.match(review.result.sha256, /^[a-f0-9]{64}$/);
+    assert.equal(review.result.bytes, Buffer.byteLength(bytes));
+    assert.equal(review.response, null);
+    assert.ok(!JSON.stringify(review).includes('"private"'));
+    // Same byte count, different invalid bytes still invalidate the review.
+    await fs.writeFile(
+      path.join(f.helper.location(id), 'result/result.json'),
+      ' '.repeat(Buffer.byteLength(bytes)),
+    );
+    await assert.rejects(
+      f.helper.close(review, {confirm: true, offline: true}),
+      /observations changed/,
+    );
+    await f.helper.close(await f.helper.inspect(id), {
+      confirm: true,
+      offline: true,
+    });
+    assert.equal((await f.helper.record(id)).phase, 'closed');
+  }
+});
+
+test('every interrupted initialization window has an explicit offline closure path', async (t) => {
+  for (const point of [
+    'directory',
+    'request-directory',
+    'request-file',
+    'operation-file',
+    'truncated-operation',
+    'empty-operation',
+    'truncated-request',
+  ]) {
+    const f = await fixture(t),
+      id = randomUUID();
+    await f.helper.initialize();
+    const location = f.helper.location(id);
+    await fs.mkdir(location);
+    if (point !== 'directory') await fs.mkdir(path.join(location, 'request'));
+    if (['request-file', 'operation-file'].includes(point))
+      await fs.writeFile(
+        path.join(location, 'request/request.json'),
+        JSON.stringify({
+          format: 1,
+          id,
+          action: 'resolve',
+          source: declaration.source,
+          requiredFiles: declaration.requiredFiles,
+          initial: {channel: 'public'},
+        }),
+      );
+    if (point === 'operation-file')
+      await fs.writeFile(
+        path.join(location, 'operation.json'),
+        JSON.stringify({
+          format: 1,
+          id,
+          action: 'resolve',
+          phase: 'reserved',
+          containerId: null,
+          exitCode: null,
+        }),
+      );
+    if (point === 'truncated-operation')
+      await fs.writeFile(path.join(location, 'operation.json'), '{"format":');
+    if (point === 'empty-operation')
+      await fs.writeFile(path.join(location, 'operation.json'), '');
+    if (point === 'truncated-request')
+      await fs.writeFile(
+        path.join(location, 'request/request.json'),
+        '{"format":',
+      );
+    const helper = f.fresh();
+    await assert.rejects(
+      helper.run('resolve', {channel: 'public'}),
+      /interrupted/,
+    );
+    const review = await helper.inspect(id);
+    assert.equal(review.worker, null);
+    assert.equal(review.response, null);
+    await assert.rejects(helper.close(review, {confirm: true}), /offline/);
+    await helper.close(review, {confirm: true, offline: true});
+    assert.equal((await helper.record(id)).phase, 'closed');
+    assert.equal(f.calls.filter((value) => value.method !== 'GET').length, 0);
+    await helper.acknowledge(id);
+    assert.equal(await fs.stat(location).catch(() => null), null);
+    assert.equal(
+      (await helper.run('resolve', {channel: 'public'})).softwareVersion,
+      '456',
+    );
+  }
 });

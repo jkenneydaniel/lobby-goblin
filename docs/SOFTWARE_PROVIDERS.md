@@ -176,6 +176,14 @@ ownership. Native acceptance uses the published worker, the real broker and
 restricted controller credentials on a fresh engine, with a copied text sentinel
 and an idle Node fixture; no game executable or existing world is involved.
 
+Inspection reports missing initialization metadata and invalid protocol records
+as uncertain observations. Invalid bytes produce a validation code and bounded
+fingerprint, never a successful response. Oversized records use a bounded prefix
+digest plus file size and change timestamps. Offline closure binds these
+observations again before clearing request metadata, so altered bytes invalidate
+the review. Partial request initialization has the same explicit closure path;
+it cannot replay create/start or infer an installation outcome.
+
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
 [Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).
