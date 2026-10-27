@@ -277,3 +277,22 @@ test('controller-prepared creation refuses an old host before reserving resource
  assert.equal(job.state,'failed');assert.match(job.message,/brokered host/);assert.equal(f.manager.state.servers.length,0);
  assert.ok(f.calls.slice(mark).every(call=>call.method==='GET'));
 });
+
+test('managed Rust snapshots and fresh clone bootstrap retain exact Steam software while replacing credentials',async t=>{
+ const f=await fixture(t),a=await directory(f.root,'managed-rust-source'),b=await directory(f.root,'managed-rust-clone'),module=selectedApplication('rust'),image=module.managed.runtime.imagePolicy.defaultImage;
+ const software={format:1,selection:{format:1,provider:'steamcmd',application:'rust',platform:'linux/amd64',softwareVersion:'123',source:{kind:'steam',appId:'258550',branch:'public',buildId:'123',depots:[{id:'258552',manifest:'123'}]}},inventory:{sha256:'a'.repeat(64),files:2,bytes:100}};
+ await runWorker(provision(one,'rust',{image,softwareMode:'managed'}),{instance:a,library:f.library});
+ const identity=path.join(a,'data/server/lobby-goblin-rust');await fs.writeFile(path.join(identity,'proceduralmap.1000.456.289.sav'),'synthetic copied world');await fs.writeFile(path.join(identity,'player.blueprints.5.db'),'synthetic players');
+ const backup=path.join(f.root,'managed-rust.tar.gz');await writeArchive(backup,identity,{identity:'lobby-goblin-rust',instance:one,label:'managed',software});
+ const result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Exact Rust copy',game:'rust',image,seed:456,worldSize:1000}}),manifest=await verifySnapshot(f.library,snap,result.manifestSha256);
+ assert.deepEqual(manifest.software,software);assert.ok(manifest.files.some(file=>file.name==='software.json'));assert.ok(!manifest.files.some(file=>file.name.includes('/cfg/')));
+ const input=module.managed.creationFromSnapshot({game:'rust',name:'Managed clone'},manifest);assert.equal(input.softwareMode,'managed');assert.deepEqual(input.softwareReceipt,software);
+ await runWorker(provision(two,'rust',{...input,image,snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:b,library:f.library});
+ const bootstrap=await readJSON(path.join(b,'control/managed-rust-bootstrap.json'));assert.deepEqual(bootstrap.selection,software.selection);assert.ok(bootstrap.inventory.files>=4);
+ assert.equal(await fs.readFile(path.join(b,'data/server/lobby-goblin-rust/proceduralmap.1000.456.289.sav'),'utf8'),'synthetic copied world');
+ assert.equal(await fs.readFile(path.join(b,'control/rcon-password'),'utf8'),provision(two).rconPassword);
+ assert.equal(await fs.lstat(path.join(b,'data/.lobby-goblin-clone.json')).catch(()=>null),null);assert.deepEqual(await fs.readdir(path.join(b,'data/engine')),[]);
+ const legacy=path.join(f.root,'legacy-rust.tar.gz');await writeArchive(legacy,identity,{identity:'lobby-goblin-rust',instance:one,label:'legacy'});
+ await assert.rejects(publishSnapshot({library:f.library,backup:legacy,record:{id:'e'.repeat(32),sourceId:one,title:'Missing software',game:'rust',image,seed:456,worldSize:1000}}),/exact software identity/);
+ assert.throws(()=>module.managed.creationFromSnapshot({softwareMode:'managed'},{seed:456,worldSize:1000}),/no exact managed software/);
+});

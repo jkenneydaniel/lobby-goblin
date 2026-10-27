@@ -6,6 +6,9 @@ import {Readable} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {createGzip,createGunzip} from 'node:zlib';
 import {assert} from '../../common.js';
+import {softwareReceipt} from '../../core/software-installation.js';
+
+export function rustSoftwareReceipt(value){const receipt=softwareReceipt(value);assert(receipt.selection.application==='rust'&&receipt.selection.provider==='steamcmd'&&receipt.selection.platform==='linux/amd64'&&receipt.selection.source.kind==='steam'&&receipt.selection.source.appId==='258550','Invalid Rust backup software identity.',409);return receipt;}
 
 const MAX_FILE=8*1024**3-1,MAX_TOTAL=64*1024**3,MAX_FILES=20000;
 const safe=name=>typeof name==='string'&&name.length>0&&!name.startsWith('/')&&!name.includes('\\')&&!name.includes('\0')&&!name.split('/').some(part=>['','..','.'].includes(part));
@@ -37,7 +40,8 @@ export async function inventory(root,{requireSave=true,prefix='identity/'}={}){
   }
   await walk();if(requireSave)assert(files.some(file=>file.name.endsWith('.sav')&&file.size>0),'No Rust world save exists in this identity yet.');return files;
 }
-export async function writeArchive(target,root,{identity,instance,label,extras=[]}){
+export async function writeArchive(target,root,{identity,instance,label,extras=[],software}){
+  if(software)software=rustSoftwareReceipt(software);
   const files=(await inventory(root)).map(file=>({...file,archive:'identity/'+file.name,source:path.join(root,file.name)})),records=[];
   for(const extra of extras){
     assert(['mods/carbon','mods/oxide','mod-state'].includes(extra.prefix),'Unsupported Rust backup root.');
@@ -52,7 +56,7 @@ export async function writeArchive(target,root,{identity,instance,label,extras=[
       for await(const chunk of createReadStream(file.source)){bytes+=chunk.length;assert(bytes<=file.size,'Rust files changed during backup.');hash.update(chunk);yield chunk;}
       assert(bytes===file.size,'Rust files changed during backup.');yield padding(file.size);records.push({name:version===1?file.name:file.archive,size:file.size,sha256:hash.digest('hex')});
     }
-    const manifest=Buffer.from(JSON.stringify({format:'lobby-goblin-rust',version,identity,instance,label,created:new Date().toISOString(),files:records}));
+    const manifest=Buffer.from(JSON.stringify({format:'lobby-goblin-rust',version,identity,instance,label,created:new Date().toISOString(),files:records,...(software?{software}:{})}));
     assert(manifest.length<=4*1024*1024,'Rust backup manifest exceeds its limit.');yield header('manifest.json',manifest.length);yield manifest;yield padding(manifest.length);yield Buffer.alloc(1024);
   }
   await pipeline(Readable.from(contents()),createGzip(),createWriteStream(target,{flags:'wx',mode:0o600}));
@@ -84,6 +88,6 @@ export async function verifyArchive(file){
     const expected=manifest.version===1?records.map(file=>({...file,name:file.name.slice(9)})):records;
     assert((manifest.version!==1||records.every(file=>file.name.startsWith('identity/')))&&new Set(records.map(file=>file.name)).size===records.length&&JSON.stringify(expected)===JSON.stringify(manifest.files),'Rust backup files do not match the manifest.');
     assert(records.some(file=>file.name.startsWith('identity/')&&file.name.endsWith('.sav')&&file.size>0),'Rust backup has no world save.');
-    return {files:records.length,identity:manifest.identity,modded:records.some(file=>!file.name.startsWith('identity/')),version:manifest.version,bytes:records.reduce((sum,file)=>sum+file.size,0)};
+    return {files:records.length,identity:manifest.identity,modded:records.some(file=>!file.name.startsWith('identity/')),version:manifest.version,bytes:records.reduce((sum,file)=>sum+file.size,0),...(manifest.software?{software:rustSoftwareReceipt(manifest.software)}:{})};
   }finally{input.destroy();unzip.destroy();await finished.catch(()=>{});}
 }
