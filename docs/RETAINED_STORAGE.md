@@ -34,8 +34,8 @@ volume; ordinary backups are copied.
 
 Interrupted software, framework, mod, image or storage changes require manual
 recovery review before copying. Unexpected links and special files also block
-recovery. A partial failed copy stays allocated for review; the original volume
-is preserved. Follow progress and inspect interrupted work in **Operations**.
+recovery. A partial failed copy stays allocated for review and cannot be used
+as a completed recovery source; the original volume is preserved. Follow progress and inspect interrupted work in **Operations**.
 
 ## Application adapters
 

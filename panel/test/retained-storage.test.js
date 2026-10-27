@@ -521,3 +521,18 @@ unix(
     assert.match(result.recovery.reason, /cannot traverse/);
   },
 );
+
+test('an interrupted recovery destination cannot be treated as a completed source copy', async (t) => {
+  const f = await fixture(t);
+  await writeJSON(path.join(f.source, 'control/retained-recovery.json'), {
+    sourceId: id,
+    targetId: sourceId,
+    nonce,
+  });
+  const result = await runRetainedWorker(f.request, f.options);
+  assert.equal(result.recovery.ready, false);
+  assert.match(
+    result.recovery.reason,
+    /earlier recovery copy did not complete/,
+  );
+});

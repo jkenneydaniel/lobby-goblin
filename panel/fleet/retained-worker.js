@@ -40,6 +40,11 @@ export async function runRetainedWorker(
   const managed = resolveGame(config.game).managed;
   let recovery;
   try {
+    assert(
+      !(await retainedRecord(source, 'control/retained-recovery.json')),
+      'An earlier recovery copy did not complete. Review its original source before recovering again.',
+      409,
+    );
     for (const name of ['data', 'state', 'backups', 'software', 'library']) {
       const entry = inventory.entries.find((value) => value.name === name);
       assert(
