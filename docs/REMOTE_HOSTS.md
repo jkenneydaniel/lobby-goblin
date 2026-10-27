@@ -41,6 +41,31 @@ does not automatically remove a partial installation.
 
 ## Install manually and pair
 
+Copy the matching command from **Hosts → Add host → I have a pairing code →
+I need to install the agent**. Run it on the game-host machine. For example:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.12-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+```
+
+Or use wget:
+
+```sh
+wget -qO- https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.12-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+```
+
+Use your panel's release version. The public script downloads source from that
+GitHub tag into a private temporary directory, checks archive paths and the
+requested version, and runs the existing installer. Temporary source is removed
+when it finishes. It needs curl or wget and tar; Node remains optional when
+Docker is available. Docker installation still requires the explicit
+`--install-docker` option after `--host-agent` on supported hosts. Run as root,
+or use `sudo bash` in the pipe when Docker installation needs administrator access. The command
+prints the agent address and one-time pairing code; paste them into your panel.
+Replace `--start` with `--prepare` to review generated files before starting.
+
+Existing extracted-release commands remain supported:
+
 Extract a complete matching release on the game host. Install Docker first, then
 prepare files without starting anything:
 
@@ -54,7 +79,8 @@ Inspect `host.compose.json` and `host-installation.json`, then explicitly start:
 sh ./Install.sh --host-agent --start --directory ./lobby-goblin-host
 ```
 
-Windows uses the same arguments with `./Install.ps1`. The launchers accept Node
+Windows uses the extracted release and `./Install.ps1`; omit the public
+bootstrap’s `--version` argument. The launchers accept Node
 22+ or use the published Docker runtime when Node is absent. Hosts require Linux
 x86-64 containers, Docker Engine 26+, Compose 2.24+ and the selected game budget
 plus at least 2 GiB of management headroom. Windows/macOS require compatible
