@@ -68,6 +68,8 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(manager.operations,operationFeed):manager.operations.status());
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   if(req.method==='GET'&&url.pathname==='/removed-servers')return json(res,200,{servers:manager.removedServers()});
+  const retainedRoute=url.pathname.match(/^\/removed-servers\/([a-f0-9]{32})\/(inspect|recover|remove)$/);
+  if(retainedRoute){assert(req.method==='POST','Not found.',404);return json(res,202,await manager.submit({inspect:'inspectStorage',recover:'recoverStorage',remove:'deleteStorage'}[retainedRoute[2]],{...await requestJSON(req),serverId:retainedRoute[1]},req.headers['x-panel-user']||'administrator'));}
   const snapshotRoute=url.pathname.match(/^\/snapshots\/([a-f0-9]{32})(\/remove)?$/);
   if(snapshotRoute){if(req.method==='GET'&&!snapshotRoute[2])return json(res,200,await manager.snapshotDetails(snapshotRoute[1]));if(req.method==='POST'&&snapshotRoute[2])return json(res,202,await manager.submit('removeSnapshot',{...await requestJSON(req),snapshotId:snapshotRoute[1]},req.headers['x-panel-user']||'administrator'));assert(false,'Not found.',404);}
   if(req.method==='GET'&&url.pathname==='/snapshots')return json(res,200,{snapshots:manager.state.snapshots});

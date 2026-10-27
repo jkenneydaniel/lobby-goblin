@@ -100,6 +100,24 @@ jobs:
               --mount "type=bind,source=$PWD/panel/test/storage-worker-native.mjs,target=/smoke.mjs,readonly" \
               --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.12-alpha /smoke.mjs "$mode"
           done
+      - name: Verify read-only retained storage inspection and independent recovery
+        run: |
+          fixture_prefix="lobby-retained-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          for part in source target setup; do docker volume create --label io.lobby-goblin.fixture=retained-storage "$fixture_prefix-$part"; done
+          trap 'docker volume rm "$fixture_prefix-source" "$fixture_prefix-target" "$fixture_prefix-setup"' EXIT
+          for mode in prepare inspect copy; do
+            source_mode=readonly
+            capabilities="--cap-add DAC_OVERRIDE"
+            if [ "$mode" = prepare ]; then source_mode=volume-nocopy; fi
+            if [ "$mode" != inspect ]; then capabilities="$capabilities --cap-add CHOWN --cap-add FOWNER"; fi
+            docker run --rm --network none --user 0:0 --read-only --cap-drop ALL $capabilities \
+              --security-opt no-new-privileges:true --memory 512m \
+              --mount "type=volume,source=$fixture_prefix-source,target=/source,$source_mode" \
+              --mount "type=volume,source=$fixture_prefix-target,target=/instance" \
+              --mount "type=volume,source=$fixture_prefix-setup,target=/setup" \
+              --mount "type=bind,source=$PWD/panel/test/retained-storage-native.mjs,target=/smoke.mjs,readonly" \
+              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.12-alpha /smoke.mjs "$mode"
+          done
       - name: Check public source artifact
         run: node tools/release.mjs
       - name: Test the packaged installer and repeat setup in the release image

@@ -1,3 +1,4 @@
+import {runRetainedWorker} from '../fleet/retained-worker.js';
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import http from 'node:http';
 import {catalog,validateCreation,resources,labels} from '../fleet/catalog.js';import {runWorker} from '../fleet/worker.js';import {publishSnapshot,verifySnapshot} from '../fleet/snapshots.js';import {writeArchive} from '../applications/rust/archive.js';import {makeZip} from '../core/archive.js';import {ownedDocker} from '../core/owned-docker.js';import {legacyHelperMount} from '../applications/factorio/helper-mount.js';import {FleetManager} from '../fleet/manager.js';import {startFleetWeb} from '../fleet/web.js';import {writeJSON,readJSON} from '../common.js';import {hashPassword} from '../auth.js';import {selectedApplication} from '../applications/index.js';
 import {waitForIdleJob} from './fixtures.js';
@@ -76,6 +77,7 @@ async function fakeManager(t,{gameModules,broker}={}){
  const backend=http.createServer(async(req,res)=>{
   const id=req.headers['x-test-controller'];const item=manager.state.servers.find(item=>item.controller===id);
   assert.ok(item);assert.equal(req.headers.authorization,'Bearer '+item.controllerToken);
+  if(req.method==='GET'&&req.url==='/status'){res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({ready:false,state:'stopped'}));return;}
   assert.equal(req.method,'POST');assert.equal(req.url,'/jobs');
   let body='';for await(const chunk of req)body+=chunk;
   const value=JSON.parse(body);assert.equal(value.action,'start');assert.equal(value.actor,'administrator');childRequests.push({id,value});
@@ -162,6 +164,7 @@ test('one fleet login opens scoped game controls; viewer/CSRF boundaries survive
  assert.equal((await fetch(origin+'/api/snapshots',{headers:{cookie:viewer.cookie}})).status,200);
  for(const route of ['/snapshots/'+snap,'/removed-servers','/application-releases?game=factorio'])assert.equal((await fetch(origin+'/api'+route,{headers:{cookie:viewer.cookie}})).status,403);
  assert.equal((await fetch(origin+'/api/removed-servers',{headers:{cookie:admin.cookie}})).status,200);
+ for(const prefix of ['', '/hosts/'+two])for(const action of ['inspect','recover','remove']) {const route=origin+'/api'+prefix+'/removed-servers/'+one+'/'+action;assert.equal((await fetch(route,{method:'POST',headers:{origin,cookie:viewer.cookie,'content-type':'application/json','x-csrf-token':viewer.csrf},body:'{}'})).status,403);assert.equal((await fetch(route,{method:'POST',headers:{origin,cookie:admin.cookie,'content-type':'application/json'},body:'{}'})).status,403);}
  assert.equal((await fetch(origin+'/api/snapshots/'+snap+'/remove',{method:'POST',headers:{origin,cookie:admin.cookie,'content-type':'application/json'},body:JSON.stringify({confirm:true,title:'World'})})).status,403);
 
  const html=await fetch(origin+'/servers/'+one+'/',{headers:{cookie:admin.cookie}});assert.equal(html.status,200);const text=await html.text();const entry=new URL(text.match(/<script[^>]+src="([^"]+)"/)[1],origin+`/servers/${one}/`);assert.equal(entry.pathname,`/servers/${one}/app.js`);assert.equal((await fetch(entry,{headers:{cookie:admin.cookie}})).status,200);const definition=await fetch(origin+`/servers/${one}/application-definition.json`,{headers:{cookie:admin.cookie}});assert.equal((await definition.json()).id,'factorio');assert.ok(!text.includes(token));const childSession=await fetch(origin+`/servers/${one}/api/session`,{headers:{cookie:admin.cookie}});assert.equal((await childSession.json()).username,'admin');
@@ -357,4 +360,18 @@ test('legacy Rust overflow registration snapshots keep the verified clamped worl
   await assert.rejects(publishSnapshot({library:f.library,backup,record:{...record,id:'e'.repeat(32),seed,worldSize}}),/source server seed and size|invalid registered seed/);
   assert.equal(await fs.stat(path.join(f.library,'e'.repeat(32))).catch(()=>null),null);
  }
+});
+
+test('retained recovery creates an independent stopped game without starting or changing neighboring games',async t=>{
+ const f=await fakeManager(t),original=await f.submit({game:'factorio',name:'Original'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'});
+ const root=f.instanceRoots.get(original.id);await fs.writeFile(path.join(root,'data/saves/world.zip'),'synthetic retained world');
+ f.containers.get(original.container).State.Running=false;const removed=await f.settled(await f.manager.submit('remove',{serverId:original.id,name:original.name,confirm:true}));assert.equal(removed.state,'succeeded',removed.message);
+ Object.assign(f.volumes.get(original.volume),{Driver:'local',Scope:'local',CreatedAt:'2026-10-27T12:00:00Z'});
+ f.manager.retained.helper=async(item,config,target)=>runRetainedWorker({...config,fleet,sourceId:item.id,game:item.game,seed:item.seed},{source:f.instanceRoots.get(item.id),instance:target?f.instanceRoots.get(target.id):undefined});
+ const inspected=await f.settled(await f.manager.submit('inspectStorage',{serverId:original.id}));assert.equal(inspected.state,'succeeded',inspected.message);
+ const before=f.calls.length,childRequests=f.childRequests.length,job=await f.settled(await f.manager.submit('recoverStorage',{serverId:original.id,name:original.name,newName:'Recovered',confirm:true,reviewToken:original.storageReview.token}));assert.equal(job.state,'succeeded',job.message);
+ const recovered=f.manager.server(job.result.serverId);assert.equal(recovered.recoveredFrom,original.id);assert.equal(recovered.autoStart,false);assert.equal(recovered.image,original.image);assert.notEqual(recovered.volume,original.volume);assert.notEqual(recovered.controllerToken,original.controllerToken);assert.notEqual(recovered.rconPassword,original.rconPassword);
+ assert.equal(f.containers.get(recovered.container).State.Running,false);assert.equal(f.containers.get(recovered.controller).State.Running,true);assert.equal(f.containers.get(neighbor.container).State.Running,true);assert.equal(f.childRequests.length,childRequests);
+ assert.ok(!f.calls.slice(before).some(c=>c.method==='POST'&&c.route===`/containers/${recovered.container}/start`));assert.equal(await fs.readFile(path.join(root,'data/saves/world.zip'),'utf8'),'synthetic retained world');
+ assert.equal(await fs.readFile(path.join(f.instanceRoots.get(recovered.id),'data/saves/world.zip'),'utf8'),'synthetic retained world');
 });

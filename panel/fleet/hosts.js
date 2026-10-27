@@ -26,6 +26,7 @@ export function remoteRoute(method,route){
  if(!['GET','POST'].includes(method))return false;
  if(/^\/snapshots\/[a-f0-9]{32}$/.test(route))return method==='GET';
  if(/^\/snapshots\/[a-f0-9]{32}\/remove$/.test(route))return method==='POST';
+ if(/^\/removed-servers\/[a-f0-9]{32}\/(inspect|recover|remove)$/.test(route))return method==='POST';
  if(route==='/creation-preflight')return method==='POST';
  if(['/removed-servers','/application-releases'].includes(route))return method==='GET';
  if(route==='/operations')return method==='GET';

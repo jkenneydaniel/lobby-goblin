@@ -1,3 +1,4 @@
+import {retained} from './retained.js';
 import {rustSeedMaximum} from './seed.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -10,6 +11,7 @@ import {softwareInventory} from '../../providers/steamcmd/files.js';
 import {rustSoftwareReceipt} from './archive.js';
 
 export const managed = compileManagedDefinition(definition,{
+  retained,
   legacyMigration: {
     file: (config) => path.join(config.state, 'image-migration.json'),
     names: (config, env) => ({

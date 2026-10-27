@@ -72,6 +72,7 @@ existing servers are not restarted merely to enable mods. See
 | Rust setup, mods and recovery | [Rust](docs/RUST.md) |
 | Browse, install and update mods or plugins | [Live mod library](docs/MOD_LIBRARY.md) |
 | Multiple servers and shared snapshots | [Host manager](docs/FLEET.md) |
+| Removed server data, recovery and deletion | [Retained storage](docs/RETAINED_STORAGE.md) |
 | SSH setup, pairing and agent updates | [Remote game hosts](docs/REMOTE_HOSTS.md) |
 | Source organization and installed compatibility | [Repository layout](docs/REPOSITORY.md) |
 | Shared runtime and game-module boundaries | [Architecture](docs/ARCHITECTURE.md) |

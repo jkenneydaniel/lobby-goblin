@@ -6,9 +6,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
   let selected = null,
     details = null,
     problem = '',
-    loading = false,
-    retained = [],
-    retainedError = '';
+    loading = false;
   const admin = () => getSession()?.role === 'admin';
   function paint(ctx) {
     if (!ctx.isCurrent()) return;
@@ -25,7 +23,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
             )}</tbody></table></div>${details.manifest.files.length > 200 ? '<p>Showing the first 200 files. Download the manifest for the full inventory.</p>' : ''}</details><button data-manifest>Download manifest</button></section>`
         : '';
     ctx.render(
-      `<p class="hint">Inspect a saved world, create an independent server from it, or delete a snapshot you no longer need.</p>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}${loading ? '<p role="status">Verifying snapshot files…</p>' : ''}${detail}<div class="grid">${snapshotCards(model.snapshot, admin())}</div><section class="retained-storage"><h2>Removed servers · retained storage</h2><p class="hint">Removed servers leave your active list. Their original data volumes remain on the source host for operator recovery. Worlds and any existing backups remain in that volume. The optional snapshot created during removal appears in the library above.</p>${retainedError ? `<p role="status">${esc(retainedError)}</p>` : ''}${retained.length ? retained.map((item) => `<article class="card"><h3>${esc(item.name)}</h3><p>${esc(item.game)} · ${esc(item.hostName)} · ${esc(formatDate(item.removedAt))}</p><p class="hint">Retained volume: <code>${esc(item.volume)}</code></p></article>`).join('') : '<p>No removed server storage is registered on the available hosts.</p>'}</section>`,
+      `<p class="hint">Inspect a saved world, create an independent server from it, or delete a snapshot you no longer need.</p>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}${loading ? '<p role="status">Verifying snapshot files…</p>' : ''}${detail}<div class="grid">${snapshotCards(model.snapshot, admin())}</div>${admin() ? '<section class="retained-storage"><h2>Removed server data</h2><p>Inspect retained volumes, recover an independent server or permanently delete data in <a href="#storage">Storage</a>.</p></section>' : ''}`,
     );
     ctx.on(ctx.root, 'click', async (event) => {
       const button = event.target.closest('button');
@@ -111,27 +109,6 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
   return {
     async mount(ctx) {
       await model.refresh();
-      await Promise.all(
-        model.snapshot.hosts
-          .filter((host) => host.connected)
-          .map(async (host) => {
-            try {
-              const result = await ctx.request(
-                model.route(host.id, '/removed-servers'),
-              );
-              retained.push(
-                ...result.servers.map((item) => ({
-                  ...item,
-                  hostName: host.name,
-                })),
-              );
-            } catch (error) {
-              if (ctx.isCurrent())
-                retainedError =
-                  'Some retained storage could not be read: ' + error.message;
-            }
-          }),
-      );
       paint(ctx);
       ctx.onDispose(() => creation.cancel());
     },

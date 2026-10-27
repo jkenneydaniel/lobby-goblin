@@ -46,6 +46,18 @@ export function validateManagedGame(module) {
     'configureStorage',
   ])
     assert(typeof managed[key] === 'function', `Managed game needs ${key}.`);
+  if (managed.retained)
+    assert(
+      managed.retained.version === 1 &&
+        Array.isArray(managed.retained.state) &&
+        managed.retained.state.every(
+          (name) => /^state\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(name) &&
+            !name.split('/').some((part) => ['.', '..'].includes(part)),
+        ) &&
+        typeof managed.retained.inspect === 'function' &&
+        typeof managed.retained.rebind === 'function',
+      'Invalid retained-storage adapter.',
+    );
   assert(
     managed.snapshots &&
       typeof managed.snapshots.includesPlayerData === 'boolean',
