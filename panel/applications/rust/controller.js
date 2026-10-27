@@ -1,4 +1,5 @@
 import {createRustSoftware} from './software.js';
+import {createRustModStores} from './mod-stores.js';
 import {createRustModLibrary} from './mod-library.js';
 import {modLibraryRoutes,validateLibraryAction} from '../../core/mod-library.js';
 import fs from 'node:fs/promises';
@@ -63,7 +64,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     }while(Date.now()<deadline);
     throw Error('Rust did not become ready in time. It may still be loading; check status and logs before retrying.');
   }
-  const mods=createModManager({root:config.installRoot,state:config.state,getActive:()=>ctx.active,fetcher:modFetcher,assertStopped:async()=>{assert(!(await owned()).State?.Running,'Stop Rust before changing mod files.',409);},command:async value=>{assert(started(await owned(),await serverInfo()),'Wait for Rust to finish startup.',409);return command(value);}});
+  const mods=createModManager({root:config.installRoot,state:config.state,mutableStores:createRustModStores(config),getActive:()=>ctx.active,fetcher:modFetcher,assertStopped:async()=>{assert(!(await owned()).State?.Running,'Stop Rust before changing mod files.',409);},command:async value=>{assert(started(await owned(),await serverInfo()),'Wait for Rust to finish startup.',409);return command(value);}});
   const modLibrary=createRustModLibrary(ctx,{mods,owned,start,stop,command,ready:async()=>{const current=await owned();assert(current.State?.Running&&started(current,await serverInfo()),'Wait for Rust to be ready before applying plugins while running.',409);},fetcher:modFetcher});
   async function softwareReadyForSettings(){if(!software)return true;const value=await software.status();return value.phase==='complete'&&!value.recoveryRequired;}
   async function start(_params,job=ctx.active){await owned();if(software)await software.ensure(job);const info=await owned();await modLibrary.assertReady();await mods.assertReady();if(!info.State?.Running)await host.control('start');await ready();return 'Rust is ready.';}
