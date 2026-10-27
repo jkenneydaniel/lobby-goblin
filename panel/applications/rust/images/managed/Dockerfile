@@ -14,12 +14,12 @@ USER 0:0
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force
-COPY transport.js entrypoint.mjs managed-entrypoint.mjs managed-helper.mjs managed-health.mjs ./
+COPY transport.js entrypoint.mjs managed-entrypoint.mjs managed-helper.mjs managed-health.mjs mod-layout.js mod-runtime-tools.json ./
 LABEL org.opencontainers.image.title="Lobby Goblin managed Rust runtime" \
  org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
  org.opencontainers.image.licenses="MIT" \
  io.lobby-goblin.rust-mods="1" io.lobby-goblin.game="rust" io.lobby-goblin.compatibility="1" \
- io.lobby-goblin.software-delivery="runtime" io.lobby-goblin.software-provider="steamcmd" io.lobby-goblin.image-revision="1"
+ io.lobby-goblin.software-delivery="runtime" io.lobby-goblin.software-provider="steamcmd" io.lobby-goblin.image-revision="2" io.lobby-goblin.mod-data="1"
 ENV HOME=/home/node RUST_SERVER_IDENTITY=lobby-goblin-rust RUST_SERVER_PORT=28015 RUST_SERVER_QUERYPORT=28017 RUST_RCON_PORT=28016
 EXPOSE 28015/udp 28017/udp 28016/tcp
 STOPSIGNAL SIGTERM

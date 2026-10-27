@@ -201,3 +201,31 @@ test('readiness checks prove a live process without cross-user signal privileges
   assert.equal(liveProcess({pid: 43}, '42 (RustDedicated) S 1 2 3'), false);
   assert.equal(liveProcess({pid: '../other'}, '42 (RustDedicated) S'), false);
 });
+
+test('unrecorded framework loaders and an unprepared compiler cannot start or redirect mutable setup', async (t) => {
+  const f = await fixture(t),
+    managed = path.join(f.engine, 'RustDedicated_Data/Managed');
+  await fs.mkdir(managed, {recursive: true});
+  await fs.writeFile(path.join(managed, 'Oxide.Rust.dll'), 'synthetic loader', {
+    mode: 0o644,
+  });
+  await assert.rejects(managedStartup(f.env, f.root), /Unrecorded framework/);
+  await fs.writeFile(
+    path.join(f.engine, '.lobby-goblin-mods.json'),
+    JSON.stringify({format: 1, status: 'complete', framework: 'oxide'}),
+    {mode: 0o644},
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /ENOENT/);
+  await fs.writeFile(
+    path.join(f.engine, 'Oxide.Compiler'),
+    'unreviewed compiler',
+    {mode: 0o755},
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /executable differs/);
+  assert.equal(
+    await fs
+      .lstat(path.join(f.root, 'server/lobby-goblin-rust/mods'))
+      .catch(() => null),
+    null,
+  );
+});

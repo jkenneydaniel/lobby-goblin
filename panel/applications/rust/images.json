@@ -76,6 +76,14 @@
         {
           "source": "images/managed-health.mjs",
           "target": "managed-health.mjs"
+        },
+        {
+          "source": "mod-layout.js",
+          "target": "mod-layout.js"
+        },
+        {
+          "source": "mod-runtime-tools.json",
+          "target": "mod-runtime-tools.json"
         }
       ],
       "buildArgs": {
@@ -85,6 +93,10 @@
         {
           "runner": "node-test",
           "file": "images/test-managed.test.mjs"
+        },
+        {
+          "runner": "node-test",
+          "file": "images/test-managed-mods.test.mjs"
         }
       ],
       "acceptance": ["images/managed-acceptance.mjs"]

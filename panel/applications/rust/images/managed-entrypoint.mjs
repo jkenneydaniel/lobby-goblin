@@ -8,6 +8,7 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {shutdownEvidence, startupEvidence} from './entrypoint.mjs';
 import {createWebRcon} from './transport.js';
+import {prepareFrameworkLayout, oxideCompiler} from './mod-layout.js';
 
 const check = (value, message) => {
   if (!value) throw Error(message);
@@ -174,90 +175,74 @@ async function verifyBinary(binary, expected) {
     await handle.close();
   }
 }
-async function framework(engine) {
+async function framework(engine, worldRoot, identity) {
   const file = path.join(engine, '.lobby-goblin-mods.json'),
     stat = await fs.lstat(file).catch((error) => {
       if (error.code === 'ENOENT') return null;
       throw error;
     });
-  if (!stat) return {};
-  const marker = await record(file, 4096);
+  const marker = stat
+    ? await record(file, 4096)
+    : {format: 1, status: 'complete', framework: 'none'};
   check(
     marker.format === 1 &&
       marker.status === 'complete' &&
       ['none', 'carbon', 'oxide'].includes(marker.framework),
     'Framework files need controller recovery',
   );
-  if (marker.framework === 'oxide') {
-    const target = path.join(
-      engine,
+  if (marker.framework === 'none') {
+    for (const name of [
+      'libdoorstop.so',
       'RustDedicated_Data/Managed/Oxide.Rust.dll',
-    );
+    ])
+      check(
+        !(await fs.lstat(path.join(engine, name)).catch((error) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        })),
+        'Unrecorded framework code requires controller recovery',
+      );
+    return {env: {}};
+  }
+  for (const name of marker.framework === 'carbon'
+    ? ['libdoorstop.so', 'carbon/managed/Carbon.Preloader.dll']
+    : ['RustDedicated_Data/Managed/Oxide.Rust.dll']) {
+    const target = path.join(engine, name),
+      entry = await fs.lstat(target);
     check(
-      (await fs.lstat(target)).isFile() &&
+      entry.isFile() &&
+        entry.nlink === 1 &&
+        entry.uid === process.getuid() &&
+        !(entry.mode & 0o022) &&
         (await fs.realpath(target)) === target,
-      'Oxide loader is missing or linked',
+      'Framework loader must be sealed controller-owned code',
     );
   }
-  if (marker.framework !== 'carbon') return {};
-  for (const name of [
-    'libdoorstop.so',
-    'carbon/managed/Carbon.Preloader.dll',
-  ]) {
-    const target = path.join(engine, name);
-    check(
-      (await fs.lstat(target)).isFile() &&
-        (await fs.realpath(target)) === target,
-      'Carbon loader is missing or linked',
+  if (marker.framework === 'oxide')
+    await verifyBinary(
+      path.join(engine, 'Oxide.Compiler'),
+      oxideCompiler.sha256,
     );
-  }
-  await realDirectory(path.join(engine, 'carbon'));
-  const target = path.join(engine, 'carbon/config.json');
-  const existing = await fs.lstat(target).catch((error) => {
-    if (error.code === 'ENOENT') return null;
-    throw error;
+  const layout = await prepareFrameworkLayout({
+    engine,
+    worldRoot,
+    identity,
+    framework: marker.framework,
   });
-  let config = {};
-  if (existing) {
-    check(
-      existing.isFile() &&
-        existing.nlink === 1 &&
-        existing.size <= 512 * 1024 &&
-        (await fs.realpath(target)) === target,
-      'Invalid Carbon configuration',
-    );
-    config = JSON.parse(await fs.readFile(target, 'utf8'));
-  }
-  check(
-    config && typeof config === 'object' && !Array.isArray(config),
-    'Invalid Carbon configuration',
-  );
-  const updating = config.SelfUpdating || {};
-  check(
-    updating && typeof updating === 'object' && !Array.isArray(updating),
-    'Invalid Carbon self-update configuration',
-  );
-  if (updating.Enabled !== false || updating.HookUpdates !== false) {
-    config.SelfUpdating = {...updating, Enabled: false, HookUpdates: false};
-    const temporary = target + '.' + crypto.randomUUID();
-    try {
-      await fs.writeFile(temporary, JSON.stringify(config), {
-        flag: 'wx',
-        mode: 0o644,
-      });
-      await fs.rename(temporary, target);
-    } finally {
-      await fs.rm(temporary, {force: true});
-    }
+  if (marker.framework === 'oxide') {
+    return {...layout, env: {}};
   }
   return {
-    TERM: 'xterm',
-    LD_PRELOAD: path.join(engine, 'libdoorstop.so'),
-    DOORSTOP_ENABLED: '1',
-    DOORSTOP_TARGET_ASSEMBLY: path.join(
-      engine,
-      'carbon/managed/Carbon.Preloader.dll',
-    ),
+    ...layout,
+    env: {
+      TERM: 'xterm',
+      LD_PRELOAD: path.join(engine, 'libdoorstop.so'),
+      DOORSTOP_ENABLED: '1',
+      DOORSTOP_TARGET_ASSEMBLY: path.join(
+        engine,
+        'carbon/managed/Carbon.Preloader.dll',
+      ),
+    },
   };
 }
 export async function managedStartup(
@@ -389,6 +374,7 @@ export async function managedStartup(
     '-logfile',
     '-',
   ];
+  const mods = await framework(engine, worldRoot, env.RUST_SERVER_IDENTITY);
   return {
     root,
     engine,
@@ -396,7 +382,8 @@ export async function managedStartup(
     binary,
     args,
     receipt,
-    modEnv: await framework(engine),
+    modEnv: mods.env,
+    carbonConfig: mods.carbonConfig || null,
     install: false,
   };
 }
@@ -440,6 +427,8 @@ export async function main() {
   const config = await managedStartup();
   // Only mutable worlds change ownership. Executables remain controller-owned.
   await run('chown', ['-hR', '1000:1000', config.worldRoot]);
+  if (config.carbonConfig)
+    await gameHelper(['carbon-config', path.dirname(config.carbonConfig)]);
   for (const file of [
     path.join(config.engine, 'steamclient.so'),
     '/opt/steamcmd/linux64/steamclient.so',
