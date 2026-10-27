@@ -110,6 +110,7 @@ export function createSteamProvider({
     activeFile = path.join(control, 'active.json');
   const stages = path.join(software, 'staging'),
     releases = path.join(software, 'releases'),
+    bindings = path.join(control, 'cached-operations'),
     inventories = path.join(control, 'inventories');
   const capabilities = softwareCapabilities({
     version: 1,
@@ -148,7 +149,14 @@ export function createSteamProvider({
     return receipt;
   }
   async function initialize() {
-    for (const root of [software, control, stages, releases, inventories])
+    for (const root of [
+      software,
+      control,
+      stages,
+      releases,
+      inventories,
+      bindings,
+    ])
       await directory(root, {create: true});
   }
   async function withLease(work) {
@@ -343,6 +351,30 @@ export function createSteamProvider({
           409,
         );
       const prior = current;
+      const preparing = transitionSoftwareInstallation(
+        current,
+        {state: 'preparing', operationId, target},
+        {expectedRevision: current.revision},
+      );
+      const cached = await cachedReceipt(target);
+      if (cached) {
+        assert(
+          (await fs.readdir(bindings)).length < 128,
+          'Cached operation history needs reviewed cleanup.',
+          409,
+        );
+        // Bind the verified inventory before publishing the new operation.
+        // A separate file preserves every earlier operation's recovery proof.
+        await atomicRecord(
+          path.join(bindings, preparing.operationId + '.json'),
+          {
+            format: 1,
+            operationId: preparing.operationId,
+            receipt: cached,
+          },
+        );
+        await fault('cached-bound');
+      }
       async function move(next) {
         const record = transitionSoftwareInstallation(current, next, {
           expectedRevision: current.revision,
@@ -351,7 +383,9 @@ export function createSteamProvider({
         current = record;
       }
       try {
-        await move({state: 'preparing', operationId, target});
+        await atomicRecord(stateFile, preparing);
+        current = preparing;
+        if (cached) await fault('cached-preparing');
         const discovered = await discovery(target.source.branch, signal);
         assert(
           softwareSelectionKey(discovered.selection) ===
@@ -359,9 +393,9 @@ export function createSteamProvider({
           'Steam branch moved. Refresh the installation plan.',
           409,
         );
-        const cached = await cachedReceipt(target);
         if (cached) {
           await move({state: 'validating'});
+          await fault('cached-validating');
           await atomicRecord(candidateFile, {
             format: 1,
             operationId,
@@ -601,17 +635,22 @@ export function createSteamProvider({
   }
   async function findCandidate(state) {
     if (!state.target || !state.operationId) return null;
-    const candidate = await readRecord(candidateFile, {optional: true});
-    if (
-      candidate?.format === 1 &&
-      candidate.operationId === state.operationId &&
-      softwareSelectionKey(boundReceipt(candidate.receipt).selection) ===
-        softwareSelectionKey(state.target)
-    ) {
-      try {
-        await verify(candidate.receipt);
-        return candidate;
-      } catch {}
+    for (const file of [
+      candidateFile,
+      path.join(bindings, state.operationId + '.json'),
+    ]) {
+      const candidate = await readRecord(file, {optional: true});
+      if (
+        candidate?.format === 1 &&
+        candidate.operationId === state.operationId &&
+        softwareSelectionKey(boundReceipt(candidate.receipt).selection) ===
+          softwareSelectionKey(state.target)
+      ) {
+        try {
+          await verify(candidate.receipt);
+          return candidate;
+        } catch {}
+      }
     }
     const names = await fs.readdir(inventories).catch((error) => {
       if (error.code === 'ENOENT') return [];

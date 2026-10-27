@@ -54,6 +54,9 @@ operation-owned directory, checks the completed Steam manifest and required
 files, and hashes a bounded regular-file inventory before publishing anything.
 Only the same failed target can reuse its private partial directory. Completed
 local releases can be verified and reused without another payload download.
+Reusing a release durably binds its verified receipt to the new operation before
+publishing that operation's state. Separate bounded binding records preserve
+earlier recovery evidence if interruption occurs before the next candidate.
 
 The active receipt is separate from staging. activate requires an explicit
 confirmation, a matching staged operation/revision, verified files and a

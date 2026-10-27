@@ -232,6 +232,45 @@ for (const phase of [
     },
   );
 
+for (const phase of ['cached-bound', 'cached-preparing', 'cached-validating'])
+  test(
+    'a cached first install remains recoverable after interruption at ' + phase,
+    async (t) => {
+      const f = await fixture(t),
+        selected = await f.provider.resolve({channel: 'public'});
+      f.runtime.fault = 'staged';
+      await assert.rejects(f.provider.install(selected), /Injected/);
+      const original = await f.provider.read(),
+        calls = f.installs();
+      f.runtime.fault = phase;
+      await assert.rejects(
+        f.provider.stage(selected, {confirm: true}),
+        /Injected/,
+      );
+      const inspected = await f.provider.inspect();
+      assert.equal(inspected.observation.state, 'staged');
+      if (phase === 'cached-bound')
+        assert.equal(inspected.state.operationId, original.operationId);
+      else assert.notEqual(inspected.state.operationId, original.operationId);
+      f.runtime.fault = null;
+      const recovered = await f.provider.recover(inspected, {
+        confirm: true,
+        offline: true,
+      });
+      assert.equal(recovered.state, 'validating');
+      const receipt = await f.provider.activate(
+        {
+          operationId: recovered.operationId,
+          revision: recovered.revision,
+          receipt: inspected.observation.receipt,
+        },
+        {confirm: true},
+      );
+      assert.equal(await f.provider.installed(receipt), true);
+      assert.equal(f.installs(), calls);
+    },
+  );
+
 test('updates keep prior software active while staging, and a pre-activation failure preserves it', async (t) => {
   const f = await fixture(t),
     first = await f.provider.install(
