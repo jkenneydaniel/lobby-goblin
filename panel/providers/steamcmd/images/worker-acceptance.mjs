@@ -55,19 +55,21 @@ try {
     "import assert from 'node:assert/strict';import {executeWorkerRequest} from '/opt/lobby/panel/providers/steamcmd/worker.js';assert.equal(process.getuid(),1000);const request={format:1,id:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',source:{application:'rust',appId:'258550',platform:'linux/amd64',branches:['public']},requiredFiles:[{path:'RustDedicated',executable:true}],action:'inspect'};const response=await executeWorkerRequest(request);assert.equal(response.result.state.state,'uninstalled');await assert.rejects(executeWorkerRequest({...request,action:'activate'}),/supported/);",
   ]);
   if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
-    const root = fileURLToPath(new URL('../../../../', import.meta.url));
+    const fixture = fileURLToPath(
+      new URL('./worker-native.mjs', import.meta.url),
+    );
     console.log(
       run(
         [
           ...common(name + '-native'),
           '--mount',
-          'type=bind,source=' + root + ',target=/source,readonly',
+          'type=bind,source=' + fixture + ',target=/acceptance.mjs,readonly',
           '-e',
           'LOBBY_STEAM_WORKER_ACCEPTANCE=disposable',
           '--entrypoint',
           'node',
           image,
-          '/source/panel/providers/steamcmd/images/worker-native.mjs',
+          '/acceptance.mjs',
         ],
         {timeout: 2400000},
       ),

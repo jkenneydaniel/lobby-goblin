@@ -150,6 +150,40 @@ verified worker even after its application/controller has been removed, but
 cannot start it. A controller must retain uncertain requests for inspection;
 the broker alone does not make an interrupted operation safe to retry.
 
+`SoftwareWorkers` is the controller's trusted file-exchange adapter, available as
+`ctx.softwareWorkers` only to a declared managed application with broker transport.
+`run('resolve', {channel})` resolves the reviewed source;
+`run('prepare', selection, {confirm: true, id})` prepares an exact selection.
+Neither action stops an application, activates software or starts a game.
+The controller retains activation authority and must independently inspect real
+lifecycle and provider state before using a prepared candidate.
+
+Requests and operation journals live outside application data. The controller
+publishes a durable intent before create/start, starts each request once and
+checks the bounded response against its source, action, exact target and exit.
+Interrupted or uncertain requests block new preparation after reconstruction.
+`inspect(id)` is read-only; `cancel(id, {confirm: true})` stops only that worker.
+Closing an unchanged stopped observation needs explicit offline confirmation and
+does not clear provider recovery state, activate software or claim installation
+success. A parent operation acknowledges retained terminal requests after it has
+recorded their result. History is capped at 128 unacknowledged requests.
+
+The controller creates private claims with group access for UID 1000/GID 0 and
+normalizes only its own known provider control records before admission. This
+lets a subsequent worker read controller-owned activation records without CHOWN
+or FOWNER capabilities. Worker-owned inventories and releases retain their
+ownership. Native acceptance uses the published worker, the real broker and
+restricted controller credentials on a fresh engine, with a copied text sentinel
+and an idle Node fixture; no game executable or existing world is involved.
+
+Inspection reports missing initialization metadata and invalid protocol records
+as uncertain observations. Invalid bytes produce a validation code and bounded
+fingerprint, never a successful response. Oversized records use a bounded prefix
+digest plus file size and change timestamps. Offline closure binds these
+observations again before clearing request metadata, so altered bytes invalidate
+the review. Partial request initialization has the same explicit closure path;
+it cannot replay create/start or infer an installation outcome.
+
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
 [Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).
