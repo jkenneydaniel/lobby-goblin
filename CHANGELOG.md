@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.12-alpha — 2026-10-27
+
+- Let administrators enable management release checks and choose the stable or
+  preview channel from Updates. Persist preferences across restarts and preserve
+  existing host configuration as the initial default.
+- Fix Rust seed overflow in new server creation and snapshot-before-removal.
+  Verify legacy clamped seeds against the backed-up world, record the effective
+  seed for independent copies, and continue rejecting unrelated mismatches.
+- Preserve useful storage-worker errors for failed snapshots and removals. Allow
+  isolated workers to read private game-owned backups within their existing
+  mounts. Failed requested snapshots still block destructive removal.
+- Speed up Factorio map drawing and selection with viewport indexing and a lazy
+  terrain atlas. Preserve large modded objects and existing export limits; this
+  does not change gameplay performance or expand the exported area.
+- Add saved automatic map-refresh controls with separate permissions and bounded
+  intervals. Keep the existing after-save refresh behavior as the default.
+- Add safe draft-world cancellation, including protection against delayed preview
+  callbacks recreating a discarded draft. Keep editing available after refusal.
+- Preserve historical updater/archive formats and existing game image defaults.
+  Publishing does not deploy installations, retry removals, restart servers or
+  modify existing worlds.
+
 ## 0.3.11-alpha — 2026-10-27
 
 - Add exact software-provider contracts, receipts and recovery records, with a
