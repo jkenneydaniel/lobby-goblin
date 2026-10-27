@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import metadata from './image.json' with {type: 'json'};
 import {steamBuild, steamDiscoveryArguments} from '../metadata.js';
@@ -22,6 +23,7 @@ assert.equal(info.Config.User, '1000:1000');
 assert.equal(info.Architecture, 'amd64');
 assert.equal(info.Config.Labels['io.lobby-goblin.provider'], 'steamcmd');
 const name = 'lobby-steam-metadata-' + crypto.randomBytes(16).toString('hex');
+const installer = name + '-install';
 const source = {
   application: 'rust',
   appId: '258550',
@@ -61,7 +63,44 @@ try {
       gameFilesDownloaded: false,
     }),
   );
+  if (process.env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+    const root = fileURLToPath(new URL('../../../../', import.meta.url));
+    console.log(
+      execFileSync(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--init',
+          '--name',
+          installer,
+          '--label',
+          'io.lobby-goblin.acceptance=steamcmd',
+          '--cap-drop',
+          'ALL',
+          '--security-opt',
+          'no-new-privileges:true',
+          '--memory',
+          '2g',
+          '--cpus',
+          '2',
+          '--mount',
+          'type=bind,source=' + root + ',target=/source,readonly',
+          '-e',
+          'LOBBY_STEAM_INSTALL_ACCEPTANCE=disposable',
+          '--entrypoint',
+          'node',
+          image,
+          '/source/panel/providers/steamcmd/images/install-native.mjs',
+        ],
+        {encoding: 'utf8', timeout: 2400000, maxBuffer: 8 * 1024 ** 2},
+      ),
+    );
+  }
 } finally {
+  try {
+    run(['rm', '-f', installer]);
+  } catch {}
   try {
     run(['rm', '-f', name]);
   } catch {}

@@ -70,12 +70,20 @@ async function operation(action, input) {
 }
 async function child(item, action, params = {}) {
   const job = await manager.request(item, '/jobs', {action, params});
+  return settledChild(item, job.id);
+}
+async function settledChild(item, id) {
+  assert.equal(
+    typeof id,
+    'string',
+    'The host must identify its accepted child job.',
+  );
   const result = await until(async () => {
     const value = await manager.request(item, '/jobs');
-    const current = value.jobs.find((entry) => entry.id === job.id);
+    const current = value.jobs.find((entry) => entry.id === id);
     return !value.active &&
       current &&
-      ['succeeded', 'failed'].includes(current.state)
+      ['succeeded', 'failed', 'interrupted'].includes(current.state)
       ? current
       : null;
   });
@@ -90,6 +98,7 @@ const created = await operation('create', {
   autoStart: false,
 });
 const first = manager.server(created.result.serverId);
+await settledChild(first, created.target.childJobId);
 await until(async () => (await manager.request(first, '/status')).ready);
 assert.match(
   await (await fetch(`http://${first.container}:8080/`)).text(),
@@ -132,6 +141,7 @@ const cloned = await operation('create', {
   snapshotId: published.result.snapshotId,
 });
 const second = manager.server(cloned.result.serverId);
+await settledChild(second, cloned.target.childJobId);
 await until(async () => (await manager.request(second, '/status')).ready);
 assert.match(
   await (await fetch(`http://${second.container}:8080/`)).text(),

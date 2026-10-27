@@ -71,6 +71,9 @@ failure. Recovery requires explicit review and a trusted read-only observation
 of the previous or target installation. A missing artifact does not prove a
 worker is stopped: an inspector must establish both the installation identity
 and that no operation remains active. Unknown outcomes remain fenced.
+Inspection can also prove a staged target ready for a separately confirmed
+activation, or a known partial first download safe to retry. These observations
+do not claim an active installation and never discard a prior receipt.
 
 Legacy adoption is a separate explicit operation. Its read-only inspector must
 verify the software and application/provider/platform identity before publishing
