@@ -68,6 +68,14 @@
         {
           "source": "transport.js",
           "target": "transport.js"
+        },
+        {
+          "source": "images/managed-helper.mjs",
+          "target": "managed-helper.mjs"
+        },
+        {
+          "source": "images/managed-health.mjs",
+          "target": "managed-health.mjs"
         }
       ],
       "buildArgs": {

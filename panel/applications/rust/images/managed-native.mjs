@@ -17,6 +17,11 @@ if (mode === 'initialize') {
   assert.equal(process.getuid(), 0);
   for (const root of ['/software', '/control', '/game']) {
     assert.deepEqual(await fs.readdir(root), []);
+    assert.equal(
+      (await fs.stat(root)).uid,
+      0,
+      'Fresh no-copy claims must belong to the fixture controller',
+    );
     await fs.chmod(root, root === '/game' ? 0o755 : 0o2770);
   }
 } else if (mode === 'prepare') {

@@ -190,6 +190,8 @@ The separate `rust/managed` image consumes controller-prepared software; it has
 no automatic game download or update step. The legacy `rust/server` recipe and
 `steam-lg.2` application default remain unchanged. Application opt-in, execution
 publication and paired update/recovery integration follow image validation.
+Its Valve client SDK is initialized while building the immutable image, without
+downloading game software, so startup does not need a Steam bootstrap update.
 
 The managed image uses a controller-owned `engine` directory and exact execution
 receipt, verifies the binary checksum before startup, and keeps mutable world,
@@ -199,6 +201,10 @@ target and changes ownership only in the mutable world directory. Rust runs as
 UID/GID 1000. Readiness and clean shutdown use the existing process-scoped startup
 and save/quit evidence. Missing software or an existing world with missing
 software cannot trigger an upstream installation.
+The supervisor reserves its readiness descriptor before spawning Rust; health
+checks read the process state without cross-user signalling privileges. SDK
+publication and fallback signals run in a separate UID/GID 1000 helper with a
+minimal environment, so user-writable SDK paths never receive privileged writes.
 
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and

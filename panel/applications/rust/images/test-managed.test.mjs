@@ -4,7 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {managedStartup, executionReceipt} from './managed-entrypoint.mjs';
+import {
+  managedStartup,
+  executionReceipt,
+  readinessProof,
+} from './managed-entrypoint.mjs';
+import {prepareSdk} from './managed-helper.mjs';
+import {liveProcess} from './managed-health.mjs';
 
 async function fixture(t) {
   const root = await fs.realpath(
@@ -134,4 +140,64 @@ test('linked identities are refused before creating configuration outside the wo
   await fs.symlink(outside, path.join(f.root, 'server/lobby-goblin-rust'));
   await assert.rejects(managedStartup(f.env, f.root), /cannot be linked/);
   assert.deepEqual(await fs.readdir(outside), []);
+});
+
+test('readiness writes use a reserved descriptor and cannot follow a replaced temporary path', async (t) => {
+  const f = await fixture(t),
+    target = path.join(f.root, 'readiness.json'),
+    outside = path.join(f.root, 'sealed.txt');
+  await fs.writeFile(outside, 'sealed software');
+  await fs.symlink(outside, target);
+  await assert.rejects(readinessProof(target));
+  await fs.unlink(target);
+  const proof = await readinessProof(target);
+  try {
+    proof.publish(42);
+    assert.deepEqual(JSON.parse(await fs.readFile(target, 'utf8')), {pid: 42});
+    assert.equal((await fs.stat(target)).mode & 0o777, 0o600);
+    await fs.unlink(target);
+    await fs.symlink(outside, target);
+    proof.publish(43);
+    assert.equal(await fs.readFile(outside, 'utf8'), 'sealed software');
+  } finally {
+    await proof.close();
+  }
+});
+
+test('SDK preparation replaces only an ordinary file and refuses links to sealed or world files', async (t) => {
+  const f = await fixture(t),
+    sdk = path.join(f.root, 'sdk'),
+    source = path.join(f.root, 'source.so'),
+    outside = path.join(f.root, 'world.txt');
+  await fs.mkdir(sdk);
+  await fs.writeFile(source, 'verified SDK');
+  await fs.writeFile(outside, 'world data');
+  await prepareSdk(source, sdk);
+  assert.equal(
+    await fs.readFile(path.join(sdk, 'steamclient.so'), 'utf8'),
+    'verified SDK',
+  );
+  await fs.unlink(path.join(sdk, 'steamclient.so'));
+  await fs.symlink(outside, path.join(sdk, 'steamclient.so'));
+  await assert.rejects(prepareSdk(source, sdk), /destination cannot be linked/);
+  assert.equal(await fs.readFile(outside, 'utf8'), 'world data');
+  await fs.unlink(path.join(sdk, 'steamclient.so'));
+  await fs.link(outside, path.join(sdk, 'steamclient.so'));
+  await assert.rejects(prepareSdk(source, sdk), /destination cannot be linked/);
+  assert.equal(await fs.readFile(outside, 'utf8'), 'world data');
+});
+
+test('readiness checks prove a live process without cross-user signal privileges', () => {
+  for (const state of ['R', 'S', 'D', 'T'])
+    assert.equal(
+      liveProcess({pid: 42}, '42 (RustDedicated) ' + state + ' 1 2 3'),
+      true,
+    );
+  for (const state of ['Z', 'X', 'x'])
+    assert.equal(
+      liveProcess({pid: 42}, '42 (RustDedicated) ' + state + ' 1 2 3'),
+      false,
+    );
+  assert.equal(liveProcess({pid: 43}, '42 (RustDedicated) S 1 2 3'), false);
+  assert.equal(liveProcess({pid: '../other'}, '42 (RustDedicated) S'), false);
 });

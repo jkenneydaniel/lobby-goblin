@@ -15,6 +15,28 @@ const check = (value, message) => {
 const hash = (value) =>
   typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const readyFile = '/tmp/lobby-goblin-rust-ready.json';
+export async function readinessProof(file = readyFile) {
+  const handle = await fs.open(
+    file,
+    constants.O_WRONLY |
+      constants.O_CREAT |
+      constants.O_EXCL |
+      constants.O_NOFOLLOW,
+    0o600,
+  );
+  return {
+    publish(pid) {
+      check(
+        Number.isSafeInteger(pid) && pid > 1,
+        'Invalid game readiness identity',
+      );
+      // Keep the reserved descriptor: game-writable /tmp paths cannot redirect
+      // a later privileged health write to the sealed executable tree.
+      writeFileSync(handle.fd, JSON.stringify({pid}));
+    },
+    close: () => handle.close(),
+  };
+}
 async function realDirectory(root, {sealed = false} = {}) {
   const stat = await fs.lstat(root);
   check(
@@ -388,6 +410,25 @@ const run = (program, args) =>
         : reject(Error('Managed Rust ownership setup failed')),
     );
   });
+const gameHelper = (args) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['/app/managed-helper.mjs', ...args],
+      {
+        uid: 1000,
+        gid: 1000,
+        env: {PATH: '/usr/bin:/bin', HOME: '/home/node'},
+        stdio: 'ignore',
+      },
+    );
+    child.once('error', reject);
+    child.once('exit', (code) =>
+      code === 0
+        ? resolve()
+        : reject(Error('Managed Rust game-user setup failed')),
+    );
+  });
 export async function main() {
   check(
     process.getuid() === 0,
@@ -404,8 +445,7 @@ export async function main() {
     '/opt/steamcmd/linux64/steamclient.so',
   ])
     if (await fs.stat(file).catch(() => null)) {
-      await fs.copyFile(file, '/home/node/.steam/sdk64/steamclient.so');
-      await fs.chown('/home/node/.steam/sdk64/steamclient.so', 1000, 1000);
+      await gameHelper(['sdk', file]);
       break;
     }
   const user = {
@@ -423,26 +463,39 @@ export async function main() {
       ...config.modEnv,
     },
   };
-  const child = spawn(config.binary, config.args, {
+  const proof = await readinessProof();
+  let child;
+  try {
+    child = spawn(config.binary, config.args, {
       ...user,
       stdio: ['ignore', 'pipe', 'pipe'],
-    }),
-    rcon = createWebRcon(),
+    });
+  } catch (error) {
+    await proof.close();
+    throw error;
+  }
+  const rcon = createWebRcon(),
     shutdown = shutdownEvidence(),
     startup = startupEvidence();
   let stopping = false,
-    healthy = false;
+    healthy = false,
+    proofFailed = false;
   for (const [stream, destination, key] of [
     [child.stdout, process.stdout, 'stdout'],
     [child.stderr, process.stderr, 'stderr'],
   ])
     stream.on('data', (chunk) => {
       shutdown.observe(chunk, key);
-      if (!healthy && startup.observe(chunk, key)) {
-        writeFileSync(readyFile, JSON.stringify({pid: child.pid}), {
-          mode: 0o600,
-        });
-        healthy = true;
+      if (!healthy && !proofFailed && startup.observe(chunk, key)) {
+        try {
+          proof.publish(child.pid);
+          healthy = true;
+        } catch {
+          proofFailed = true;
+          console.error(
+            'Managed Rust startup completed but its health proof could not be recorded. Inspect available storage.',
+          );
+        }
       }
       destination.write(chunk);
     });
@@ -474,7 +527,12 @@ export async function main() {
         console.error(
           'Managed Rust is not ready for a graceful save; waiting for its process.',
         );
-        child.kill('SIGINT');
+        if (child.exitCode === null && child.signalCode === null)
+          await gameHelper(['signal', String(child.pid)]).catch(() =>
+            console.error(
+              'Managed Rust could not be signalled; waiting for its process.',
+            ),
+          );
       }
     })();
   });
@@ -484,6 +542,7 @@ export async function main() {
     process.exitCode = 1;
   });
   child.once('close', (code, signal) => {
+    void proof.close().catch(() => {});
     try {
       unlinkSync(readyFile);
     } catch {

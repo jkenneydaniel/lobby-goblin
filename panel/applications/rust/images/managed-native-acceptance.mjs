@@ -42,7 +42,8 @@ const mounts = (keys) =>
     'type=volume,source=' +
       volumes[['software', 'control', 'game'].indexOf(key)] +
       ',target=/' +
-      key,
+      key +
+      ',volume-nocopy',
   ]);
 const fixtureRun = async (mode, keys, user = '0:0') =>
   run(
@@ -142,7 +143,7 @@ try {
     '--security-opt',
     'no-new-privileges:true',
     '--mount',
-    'type=volume,source=' + volumes[2] + ',target=/steamcmd/rust',
+    'type=volume,source=' + volumes[2] + ',target=/steamcmd/rust,volume-nocopy',
     '-e',
     'RUST_RCON_PASSWORD=' + password,
     '-e',
