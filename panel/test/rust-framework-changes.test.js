@@ -284,3 +284,58 @@ test('outside framework edits and unmanaged loaders fail before paired publicati
     assert.equal((await f.changes.inspect()).pending, false);
   }
 });
+
+test('framework publication preserves plugin-library identities and history; recovery restores the matching metadata', async (t) => {
+  const f = await paired(t),
+    library = path.join(f.ctx.config.state, 'mods/mod-library');
+  const tracked = {
+    'carbon/example': {
+      id: 'example',
+      name: 'Example.cs',
+      source: 'umod',
+      version: '1.0.0',
+      sha256: 'a'.repeat(64),
+    },
+  };
+  await fs.mkdir(path.join(library, 'history'), {recursive: true, mode: 0o700});
+  await fs.writeFile(
+    path.join(library, 'installed.json'),
+    JSON.stringify(tracked),
+    {mode: 0o600},
+  );
+  await fs.writeFile(
+    path.join(library, 'history/stable-record.json'),
+    'LIBRARY HISTORY',
+    {mode: 0o600},
+  );
+  await f.changes.prepare(await f.plan());
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(library, 'installed.json'))),
+    tracked,
+  );
+  assert.equal(
+    await fs.readFile(path.join(library, 'history/stable-record.json'), 'utf8'),
+    'LIBRARY HISTORY',
+  );
+  const review = await f.changes.inspect(),
+    previous = path.join(
+      f.ctx.config.state,
+      'software/rust/framework-changes/history',
+      review.observation.record.id,
+      'previous-mods/mod-library/installed.json',
+    );
+  assert.notEqual(
+    (await fs.stat(previous)).ino,
+    (await fs.stat(path.join(library, 'installed.json'))).ino,
+  );
+  await fs.writeFile(
+    path.join(library, 'installed.json'),
+    '{"newer":"controller metadata"}',
+  );
+  const next = await f.changes.inspect();
+  await f.changes.recover({confirm: true, review: next.review});
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(library, 'installed.json'))),
+    tracked,
+  );
+});

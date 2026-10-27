@@ -309,6 +309,16 @@ export function createRustFrameworkChanges(
         assertStopped: stopped,
         fetcher,
       });
+      // Plugin identities, source tracking and transaction history belong to
+      // the library, independently of the selected framework package. Carry
+      // them into the new private state instead of dropping update tracking.
+      const library = path.join(config.state, 'mods/mod-library');
+      if (await exists(library))
+        await copyStoppedData({
+          source: library,
+          destination: location(value, 'new-state/mods/mod-library'),
+          assertStopped: stopped,
+        });
       await stopped();
       assert(
         same(
