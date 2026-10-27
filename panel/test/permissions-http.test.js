@@ -28,7 +28,7 @@ async function fixture(t,{games={}}={}){
   if(req.method==='POST'&&req.url.endsWith('/controller/jobs')){const body=await requestJSON(req);calls.at(-1).body=body;return json(res,202,{id:'fixture-job',state:'succeeded',...body});}
   return json(res,200,{});
  })().catch(error=>json(res,500,{error:error.message}));});await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{backend.closeAllConnections();backend.close(resolve);}));
- const web=await startFleetWeb({env:{AUTH_DIR:auth,CONTROLLER_TOKEN_FILE:tokenFile,CONTROLLER_URL:'http://127.0.0.1:'+backend.address().port,PANEL_HOSTS:'127.0.0.1'},port:0,hostname:'127.0.0.1'});t.after(()=>new Promise(resolve=>{web.closeAllConnections();web.close(resolve);}));
+ const web=await startFleetWeb({env:{AUTH_DIR:auth,CONTROLLER_TOKEN_FILE:tokenFile,CONTROLLER_URL:'http://127.0.0.1:'+backend.address().port,PANEL_HOSTS:'127.0.0.1',RELEASE_CHECKS:'false'},port:0,hostname:'127.0.0.1'});t.after(()=>new Promise(resolve=>{web.closeAllConnections();web.close(resolve);}));
  const origin='http://127.0.0.1:'+web.address().port;
  async function login(username,password){const response=await fetch(origin+'/api/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username,password})});assert.equal(response.status,200);return {cookie:response.headers.get('set-cookie').split(';')[0],session:await response.json()};}
  const request=(auth,route,body)=>fetch(origin+route,{method:body===undefined?'GET':'POST',headers:{origin,cookie:auth.cookie,'content-type':'application/json','x-csrf-token':auth.session.csrf,'x-panel-user':'SpoofedOwner'},body:body===undefined?undefined:JSON.stringify(body),redirect:'manual'});
@@ -209,4 +209,27 @@ test('Rust HTTP requires both executable and package grants for framework, plugi
   assert.equal((await f.request(user,two+'/api/jobs',{action:'start'})).status,403);
   assert.equal((await f.request(user,one+'/api/map')).status,404);
  }
+});
+
+
+test('only the root administrator can save release preferences and scoped servers stay disabled',async t=>{
+ const realFetch=globalThis.fetch;let checks=0;
+ t.mock.method(globalThis,'fetch',async(url,options)=>{
+  if(String(url).startsWith('https://api.github.com/')){checks++;return new Response(JSON.stringify([]));}
+  return realFetch(url,options);
+ });
+ const f=await fixture(t),owner=await f.login('Owner','owner-fixture-password'),member=await f.login('Assigned','member-fixture-password'),viewer=await f.login('Viewer','viewer-fixture-password');
+ const settings=await(await f.request(owner,'/api/updates/settings')).json();
+ assert.equal(settings.editable,true);assert.equal(settings.enabled,false);assert.equal(checks,0);
+ for(const user of [member,viewer])for(const body of [undefined,{enabled:true,channel:'preview',revision:0}])assert.equal((await f.request(user,'/api/updates/settings',body)).status,403);
+ assert.equal((await f.request(owner,'/api/updates/settings',{enabled:true,channel:'stable',revision:0})).status,200);
+ assert.equal((await f.request(owner,'/api/updates/check',{})).status,200);assert.equal(checks,1);
+ assert.equal((await f.request(owner,'/api/updates/settings',{enabled:false,channel:'preview',revision:0})).status,409);
+ const scoped=await(await f.request(owner,one+'/api/updates/settings')).json();assert.equal(scoped.editable,false);assert.equal(scoped.enabled,false);
+ assert.equal((await f.request(owner,one+'/api/updates/settings',{enabled:true,channel:'stable',revision:0})).status,403);
+ assert.equal((await(await f.request(owner,one+'/api/updates/check',{})).json()).state,'disabled');assert.equal(checks,1);
+ await f.request(owner,'/api/updates/settings',{enabled:false,channel:'preview',revision:1});
+ assert.equal((await(await f.request(owner,'/api/updates/check',{})).json()).state,'disabled');assert.equal(checks,1);
+ const wrong={...owner,session:{...owner.session,csrf:'invalid'}};
+ assert.equal((await f.request(wrong,'/api/updates/settings',{enabled:true,channel:'preview',revision:2})).status,403);
 });

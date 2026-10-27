@@ -53,3 +53,19 @@ test('manual checks bypass the automatic cache with a one-minute limit and coale
   const disabled=new ReleaseChecks({current:'0.2.1-alpha',enabled:false,fetcher:()=>assert.fail('Disabled checks must stay disabled')});
   assert.equal((await disabled.check({force:true})).state,'disabled');
 });
+
+test('changing release preferences invalidates in-flight checks and starts a fresh channel check', async () => {
+  let resolveFirst, calls=0;
+  const checks=new ReleaseChecks({current:'0.1.0',fetcher:async()=>{
+    if(++calls===1)await new Promise(resolve=>{resolveFirst=resolve;});
+    return new Response(JSON.stringify([release('v0.2.0-alpha'),release('v0.1.1')]));
+  }});
+  const first=checks.check();
+  checks.configure({enabled:false,channel:'stable'});
+  resolveFirst();await first;
+  assert.equal(checks.result.state,'disabled');assert.equal(checks.result.latest,undefined);assert.equal(checks.result.checkedAt,null);
+  checks.configure({enabled:true,channel:'stable'});
+  assert.equal((await checks.check()).latest.tag,'v0.1.1');assert.equal(calls,2);
+  checks.configure({enabled:true,channel:'preview'});
+  assert.equal((await checks.check()).latest.tag,'v0.2.0-alpha');assert.equal(calls,3);
+});

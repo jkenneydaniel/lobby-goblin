@@ -296,3 +296,65 @@ test('managed Rust snapshots and fresh clone bootstrap retain exact Steam softwa
  await assert.rejects(publishSnapshot({library:f.library,backup:legacy,record:{id:'e'.repeat(32),sourceId:one,title:'Missing software',game:'rust',image,seed:456,worldSize:1000}}),/exact software identity/);
  assert.throws(()=>module.managed.creationFromSnapshot({softwareMode:'managed'},{seed:456,worldSize:1000}),/no exact managed software/);
 });
+
+test('real isolated helper reports bounded storage failures and cleans only its request and worker',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Private backup'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'}),original=f.manager.docker;
+ f.manager.docker=async(method,route,data,...rest)=>{
+  if(route.includes('/wait?')){
+   const spec=f.calls.filter(call=>call.route.startsWith('/containers/create?')).at(-1).data;
+   assert.deepEqual(spec.HostConfig.CapAdd,['DAC_OVERRIDE']);assert.deepEqual(spec.HostConfig.CapDrop,['ALL']);
+   assert.equal(spec.HostConfig.Mounts[1].ReadOnly,true);assert.equal(spec.HostConfig.NetworkMode,'none');
+   await writeJSON(path.join(f.manager.root,spec.HostConfig.Mounts[0].VolumeOptions.Subpath,'failure.json'),{version:1,error:'Storage is full. Free space for the snapshot before retrying.'});
+   const worker=f.containers.get(new URL(route,'http://docker').pathname.split('/')[2]);worker.State.Running=false;
+   return {StatusCode:1};
+  }
+  return original(method,route,data,...rest);
+ };
+ await assert.rejects(FleetManager.prototype.helper.call(f.manager,item,{action:'snapshot'}),/Storage is full/);
+ assert.deepEqual(await fs.readdir(path.join(f.manager.root,'requests')),[]);
+ assert.ok(f.volumes.has(item.volume));assert.equal(f.containers.get(neighbor.container).State.Running,true);
+ assert.ok(![...f.containers.keys()].some(name=>name.startsWith('lobby-goblin-worker-')));
+});
+test('requested snapshot failure blocks removal and preserves source storage and neighboring resources',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Keep source'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'});
+ f.containers.get(item.container).State.Running=false;
+ f.manager.publish=async()=>{throw Object.assign(Error('Storage access was denied.'),{status:409});};
+ const before=f.calls.length,job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
+ assert.equal(job.state,'failed');assert.match(job.message,/access was denied/);
+ assert.notEqual(item.state,'removed');assert.ok(f.volumes.has(item.volume));assert.ok(f.containers.has(item.container));assert.ok(f.containers.has(item.controller));assert.ok(f.networks.has(item.network));
+ assert.equal(f.containers.get(neighbor.container).State.Running,true);
+ assert.ok(!f.calls.slice(before).some(call=>call.method==='DELETE'));
+});
+
+test('Rust creation enforces its signed seed range while Factorio retains uint32 seeds',()=>{
+ assert.equal(validateCreation({game:'rust',name:'Boundary',seed:2147483647}).seed,2147483647);
+ for(const seed of [2147483648,3532793187,4294967295])assert.throws(()=>validateCreation({game:'rust',name:'Overflow',seed}),/2147483647/);
+ assert.equal(validateCreation({game:'factorio',name:'Unsigned',seed:3532793187}).seed,3532793187);
+ assert.equal(validateCreation({game:'factorio',name:'Unsigned maximum',seed:4294967295}).seed,4294967295);
+});
+test('random server seeds use the application creation range including its upper boundary',async t=>{
+ const {default:crypto}=await import('node:crypto');
+ const ranges=[];t.mock.method(crypto,'randomInt',(min,max)=>{ranges.push([min,max]);return max-1;});
+ const f=await fakeManager(t),rust=await f.submit({game:'rust',name:'Random Rust'});
+ assert.equal(rust.seed,2147483647);assert.deepEqual(ranges.at(-1),[1,2147483648]);
+ f.manager.memoryBudgetGiB=32;
+ const factorio=await f.submit({game:'factorio',name:'Random Factorio'});
+ assert.equal(factorio.seed,4294967295);assert.deepEqual(ranges.at(-1),[1,4294967296]);
+});
+test('legacy Rust overflow registration snapshots keep the verified clamped world identity and clone it independently',async t=>{
+ const f=await fixture(t),identity=await directory(f.root,'legacy-rust'),destination=await directory(f.root,'rust-clone');
+ const name='proceduralmap.2000.2147483647.289.sav',bytes=Buffer.from('synthetic Rust clamped world');
+ await fs.mkdir(path.join(identity,'cfg'));await fs.writeFile(path.join(identity,'cfg/server.cfg'),'rcon.password private-never-copy');await fs.writeFile(path.join(identity,name),bytes);
+ const backup=path.join(f.root,'legacy-overflow.tar.gz');await writeArchive(backup,identity,{identity:'lobby-goblin-rust',instance:one,label:'before-removal'});
+ const before=await fs.readFile(backup),record={id:snap,sourceId:one,title:'Legacy overflow world',game:'rust',image:catalog.rust.image,seed:3532793187,worldSize:2000};
+ const result=await publishSnapshot({library:f.library,backup,record}),manifest=await verifySnapshot(f.library,snap,result.manifestSha256);
+ assert.equal(manifest.seed,2147483647);assert.equal(manifest.worldSize,2000);assert.equal(record.seed,3532793187);
+ assert.ok(!manifest.files.some(file=>file.name.includes('/cfg/')));assert.deepEqual(await fs.readFile(backup),before);assert.deepEqual(await fs.readFile(path.join(identity,name)),bytes);
+ const module=selectedApplication('rust'),input=module.managed.creationFromSnapshot({game:'rust',name:'Independent copy'},manifest);assert.equal(input.seed,2147483647);
+ await runWorker(provision(two,'rust',{...input,snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:destination,library:f.library});
+ assert.deepEqual(await fs.readFile(path.join(destination,'data/server/lobby-goblin-rust',name)),bytes);
+ for(const [seed,worldSize] of [[1234,2000],[3532793187,3000],[4294967296,2000]]){
+  await assert.rejects(publishSnapshot({library:f.library,backup,record:{...record,id:'e'.repeat(32),seed,worldSize}}),/source server seed and size|invalid registered seed/);
+  assert.equal(await fs.stat(path.join(f.library,'e'.repeat(32))).catch(()=>null),null);
+ }
+});

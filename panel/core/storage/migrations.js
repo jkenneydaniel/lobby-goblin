@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert} from '../../common.js';
+import {releaseSettings} from '../release-settings.js';
 import {SqliteDocumentStore} from './sqlite-store.js';
 import {accountDirectory} from './document-repository.js';
 import {
@@ -26,6 +27,7 @@ import {
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');
 const profiles = {
   accounts: [
+    {file: 'release-checks.json', namespace: 'configuration', key: 'release-checks', schemaVersion: 1, decode: releaseSettings},
     {
       file: 'users.json',
       namespace: 'accounts',

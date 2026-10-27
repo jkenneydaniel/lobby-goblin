@@ -80,6 +80,9 @@ export function createServerDialog({
     f.elements.seed.closest('label').hidden = !isGame;
     if (!policy)
       throw Error('Update this host to provide its game creation options.');
+    f.elements.seed.min = String(policy.seed?.min || 1);
+    f.elements.seed.max = String(policy.seed?.max || 4294967295);
+    f.elements.seed.placeholder = `Random (${f.elements.seed.min}–${f.elements.seed.max})`;
     const choices = game.softwareModes || [];
     $('#software-mode-field').hidden = choices.length < 2;
     f.elements.softwareMode.disabled = choices.length < 2;

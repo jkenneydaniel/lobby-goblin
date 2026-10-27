@@ -284,8 +284,15 @@ without sufficient ownership evidence are kept for manual inspection.
 
 The fleet navigation includes **Updates**, with the installed panel release,
 release channel, GitHub release notes, manual refresh and host-update guidance.
-Release checks are enabled by default for the fleet web panel; setting
-`RELEASE_CHECKS=false` explicitly still disables them. Management installation
+Administrators can enable or disable management release checks and choose the
+stable or preview channel in **Updates → Release checks**. Preferences persist
+across restarts; saving them does not install software or restart servers.
+`RELEASE_CHECKS` and `RELEASE_CHANNEL` supply defaults until an administrator
+saves a preference. In particular, an older installation with
+`RELEASE_CHECKS=false` can enable checks from the panel without editing its
+host configuration. Managed server pages leave checks to the central panel.
+Preferences use the existing auth storage volume and its selected JSON/SQLite
+backend; concurrent or stale saves are rejected. Management installation
 continues to use the [local operator workflow](MANAGEMENT_UPDATES.md), which
 updates the panel, broker and controllers together. The browser cannot invoke that
 workflow or access its private records. Agent alignment remains under **Hosts**.

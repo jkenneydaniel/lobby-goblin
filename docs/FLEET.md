@@ -199,3 +199,15 @@ New Factorio servers can explicitly choose runtime software installation in the
 creation dialog. The bundled image remains the compatible default. Runtime
 servers manage Factorio versions independently of their image and clone snapshots
 with an exact software receipt. See [Factorio runtime software](FACTORIO_RUNTIME.md).
+
+
+Storage workers can read private game-owned backup files while retaining their
+existing network isolation and three scoped storage mounts. Snapshot publication
+errors identify permission, disk/quota, missing-file, archive-validation or memory
+failures when available. If a requested snapshot fails, removal stops before
+container/network deletion; the server data volume is always retained. Review
+the failed operation before retrying. Retrying removal may stop the selected
+server as part of the normal save/stop sequence.
+
+
+Rust uses procedural seeds up to 2147483647 ([Facepunch reference](https://wiki.facepunch.com/rust/creating-a-server)). New Rust registrations and random seeds use the package's supported range of 1–2147483647; Factorio retains its uint32 range. Older panels could register larger uint32 seeds which Rust clamped to 2147483647. Snapshot publication accepts that specific legacy overflow only when the verified backup contains a save matching the clamped seed and the registered world size, and records the effective seed in the snapshot. Independent copies therefore use the seed of the backed-up world. Unrelated seed/size mismatches still fail. This does not rewrite existing registrations, backups, game settings or worlds, and does not retry a failed removal.

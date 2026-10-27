@@ -1,3 +1,4 @@
+import {rustSeedMaximum} from './seed.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {assert, writeJSON} from '../../common.js';
@@ -22,7 +23,7 @@ export const managed = compileManagedDefinition(definition,{
   },
   creationFromSnapshot(input, manifest) {
     assert(
-      Number.isInteger(manifest.seed) && Number.isInteger(manifest.worldSize),
+      Number.isInteger(manifest.seed) && manifest.seed >= 1 && manifest.seed <= rustSeedMaximum && Number.isInteger(manifest.worldSize),
       'Rust snapshot is missing its map identity.',
     );
     if (manifest.software) return {...input, seed: manifest.seed, worldSize: manifest.worldSize, softwareMode: 'managed', softwareReceipt: rustSoftwareReceipt(manifest.software)};

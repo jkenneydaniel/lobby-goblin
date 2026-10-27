@@ -6,6 +6,7 @@ import {readBody,requestJSON,json,assert,HttpError,equalSecret} from '../common.
 import {checkOrigin,checkPassword,requireAdmin,panelOrigin} from '../auth.js';
 import {validateApplicationModule} from './application-module.js';
 import {ReleaseChecks} from '../updates.js';
+import {ReleaseSettings} from './release-settings.js';
 import {proxyResponse} from './proxy.js';
 import {controllerRoutes,controllerAccess} from './routes.js';
 import {requireAssignment,requireServerPermission,publicAccess,permissionCatalogFor} from './permissions.js';
@@ -22,13 +23,16 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
   const web=module.web;
   const accessScope=assetPrefix||'standalone';
   const {version:panelVersion}=JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8'));
-  const releases=new ReleaseChecks({current:panelVersion,repository:env.RELEASE_REPOSITORY||module.releaseRepository,channel:env.RELEASE_CHANNEL||'preview',enabled:env.RELEASE_CHECKS!=='false'});
+  const releasePreferences=assetPrefix?null:new ReleaseSettings(authRoot,{channel:env.RELEASE_CHANNEL||'preview',enabled:env.RELEASE_CHECKS!=='false'});
+  const savedReleasePreferences=releasePreferences?await releasePreferences.read():{channel:env.RELEASE_CHANNEL||'preview',enabled:false};
+  const releases=new ReleaseChecks({current:panelVersion,repository:env.RELEASE_REPOSITORY||module.releaseRepository,...savedReleasePreferences});
+  async function releaseConfiguration(){const settings=releasePreferences?await releasePreferences.read():savedReleasePreferences;releases.configure(settings);return {...settings,editable:!!releasePreferences};}
 
   const accounts=sharedAccounts||new web.Accounts(authRoot,{permissionCatalog:permissionCatalogFor(module)});
   const audit=sharedAudit||new AuditLog(authRoot);
   const token=controllerToken||(await fs.readFile(env.CONTROLLER_TOKEN_FILE||'/run/secrets/controller_token','utf8')).trim();
   if(maintenance.held){await accounts.users();await audit.list();}
-  if(!maintenance.held)void releases.check();const releaseTimer=setInterval(()=>{if(!maintenance.held)void releases.check();},6*3600000).unref();
+  if(!maintenance.held)void releases.check();const releaseTimer=setInterval(()=>{if(!maintenance.held)void releaseConfiguration().then(()=>releases.check()).catch(()=>{});},6*3600000).unref();
   const controller=env.CONTROLLER_URL||'http://panel-controller:8081';
   async function requireNoUpdate(){
     const result=await fetch(controller+'/update-status',{headers:{authorization:`Bearer ${token}`},signal:AbortSignal.timeout(5000)});
@@ -109,8 +113,13 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
         const value=await response.json();web.validateOnboarding(value);
         return json(res,200,await accounts.completeOnboarding(user.username));
       }
-      if(url.pathname==='/api/updates/check'){requireAdmin(user);assert(req.method==='POST','Not found.',404);return json(res,200,await releases.check({force:true}),{'cache-control':'no-store'});}
-      if(url.pathname==='/api/updates'){requireAdmin(user);assert(req.method==='GET','Not found.',404);void releases.check();return json(res,200,releases.result,{'cache-control':'no-store'});}
+      if(url.pathname==='/api/updates/settings'){
+        requireAdmin(user);assert(['GET','POST'].includes(req.method),'Not found.',404);
+        if(req.method==='POST'){assert(releasePreferences,'Manage release checks from the server list Updates page.',403);await releasePreferences.save(await requestJSON(req));}
+        return json(res,200,await releaseConfiguration(),{'cache-control':'no-store'});
+      }
+      if(url.pathname==='/api/updates/check'){requireAdmin(user);assert(req.method==='POST','Not found.',404);await releaseConfiguration();return json(res,200,await releases.check({force:true}),{'cache-control':'no-store'});}
+      if(url.pathname==='/api/updates'){requireAdmin(user);assert(req.method==='GET','Not found.',404);await releaseConfiguration();void releases.check();return json(res,200,releases.result,{'cache-control':'no-store'});}
       if(req.method==='POST'&&url.pathname==='/api/logout'){sessions.delete(user.id);return json(res,200,{ok:true},{'set-cookie':`${web.sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie}`});}
       if(req.method==='POST'&&url.pathname==='/api/password'){
         const key='password:'+user.username,entry=attempts.get(key)||{count:0,reset:Date.now()+600000};

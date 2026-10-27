@@ -85,6 +85,21 @@ jobs:
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/lobby-goblin:updater-smoke /source
             '
+      - name: Verify private backup access in disposable storage workers
+        run: |
+          fixture_volume="lobby-storage-worker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker volume create --label io.lobby-goblin.fixture=storage-worker "$fixture_volume"
+          trap 'docker volume rm "$fixture_volume"' EXIT
+          for mode in prepare before after; do
+            capability=""
+            if [ "$mode" = prepare ]; then capability="--cap-add CHOWN"; fi
+            if [ "$mode" = after ]; then capability="--cap-add DAC_OVERRIDE"; fi
+            docker run --rm --network none --user 0:0 --read-only --cap-drop ALL $capability \
+              --security-opt no-new-privileges:true --memory 512m \
+              --mount "type=volume,source=$fixture_volume,target=/fixture" \
+              --mount "type=bind,source=$PWD/panel/test/storage-worker-native.mjs,target=/smoke.mjs,readonly" \
+              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.11-alpha /smoke.mjs "$mode"
+          done
       - name: Check public source artifact
         run: node tools/release.mjs
       - name: Test the packaged installer and repeat setup in the release image

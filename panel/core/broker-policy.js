@@ -1,3 +1,4 @@
+import {storageWorkerCapabilities} from '../fleet/storage-worker.js';
 import {assert} from '../common.js';
 import {labels, resources, validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
@@ -194,7 +195,7 @@ export function hostDockerPolicy(
         target: '/library',
         readOnly: host.Mounts[2].ReadOnly === true,
       });
-      host.CapAdd = [];
+      host.CapAdd = [...storageWorkerCapabilities];
     } else {
       assert(
         host.NetworkMode === item.network &&

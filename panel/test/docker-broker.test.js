@@ -1162,6 +1162,11 @@ unix(
           new URL(call.route, 'http://docker').searchParams.get('name') ===
             item.controller,
       ).data;
+      const storageWorker = f.calls.find(call => call.data?.Labels?.['io.lobby-goblin.worker'] === 'true').data;
+      assert.deepEqual(storageWorker.HostConfig.CapDrop, ['ALL']);
+      assert.deepEqual(storageWorker.HostConfig.CapAdd, ['DAC_OVERRIDE']);
+      assert.equal(storageWorker.HostConfig.NetworkMode, 'none');
+      assert.equal(storageWorker.HostConfig.Mounts.length, 3);
       // Operator metadata maintenance must never become a panel helper grant.
       const maintenanceWorker = structuredClone(
         f.calls.find(
