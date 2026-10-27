@@ -45,7 +45,7 @@ test('native publication acceptance uses each package recipe and exact image ID 
       assert.ok(args.includes('ACCEPTANCE_TARGET_ID=' + id));
     }
     if (game === 'rust') {
-      assert.match(definition.image, /steam-lg\.3$/);
+      assert.match(definition.image, /steam-lg\.4$/);
       assert.match(acceptanceTarget(game, {}).target, /steam-lg\.2$/);
       assert.ok(runs[1].includes('--mods'));
     }
