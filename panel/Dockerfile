@@ -14,6 +14,7 @@ COPY --chown=node:node LICENSE ./LICENSE
 COPY --chown=node:node public ./public
 COPY --chown=node:node core ./core
 COPY --chown=node:node applications ./applications
+COPY --chown=node:node providers ./providers
 COPY --chown=node:node fleet ./fleet
 USER node
 ENV NODE_ENV=production

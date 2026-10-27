@@ -24,6 +24,12 @@ import {engineMapSettings} from '../applications/factorio/engine-settings.js';
 import {AgentUpdater} from '../fleet/agent-update.js';
 import {agentOptionsFor} from '../agent-options.js';
 import {writeJSON, readJSON, HttpError} from '../common.js';
+import {
+  softwareWorkerDeployment,
+  softwareWorkerScope,
+  softwareWorkerSpec,
+  softwareWorkerName,
+} from '../core/software-worker-policy.js';
 
 const unix = process.platform === 'win32' ? test.skip : test;
 const fleet = 'a'.repeat(32),
@@ -33,6 +39,40 @@ const fleet = 'a'.repeat(32),
   gameImageId = 'sha256:' + 'e'.repeat(64);
 const project = 'lobby-goblin-fleet-' + fleet,
   modules = registeredApplications();
+const steamDeclaration = {
+  version: 1,
+  provider: 'steamcmd',
+  source: {
+    application: 'rust',
+    appId: '258550',
+    platform: 'linux/amd64',
+    branches: ['public'],
+  },
+  requiredFiles: [{path: 'RustDedicated', executable: true}],
+};
+const workerImage = {
+  Id: softwareWorkerDeployment.imageId,
+  Os: 'linux',
+  Architecture: 'amd64',
+  RepoDigests: [
+    softwareWorkerDeployment.image.slice(
+      0,
+      softwareWorkerDeployment.image.indexOf(':1-lg.1'),
+    ) +
+      '@' +
+      softwareWorkerDeployment.image.split('@')[1],
+  ],
+  Config: {
+    User: '1000:1000',
+    Entrypoint: softwareWorkerDeployment.entrypoint,
+    Cmd: [],
+    Env: ['HOME=/home/node'],
+    Labels: {
+      'io.lobby-goblin.provider': 'steamcmd-worker',
+      'io.lobby-goblin.image-revision': '1',
+    },
+  },
+};
 function engine() {
   const calls = [],
     containers = new Map(),
@@ -81,6 +121,13 @@ function engine() {
         Secret: 'host-private',
       };
     if (bits[0] === 'images') {
+      if (
+        [
+          softwareWorkerDeployment.image,
+          softwareWorkerDeployment.imageId,
+        ].includes(bits[1])
+      )
+        return structuredClone(workerImage);
       const reference = bits[1],
         module = modules.find((value) =>
           reference.includes(value.id + '-server'),
@@ -97,10 +144,16 @@ function engine() {
         Config: {
           Labels: {
             'io.lobby-goblin.compatibility': '1',
-            ...(reference.includes(':runtime-fc.')?{'io.lobby-goblin.software-delivery':'runtime'}:{}),
+            ...(reference.includes(':runtime-fc.')
+              ? {'io.lobby-goblin.software-delivery': 'runtime'}
+              : {}),
             'io.lobby-goblin.game': module?.id,
             'factorio.version': '2.0.77',
-            'io.lobby-goblin.image-revision': reference.includes(':runtime-fc.')?'1':module?.id === 'rust' ? '2' : '3',
+            'io.lobby-goblin.image-revision': reference.includes(':runtime-fc.')
+              ? '1'
+              : module?.id === 'rust'
+                ? '2'
+                : '3',
           },
         },
       };
@@ -160,17 +213,30 @@ function engine() {
         value = {
           Id: 'immutable-' + ++serial,
           Name: '/' + name,
-          Image: data.Image === runtime ? runtime : gameImageId,
+          Image:
+            data.Image === runtime
+              ? runtime
+              : data.Image === softwareWorkerDeployment.image
+                ? workerImage.Id
+                : gameImageId,
           Config: {
             Image: data.Image,
+            User: spec.User,
+            Entrypoint: spec.Entrypoint,
+            Cmd: spec.Cmd,
             Labels: spec.Labels || {},
-            Env: spec.Env || [],
+            Env:
+              spec.Env ||
+              (data.Image === softwareWorkerDeployment.image
+                ? workerImage.Config.Env
+                : []),
           },
           HostConfig: spec.HostConfig,
           Mounts: spec.HostConfig.Mounts.map((mount) => ({
             Type: mount.Type,
             Name: mount.Source,
             Destination: mount.Target,
+            RW: !mount.ReadOnly,
           })),
           State: {Running: false, Status: 'created', ExitCode: 0},
           NetworkSettings: {
@@ -263,7 +329,17 @@ function engine() {
     },
   };
 }
-async function fixture(t) {
+async function fixture(t, {softwareWorker = false} = {}) {
+  const selectedModules = softwareWorker
+    ? modules.map((module) =>
+        module.id === 'rust'
+          ? {
+              ...module,
+              managed: {...module.managed, softwareWorker: steamDeclaration},
+            }
+          : module,
+      )
+    : modules;
   const directory = await fs.realpath(
       await fs.mkdtemp(
         path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'lgb-'),
@@ -279,6 +355,7 @@ async function fixture(t) {
     transport,
     docker: fake.docker,
     runtimeImage: runtime,
+    modules: selectedModules,
   });
   t.after(async () => {
     broker.server.closeAllConnections();
@@ -314,11 +391,248 @@ async function fixture(t) {
         transport,
         docker: fake.docker,
         runtimeImage: runtime,
+        modules: selectedModules,
       });
     },
   };
 }
 const denied = (error) => [401, 403, 409].includes(error.status);
+
+async function steamFixture(t) {
+  const f = await fixture(t, {softwareWorker: true}),
+    item = f.seed(one, 'rust'),
+    client = await f.instance(one, 'rust');
+  const owner = f.containers.get(item.container);
+  owner.State = {
+    Running: false,
+    Restarting: false,
+    Status: 'exited',
+    ExitCode: 0,
+  };
+  owner.HostConfig.Memory = 2 * 1024 ** 3;
+  f.networks.set(item.network, {
+    Id: 'steam-network',
+    Name: item.network,
+    Driver: 'bridge',
+    Labels: labels(fleet, one, 'rust'),
+  });
+  f.containers.set(item.controller, {
+    Id: 'controller-' + one,
+    Name: '/' + item.controller,
+    Config: {
+      Labels: {
+        ...labels(fleet, one, 'rust'),
+        'io.lobby-goblin.role': 'instance-controller',
+      },
+    },
+    HostConfig: {Memory: 1024 ** 3},
+    State: {Running: true},
+  });
+  const scope = softwareWorkerScope({
+    fleet,
+    instance: one,
+    volume: item.volume,
+    declaration: steamDeclaration,
+  });
+  const id = crypto.randomUUID(),
+    name = softwareWorkerName(one, id),
+    spec = softwareWorkerSpec(scope, id, 'prepare'),
+    route = '/containers/create?name=' + name + '&platform=linux%2Famd64';
+  return {...f, item, client, owner, scope, id, name, spec, route};
+}
+
+unix(
+  'real broker admits only the published private worker and permits stopped orphan cleanup without replay',
+  async (t) => {
+    const f = await steamFixture(t);
+    f.setCapacity(5 * 1024 ** 3);
+    const mutated = structuredClone(f.spec);
+    mutated.Env = ['BROKER_TOKEN=not-accepted'];
+    await assert.rejects(f.client.docker('POST', f.route, mutated), denied);
+    await assert.rejects(
+      f.client.docker('POST', f.route + '&platform=linux%2Famd64', f.spec),
+      denied,
+    );
+    const created = await f.client.docker('POST', f.route, f.spec);
+    assert.ok(created.Id);
+    const info = await f.client.docker(
+      'GET',
+      '/containers/' + created.Id + '/json',
+    );
+    assert.equal(info.HostConfig.Memory, f.owner.HostConfig.Memory);
+    assert.equal(info.Config.User, '1000:0');
+    assert.deepEqual(
+      info.HostConfig.Mounts.map((value) => value.Target),
+      ['/software', '/control', '/request', '/result'],
+    );
+    await assert.rejects(
+      f.host.docker('POST', '/containers/' + f.item.container + '/start'),
+      /preparation/,
+    );
+    await assert.rejects(
+      f.client.docker('POST', '/containers/' + f.item.container + '/restart'),
+      /preparation/,
+    );
+    await assert.rejects(
+      f.host.docker('POST', '/containers/' + created.Id + '/start'),
+      denied,
+    );
+    await f.client.docker('POST', '/containers/' + created.Id + '/start');
+    await assert.rejects(
+      f.client.docker('POST', '/containers/' + created.Id + '/start'),
+      /replay/,
+    );
+    await assert.rejects(
+      f.host.docker('DELETE', '/containers/' + created.Id),
+      denied,
+    );
+    await assert.rejects(
+      f.client.docker('POST', '/containers/' + created.Id + '/exec', {
+        Cmd: ['/bin/sh'],
+      }),
+      denied,
+    );
+    await assert.rejects(
+      f.client.docker(
+        'GET',
+        '/containers/' + created.Id + '/logs?stdout=1&tail=all',
+      ),
+      denied,
+    );
+    await assert.rejects(
+      f.client.docker(
+        'GET',
+        '/containers/' + created.Id + '/archive?path=/control',
+      ),
+      denied,
+    );
+    await f.host.docker('POST', '/containers/' + created.Id + '/stop?t=15');
+    await assert.rejects(
+      f.client.docker('POST', '/containers/' + created.Id + '/start'),
+      /replay/,
+    );
+    await assert.rejects(
+      f.host.docker('POST', '/containers/' + f.item.container + '/start'),
+      /preparation/,
+    );
+    f.containers.delete(f.item.container);
+    f.containers.delete(f.item.controller);
+    // Teardown must not require either the application or its controller to exist.
+    assert.equal(
+      (await f.host.docker('GET', '/containers/' + created.Id + '/json')).Id,
+      created.Id,
+    );
+    await f.host.docker('DELETE', '/containers/' + created.Id);
+    assert.ok(!f.containers.has(f.name));
+  },
+);
+
+unix(
+  'worker claims remain isolated and cannot race host game startup or consume another stopped reservation',
+  async (t) => {
+    const f = await steamFixture(t);
+    f.setCapacity(5 * 1024 ** 3);
+    const foreign = f.seed(two, 'rust');
+    const other = await f.instance(two, 'rust');
+    await assert.rejects(other.docker('POST', f.route, f.spec), denied);
+    f.containers.delete(foreign.container);
+    const outcomes = await Promise.allSettled([
+      f.client.docker('POST', f.route, f.spec),
+      f.host.docker('POST', '/containers/' + f.item.container + '/start'),
+    ]);
+    assert.equal(
+      outcomes.filter((value) => value.status === 'fulfilled').length,
+      1,
+    );
+    assert.ok(!(f.owner.State.Running && f.containers.has(f.name)));
+    if (f.containers.has(f.name))
+      await f.client.docker('DELETE', '/containers/' + f.name);
+    f.owner.State.Running = false;
+    const second = f.seed(two, 'rust');
+    f.containers.get(second.container).State.Running = false;
+    f.containers.get(second.container).HostConfig.Memory = 2 * 1024 ** 3;
+    await assert.rejects(f.client.docker('POST', f.route, f.spec), /headroom/);
+    assert.ok(!f.containers.has(f.name));
+  },
+);
+
+unix(
+  'preparing a larger stopped server never frees capacity for another server',
+  async (t) => {
+    const f = await steamFixture(t),
+      GiB = 1024 ** 3;
+    f.owner.HostConfig.Memory = 8 * GiB;
+    f.setCapacity(11 * GiB); // 8 GiB application + 1 GiB controller + 2 GiB host reserve.
+    const {Id} = await f.client.docker('POST', f.route, f.spec);
+    const second = f.seed(two, 'rust'),
+      module = modules.find((value) => value.id === 'rust'),
+      original = f.containers.get(second.container);
+    f.containers.delete(second.container);
+    f.networks.set(second.network, {
+      Id: 'second-network',
+      Name: second.network,
+      Driver: 'bridge',
+      Labels: labels(fleet, two, 'rust'),
+    });
+    const ports = module.managed.ports.map(
+      (value) => value.containerPort + '/' + value.protocol,
+    );
+    const spec = {
+      Image: second.image,
+      Env: [],
+      Labels: labels(fleet, two, 'rust'),
+      ExposedPorts: Object.fromEntries(ports.map((value) => [value, {}])),
+      NetworkingConfig: {
+        EndpointsConfig: {[second.network]: {Aliases: [second.container]}},
+      },
+      HostConfig: {
+        NetworkMode: second.network,
+        Memory: 6 * GiB,
+        NanoCpus: 1e9,
+        Mounts: original.HostConfig.Mounts,
+        PortBindings: Object.fromEntries(
+          ports.map((value, index) => [
+            value,
+            [{HostIp: '127.0.0.1', HostPort: String(40000 + index)}],
+          ]),
+        ),
+      },
+    };
+    const create = () =>
+      f.host.docker(
+        'POST',
+        '/containers/create?name=' + second.container,
+        spec,
+      );
+    await assert.rejects(create(), /headroom/);
+    await f.client.docker('DELETE', '/containers/' + Id);
+    await assert.rejects(create(), /headroom/);
+    await f.host.docker('POST', '/containers/' + f.item.container + '/start');
+    assert.equal(f.owner.State.Running, true);
+  },
+);
+
+unix(
+  'resolving metadata cannot mount provider storage, and legacy profiles cannot launch provider workers',
+  async (t) => {
+    const f = await steamFixture(t);
+    f.owner.State.Running = true;
+    const resolve = softwareWorkerSpec(f.scope, f.id, 'resolve');
+    const {Id} = await f.client.docker('POST', f.route, resolve);
+    const info = await f.client.docker('GET', '/containers/' + Id + '/json');
+    assert.deepEqual(
+      info.HostConfig.Mounts.map((value) => value.Target),
+      ['/request', '/result'],
+    );
+    await f.host.docker('POST', '/containers/' + f.item.container + '/start');
+    await f.client.docker('DELETE', '/containers/' + Id);
+    const legacy = await fixture(t),
+      item = legacy.seed(one, 'rust'),
+      client = await legacy.instance(one, 'rust');
+    assert.equal(item.container, f.item.container);
+    await assert.rejects(client.docker('POST', f.route, resolve), denied);
+  },
+);
 
 unix(
   'real Unix broker authenticates before bodies, scopes credentials, persists revocations and never falls back',

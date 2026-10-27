@@ -2,6 +2,12 @@ import {assert} from '../common.js';
 import {labels, resources, validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
 import {brokerSocket, brokerToken} from './broker-client.js';
+import {
+  softwareWorkerKind,
+  softwareWorkerScope,
+  validateSoftwareWorkerContainer,
+  softwareWorkerDeployment,
+} from './software-worker-policy.js';
 
 const exact = (value, keys) =>
   value &&
@@ -352,6 +358,27 @@ export function hostDockerPolicy(
       return {info, management: true};
     }
     const item = definition(info);
+    if (marker['io.lobby-goblin.worker-kind'] === softwareWorkerKind) {
+      assert(
+        item.module.managed.softwareWorker,
+        'Unregistered software worker.',
+        403,
+      );
+      const scope = softwareWorkerScope({
+        fleet,
+        instance: item.id,
+        volume: item.volume,
+        declaration: item.module.managed.softwareWorker,
+      });
+      const image = await request(
+        'GET',
+        '/images/' +
+          encodeURIComponent(softwareWorkerDeployment.imageId) +
+          '/json',
+      );
+      validateSoftwareWorkerContainer(info, scope, image);
+      return {info, item, software: true};
+    }
     assert(
       [item.container, item.controller].includes(info.Name?.slice(1)) ||
         (marker['io.lobby-goblin.worker'] === 'true' &&
@@ -584,6 +611,42 @@ export function hostDockerPolicy(
     }
     if (bits[0] === 'containers' && bits.length >= 2) {
       const target = await ownedContainer(bits[1]);
+      if (target.software) {
+        assert(
+          data === undefined,
+          'Software worker control cannot include a body.',
+          403,
+        );
+        const operation = bits[2];
+        assert(
+          (method === 'GET' && bits.length === 3 && operation === 'json') ||
+            (method === 'POST' && bits.length === 3 && operation === 'stop') ||
+            (method === 'DELETE' &&
+              bits.length === 2 &&
+              target.info.State?.Running === false &&
+              !target.info.State?.Restarting),
+          'The host can only inspect or tear down its software workers.',
+          403,
+        );
+        query(url, operation === 'stop' ? ['t'] : []);
+        if (operation === 'stop')
+          assert(
+            /^\d{1,2}$/.test(url.searchParams.get('t') || '') &&
+              Number(url.searchParams.get('t')) <= 30,
+            'Invalid software worker stop deadline.',
+            403,
+          );
+        if (operation === 'json') return target.info;
+        return request(
+          method,
+          '/containers/' +
+            encodeURIComponent(target.info.Id) +
+            (operation ? '/' + operation : '') +
+            url.search,
+          undefined,
+          options,
+        );
+      }
       if (method === 'GET' && bits.length === 3 && bits[2] === 'json') {
         query(url, []);
         return target.info;

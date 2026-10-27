@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "image": "ghcr.io/jkenneydaniel/lobby-goblin-steam-worker:1-lg.1@sha256:0b5cbffe60fda9a0f32253821650226dec8f4d2ada325882b1182dbe7efc4b45",
+  "imageId": "sha256:1c2035ce05c95ca55bd99bc1c17bc1b9c1bb91774446cc1acef61577ea98781b",
+  "platform": "linux/amd64",
+  "entrypoint": ["node", "/opt/lobby/panel/providers/steamcmd/worker.js"],
+  "revision": "1"
+}

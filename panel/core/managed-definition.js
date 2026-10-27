@@ -1,4 +1,5 @@
 import {softwareDelivery, publicSoftwareDelivery} from './software-delivery.js';
+import {softwareWorkerDeclaration} from './software-worker-policy.js';
 import {assert} from '../common.js';
 import {definitionData, freezeDefinition} from './definition-data.js';
 import {serviceOrder} from './application-services.js';
@@ -97,6 +98,7 @@ function declaration(definition) {
       'previewWorker',
       'archiveReadPaths',
       'execCommands',
+      'softwareWorker',
     ]) &&
       exact(data.environment, ['server', 'controller']) &&
       exact(data.snapshots, ['includesPlayerData']),
@@ -214,6 +216,8 @@ export function compileManagedDefinition(definition, adapter) {
   );
   const data = declaration(definition);
   const software = softwareDelivery(serviceOrder(definition)[0].software);
+  if (data.helpers.softwareWorker !== undefined)
+    softwareWorkerDeclaration(data.helpers.softwareWorker, definition.id);
   assert(
     exact(adapter, [
       'legacyMigration',

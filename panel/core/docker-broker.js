@@ -17,6 +17,14 @@ import {hostDockerPolicy} from './broker-policy.js';
 import {registeredApplications} from '../applications/index.js';
 import {resources, validId} from './instance.js';
 import {AuditLog} from './audit.js';
+import {softwareWorkerDeployment} from './software-worker-policy.js';
+import {
+  preparationWorker,
+  applicationContainer,
+  softwareReservedMemory,
+  assertPreparationAdmission,
+  assertApplicationStart,
+} from './software-worker-resources.js';
 export {BROKER_PROTOCOL} from './broker-client.js';
 
 const digest = (value) =>
@@ -162,39 +170,89 @@ export async function startDockerBroker({
     runtimeImage = own.Image;
   }
   const engine = docker;
-  docker = async (method, route, data, options) => {
-    if (
-      method === 'POST' &&
-      new URL(route, 'http://docker').pathname === '/containers/create'
-    ) {
-      const filters = encodeURIComponent(
-        JSON.stringify({label: ['io.lobby-goblin.fleet=' + fleet]}),
-      );
-      const existing = (
-        await engine('GET', '/containers/json?all=1&filters=' + filters)
-      ).filter((value) => value.Labels?.['io.lobby-goblin.instance']);
-      assert(existing.length < 256, 'Broker container limit reached.', 429);
-      const specs = await Promise.all(
-          existing.map((value) =>
-            engine(
-              'GET',
-              '/containers/' + encodeURIComponent(value.Id) + '/json',
-            ),
-          ),
-        ),
+  async function instanceContainers() {
+    const filters = encodeURIComponent(
+      JSON.stringify({label: ['io.lobby-goblin.fleet=' + fleet]}),
+    );
+    const existing = (
+      await engine('GET', '/containers/json?all=1&filters=' + filters)
+    ).filter((value) => value.Labels?.['io.lobby-goblin.instance']);
+    return Promise.all(
+      existing.map((value) =>
+        engine('GET', '/containers/' + encodeURIComponent(value.Id) + '/json'),
+      ),
+    );
+  }
+  async function admittedRequest(method, route, data, options) {
+    const url = new URL(route, 'http://docker'),
+      bits = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (method === 'POST' && url.pathname === '/containers/create') {
+      const specs = await instanceContainers(),
         capacity = await engine('GET', '/info');
-      const memory = specs.reduce(
-        (sum, value) => sum + (value.HostConfig?.Memory || 0),
-        0,
-      );
+      assert(specs.length < 256, 'Broker container limit reached.', 429);
+      const candidate = {
+        Name: '/' + url.searchParams.get('name'),
+        Image:
+          data.Image === softwareWorkerDeployment.image
+            ? softwareWorkerDeployment.imageId
+            : data.Image,
+        Config: {Image: data.Image, Labels: data.Labels},
+        HostConfig: data.HostConfig,
+        State: {Running: false, Restarting: false, Status: 'created'},
+      };
+      assertPreparationAdmission(specs, candidate, fleet);
+      const memory = softwareReservedMemory([...specs, candidate], fleet);
       assert(
         Number.isFinite(capacity.MemTotal) &&
-          memory + data.HostConfig.Memory <= capacity.MemTotal - 2 * 1024 ** 3,
+          memory <= capacity.MemTotal - 2 * 1024 ** 3,
         'The broker reserves host memory headroom before provisioning.',
         409,
       );
     }
+    if (
+      method === 'POST' &&
+      bits[0] === 'containers' &&
+      bits.length === 3 &&
+      ['start', 'restart'].includes(bits[2])
+    ) {
+      const target = await engine(
+        'GET',
+        '/containers/' + encodeURIComponent(bits[1]) + '/json',
+      );
+      if (applicationContainer(target, fleet))
+        assertApplicationStart(await instanceContainers(), target, fleet);
+      if (preparationWorker(target, fleet)) {
+        assert(
+          bits[2] === 'start' && target.State?.Status === 'created',
+          'Software preparation cannot be replayed.',
+          409,
+        );
+        const specs = await instanceContainers();
+        assertPreparationAdmission(
+          specs.filter((info) => info.Id !== target.Id),
+          target,
+          fleet,
+        );
+      }
+    }
     return engine(method, route, data, options);
+  }
+  let resourceChanges = Promise.resolve();
+  docker = (method, route, data, options) => {
+    const pathname = new URL(route, 'http://docker').pathname;
+    if (
+      (method === 'POST' &&
+        (pathname === '/containers/create' ||
+          /^\/containers\/[^/]+\/(start|restart)$/.test(pathname))) ||
+      (method === 'DELETE' && /^\/containers\/[^/]+$/.test(pathname))
+    ) {
+      const next = resourceChanges.then(() =>
+        admittedRequest(method, route, data, options),
+      );
+      resourceChanges = next.catch(() => {});
+      return next;
+    }
+    return admittedRequest(method, route, data, options);
   };
   const audit = new AuditLog(root),
     host = hostDockerPolicy(docker, {

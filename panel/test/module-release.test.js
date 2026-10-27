@@ -103,6 +103,11 @@ test('compatible release bundles contain an importable core/module runtime and p
     await fs.appendFile(runtimeFile,'\n// changed runtime fixture\n');
     await assert.rejects(verifyImageContents(files,image),/Image\/package mismatch/);
     await fs.writeFile(runtimeFile,original);
+    const workerDeployment=path.join(image,'providers/steamcmd/deployment.json'),workerBytes=await fs.readFile(workerDeployment);
+    await fs.appendFile(workerDeployment,'\n');
+    await assert.rejects(verifyImageContents(files,image),/Image\/package mismatch/);
+    await fs.writeFile(workerDeployment,workerBytes);
+    await fs.writeFile(runtimeFile,original);
     // Exercise the exported setup function; the CLI prerequisite checks need
     // Docker, so no CLI, engine, socket or game process is used here.
     const prepare="import fs from 'node:fs/promises'; import {setup} from './setup.js'; const root=process.argv[1]; await setup(root,['--new-world'],{log:()=>{}}); const files=['.panel-data/auth/users.json','.panel-data/secrets/controller-token','.panel-data/registration-link.txt','data/config/server-settings.json']; const before=await Promise.all(files.map(f=>fs.readFile(root+'/'+f,'utf8'))); await setup(root,['--new-world'],{log:()=>{}}); const after=await Promise.all(files.map(f=>fs.readFile(root+'/'+f,'utf8'))); if(JSON.stringify(before)!==JSON.stringify(after))throw Error('Setup changed existing state'); if((await fs.readdir(root+'/data/saves')).length)throw Error('Prepare-only setup created a world');";
