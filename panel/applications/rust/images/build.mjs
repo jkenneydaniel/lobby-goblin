@@ -29,10 +29,9 @@ export async function imageDefinition() {
     value.platform !== 'linux/amd64' ||
     value.repository !== 'ghcr.io/jkenneydaniel/rust-server' ||
     !/^steam-lg\.[1-9]\d*$/.test(value.tag) ||
-    !/^node:24\.[\d.]+-bookworm-slim@sha256:[a-f0-9]{64}$/.test(
+    !/^ghcr\.io\/jkenneydaniel\/lobby-goblin-steamcmd@sha256:[a-f0-9]{64}$/.test(
       value.baseImage,
-    ) ||
-    !/^[a-f0-9]{64}$/.test(value.steamcmdSha256)
+    )
   )
     throw Error('Invalid Rust image definition');
   return {...value, image: value.repository + ':' + value.tag};

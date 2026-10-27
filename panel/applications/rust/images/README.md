@@ -1,9 +1,16 @@
 # Lobby Goblin Rust image
 
-`ghcr.io/jkenneydaniel/rust-server:steam-lg.2` is an independent, mod-capable bootstrap
-image. It uses the digest-pinned Node/Debian base and checksum-verified official
-Valve SteamCMD archive in `image.json`. It does not inherit Didstopia's image or
-startup/shutdown scripts. Rust and Steam remain subject to their own licenses.
+The package recipe builds `ghcr.io/jkenneydaniel/rust-server:steam-lg.4`, a
+mod-capable bootstrap image extending the digest-pinned shared Lobby Goblin
+SteamCMD image. The shared provider owns Node/Debian, common libraries and the
+checksum-verified official Valve SteamCMD bootstrap. Rust owns its additional
+libraries, WebRCON transport, startup and shutdown. The recipe declares its shared
+base dependency so targeted checks/builds include that prerequisite.
+Rust and Steam remain subject to their own licenses.
+
+Existing managed defaults remain at `steam-lg.2`. Building or publishing this
+revision does not select it for existing installations. The bootstrap behavior
+is preserved; staged-provider adoption and software updates are separate work.
 
 The data mount stays `/steamcmd/rust`, identity `lobby-goblin-rust`, with game/query
 UDP 28015/28017 and internal WebRCON TCP 28016. A root supervisor normalizes data
