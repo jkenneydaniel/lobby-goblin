@@ -1,3 +1,4 @@
+import {createStorageScreen} from './storage-screen.js';
 import {createUpdatesScreen} from './updates-screen.js';
 import {createSnapshotScreen} from './snapshot-screen.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
@@ -134,6 +135,7 @@ export function createFleetScreens({
         paintServers(ctx);
       },
     }),
+    storage: () => createStorageScreen({model, notice}),
     library: () => createSnapshotScreen({model, getSession, creation, notice}),
     access: () => {
       let workflow;

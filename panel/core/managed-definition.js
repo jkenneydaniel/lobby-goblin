@@ -234,6 +234,7 @@ export function compileManagedDefinition(definition, adapter) {
       'configureStorage',
       'snapshots',
       'runtime',
+      'retained',
     ]),
     'Unknown managed runtime adapter hook.',
   );
@@ -324,6 +325,7 @@ export function compileManagedDefinition(definition, adapter) {
       ),
     prepareStorage: adapter.prepareStorage,
     configureStorage: adapter.configureStorage,
+    ...(adapter.retained ? {retained: adapter.retained} : {}),
     snapshots: Object.freeze({...data.snapshots, ...adapter.snapshots}),
   };
   validateManagedGame({

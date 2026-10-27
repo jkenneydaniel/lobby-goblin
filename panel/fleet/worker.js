@@ -56,6 +56,10 @@ export async function runWorker(
       {mode: 0o600, flag: 'wx'},
     );
     await managed.configureStorage(context);
+    if(config.retainedRecovery) {
+      assert(validId(config.retainedRecovery.sourceId)&&/^[a-f0-9]{64}$/.test(config.retainedRecovery.nonce),'Invalid recovery marker.');
+      await writeJSON(path.join(instance,'control/retained-recovery.json'),{...config.retainedRecovery,targetId:config.id});
+    }
     return {initialized: true};
   }
   assert(

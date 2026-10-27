@@ -276,6 +276,16 @@ export function createContainerApplication(definition) {
     },
   });
   module.managed = compileManagedDefinition(definition, {
+    retained: {
+      version:1,
+      state: [],
+      async inspect({read}) {
+        const record=await read('state/application-definition.json');
+        assert(record?.id===definition.id&&record.sha256===definitionFingerprint(definition),'Application definition changed. Review compatibility before recovering retained storage.',409);
+        return {};
+      },
+      async rebind() {},
+    },
     async prepareStorage() {},
     async configureStorage({instance, config}) {
       await fs.chmod(path.join(instance, 'data'), 0o770);

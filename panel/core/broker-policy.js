@@ -112,6 +112,7 @@ export function hostDockerPolicy(
       ...Object.keys(labels(fleet, item.id, item.game)),
       'io.lobby-goblin.role',
       'io.lobby-goblin.worker',
+      'io.lobby-goblin.retained-source',
     ]);
     only(host, [
       'RestartPolicy',
@@ -125,6 +126,7 @@ export function hostDockerPolicy(
       'CapAdd',
       'SecurityOpt',
       'PidsLimit',
+      'ReadonlyRootfs',
     ]);
     assert(
       Number.isSafeInteger(host.Memory) &&
@@ -160,7 +162,17 @@ export function hostDockerPolicy(
         403,
       );
     }
-    if (worker) {
+    const retainedSource=data.Labels['io.lobby-goblin.retained-source'];
+    assert(retainedSource===undefined||worker&&validId(retainedSource),'Invalid retained storage worker.',403);
+    assert(host.ReadonlyRootfs===undefined||retainedSource&&host.ReadonlyRootfs===true,'Unreviewed root filesystem option.',403);
+    if (worker&&retainedSource) {
+      const copying=retainedSource!==item.id;
+      assert(!role&&/^lobby-goblin-worker-[a-f0-9]{32}$/.test(name)&&data.Image===runtimeImage&&data.User==='0:0'&&same(data.Entrypoint,['node','/app/fleet/retained-worker.js'])&&!data.Cmd&&!data.Env&&!data.ExposedPorts&&!data.NetworkingConfig&&!host.PortBindings&&host.NetworkMode==='none'&&host.ReadonlyRootfs===true&&host.Mounts.length===(copying?3:2)&&host.Memory<=512*1024**2&&host.NanoCpus<=1e9,'Unsupported retained storage worker.',403);
+      mount(host.Mounts[0],{source:project+'-state',target:'/setup',subpath:'requests/'+name.slice('lobby-goblin-worker-'.length)});
+      mount(host.Mounts[1],{source:resources(fleet,retainedSource,item.game).volume,target:'/source',readOnly:true});
+      if(copying)mount(host.Mounts[2],{source:item.volume,target:'/instance'});
+      host.CapAdd=copying?['CHOWN','DAC_OVERRIDE','FOWNER']:['DAC_OVERRIDE'];
+    } else if (worker) {
       assert(
         !role &&
           /^lobby-goblin-worker-[a-f0-9]{32}$/.test(name) &&
@@ -412,6 +424,15 @@ export function hostDockerPolicy(
           ({Ports}) => ({Ports}),
         );
       const filters = JSON.parse(url.searchParams.get('filters'));
+      if(Object.hasOwn(filters,'volume')) {
+        only(filters,['volume']);
+        assert(url.searchParams.get('all')==='1'&&Array.isArray(filters.volume)&&filters.volume.length===1,'Invalid volume usage query.',403);
+        const volume=filters.volume[0],id=instanceForVolume(volume,fleet);
+        assert(validId(id),'Volume is outside this fleet.',403);
+        const info=await request('GET','/volumes/'+encodeURIComponent(volume));safeVolume(info);
+        const item=definition(info);assert(item.id===id&&volume===item.volume,'Volume ownership changed.',403);
+        return (await request('GET','/containers/json?'+new URLSearchParams({all:'1',filters:JSON.stringify({volume:[volume]})}))).map(({Id})=>({Id}));
+      }
       only(filters, ['label']);
       assert(
         Array.isArray(filters.label) &&
@@ -506,8 +527,8 @@ export function hostDockerPolicy(
     if (['volumes', 'networks'].includes(bits[0]) && bits.length >= 2) {
       if (bits[0] === 'volumes')
         assert(
-          method === 'GET' && bits.length === 2,
-          'Volume removal and changes are outside the broker contract.',
+          ['GET','DELETE'].includes(method) && bits.length === 2,
+          'Volume changes are outside the broker contract.',
           403,
         );
       const id = instanceForVolume(bits[1], fleet);
@@ -521,6 +542,17 @@ export function hostDockerPolicy(
       if (method === 'GET' && bits.length === 2) {
         query(url, []);
         return info;
+      }
+      if(bits[0]==='volumes'&&method==='DELETE'&&bits.length===2) {
+        query(url,[]);assert(data===undefined,'Volume deletion cannot include options.',403);safeVolume(info);
+        assert(bits[1]===item.volume&&info.Scope==='local','Only an isolated local instance volume can be deleted.',403);
+        for(const name of [item.container,item.controller]) {
+          let exists=false;try{await request('GET','/containers/'+name+'/json');exists=true;}catch(error){if(error.status!==404)throw error;}
+          assert(!exists,'Remove the server containers before deleting storage.',409);
+        }
+        const attached=await request('GET','/containers/json?'+new URLSearchParams({all:'1',filters:JSON.stringify({volume:[item.volume]})}));
+        assert(!attached.length,'A container still uses this volume.',409);
+        return request('DELETE','/volumes/'+encodeURIComponent(item.volume),undefined,options);
       }
       if (bits[0] === 'networks') {
         if (method === 'DELETE' && bits.length === 2) {
@@ -568,8 +600,24 @@ export function hostDockerPolicy(
         403,
       );
       const item = specification(data, url.searchParams.get('name'));
-      for (const mount of data.HostConfig.Mounts)
-        await storage(mount.Source, item);
+      for (const mount of data.HostConfig.Mounts) {
+        const stored=await storage(mount.Source,item);
+        if(mount.Target==='/source') {
+          const source=definition(stored);
+          assert(source.id===data.Labels['io.lobby-goblin.retained-source']&&source.game===item.game,'Recovery source ownership changed.',403);
+        }
+      }
+      const retainedSource=data.Labels['io.lobby-goblin.retained-source'];
+      if(retainedSource) {
+        const source=resources(fleet,retainedSource,item.game);
+        for(const name of [source.container,source.controller]) {
+          let exists=false;try{await request('GET','/containers/'+name+'/json');exists=true;}catch(error){if(error.status!==404)throw error;}
+          assert(!exists,'Complete server removal before inspecting retained storage.',409);
+        }
+        const refs=await request('GET','/containers/json?'+new URLSearchParams({all:'1',filters:JSON.stringify({volume:[source.volume]})}));
+        assert(!refs.length,'A container still uses the recovery source.',409);
+        if(retainedSource!==item.id){const targets=await request('GET','/containers/json?'+new URLSearchParams({all:'1',filters:JSON.stringify({volume:[item.volume]})}));assert(!targets.length,'The recovery destination already has a container reference.',409);}
+      }
       if (data.HostConfig.NetworkMode !== 'none') {
         const network = await request(
             'GET',

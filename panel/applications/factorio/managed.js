@@ -1,3 +1,4 @@
+import {retained} from './retained.js';
 import {imageMatch} from '../../core/image-policy.js';
 import {runtimeSoftware,runtimeImagePolicy,runtimeReceipt} from './runtime.js';
 import fs from 'node:fs/promises';
@@ -9,6 +10,7 @@ import {definition} from './definition.js';
 import {collectSnapshot, restoreSnapshot} from './snapshots.js';
 
 export const managed = compileManagedDefinition(definition,{
+  retained,
   runtime:{imagePolicy:runtimeImagePolicy,software:runtimeSoftware},
   legacyMigration: {
     file: (config, env) =>

@@ -14,6 +14,7 @@ let session = null;
 const navigation = [
   {id: 'servers', label: 'Servers'},
   {id: 'library', label: 'Snapshot library', ownerOnly: true},
+  {id: 'storage', label: 'Storage', adminOnly: true},
   {id: 'updates', label: 'Updates', adminOnly: true},
   {id: 'hosts', label: 'Hosts', ownerOnly: true},
   {id: 'host', label: 'Host settings', ownerOnly: true},
@@ -160,6 +161,7 @@ const screenRouter = createScreenRouter({
       {
         servers: 'servers',
         library: 'snapshots',
+        storage: 'storage-view',
         access: 'access-view',
         host: 'host-view',
         operations: 'operations-view',
@@ -198,9 +200,10 @@ function selectView(next) {
     'access',
     'operations',
     'updates',
+    'storage',
   ].includes(next);
   $('#dashboard > .operations').hidden =
-    ['access', 'operations', 'updates'].includes(next) ||
+    ['access', 'operations', 'updates', 'storage'].includes(next) ||
     session?.role === 'member';
   shell.active(next);
   history.replaceState(null, '', '/#' + next);

@@ -182,7 +182,8 @@ removal**. The host saves and stops the selected server, waits for a completed b
 publishes and verifies its snapshot, then removes the server containers and network. A failed snapshot
 prevents removal and leaves the server stopped, with its resources intact. For an incomplete installation or a server that cannot publish a
 cloneable snapshot, an administrator can uncheck this option and retain the
-original volume for operator recovery. Historical API clients that omit
+original volume for inspection, recovery into a new stopped server, or explicit
+permanent deletion in **Storage**. See [Retained server storage](RETAINED_STORAGE.md). Historical API clients that omit
 `publishSnapshot` retain the previous removal behavior.
 
 Administrators can inspect a snapshot's verified inventory and hashes, download

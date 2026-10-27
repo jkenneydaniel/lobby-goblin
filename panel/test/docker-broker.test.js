@@ -161,6 +161,7 @@ function engine() {
     if (url.pathname === '/containers/json') {
       const filters = JSON.parse(url.searchParams.get('filters') || '{}');
       return [...containers.values()]
+        .filter(value=>!filters.volume||filters.volume.every(volume=>(value.HostConfig?.Mounts||[]).some(mount=>mount.Source===volume)))
         .filter((value) =>
           (filters.label || []).every((label) => {
             const at = label.indexOf('=');
@@ -186,8 +187,7 @@ function engine() {
         });
       return volumes.get(data.Name);
     }
-    if (bits[0] === 'volumes')
-      return structuredClone(volumes.get(bits[1]) || missing());
+    if (bits[0] === 'volumes'){const volume=volumes.get(bits[1])||missing();if(method==='DELETE'){volumes.delete(bits[1]);return null;}return structuredClone(volume);}
     if (url.pathname === '/networks/create') {
       const value = {
         ...structuredClone(data),
@@ -1623,3 +1623,21 @@ unix(
     assert.equal(calls, 0);
   },
 );
+
+unix('real broker confines retained storage usage, read-only inspection and volume deletion including foreign stopped references',async t=>{
+ const f=await fixture(t),source=f.seed(one),destination=f.seed(two),client=await f.instance(one);
+ for(const item of [source,destination]){f.containers.delete(item.container);Object.assign(f.volumes.get(item.volume),{Scope:'local',CreatedAt:'fixture'});}
+ const usage='/containers/json?'+new URLSearchParams({all:'1',filters:JSON.stringify({volume:[source.volume]})});
+ assert.deepEqual(await f.host.docker('GET',usage),[]);
+ f.containers.set('foreign',{Id:'foreign-id',Name:'/unmanaged',Config:{Labels:{}},State:{Running:false},HostConfig:{Mounts:[{Type:'volume',Source:source.volume,Target:'/data'}]}});
+ assert.deepEqual(await f.host.docker('GET',usage),[{Id:'foreign-id'}]);
+ await assert.rejects(f.host.docker('DELETE','/volumes/'+source.volume),/still uses/);
+ const requestId='f'.repeat(32),spec={Image:runtime,User:'0:0',Entrypoint:['node','/app/fleet/retained-worker.js'],Labels:{...labels(fleet,one,'factorio'),'io.lobby-goblin.worker':'true','io.lobby-goblin.retained-source':one},HostConfig:{NetworkMode:'none',ReadonlyRootfs:true,Memory:512*1024**2,NanoCpus:1e9,Mounts:[{Type:'volume',Source:project+'-state',Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:source.volume,Target:'/source',ReadOnly:true}]}};
+ const route='/containers/create?name=lobby-goblin-worker-'+requestId;
+ await assert.rejects(f.host.docker('POST',route,structuredClone(spec)),/still uses/);f.containers.delete('foreign');
+ for(const mutate of [s=>s.HostConfig.Mounts[1].ReadOnly=false,s=>s.HostConfig.Mounts.push({Type:'bind',Source:'/',Target:'/host'}),s=>s.Entrypoint=['sh'],s=>s.HostConfig.ReadonlyRootfs=false,s=>s.Labels['io.lobby-goblin.retained-source']=two]){const invalid=structuredClone(spec);mutate(invalid);await assert.rejects(f.host.docker('POST',route,invalid),denied);}
+ const copy=structuredClone(spec);copy.Labels={...copy.Labels,...labels(fleet,two,'factorio')};copy.HostConfig.Mounts.push({Type:'volume',Source:destination.volume,Target:'/instance'});
+ await f.host.docker('POST',route,copy);const worker=[...f.containers.values()].find(c=>c.Name==='/lobby-goblin-worker-'+requestId);assert.deepEqual(worker.HostConfig.CapAdd,['CHOWN','DAC_OVERRIDE','FOWNER']);f.containers.delete('lobby-goblin-worker-'+requestId);
+ await assert.rejects(client.docker('DELETE','/volumes/'+source.volume),denied);await assert.rejects(f.host.docker('DELETE','/volumes/'+project+'-library'),denied);await assert.rejects(f.host.docker('DELETE','/volumes/'+source.volume+'?force=true'),denied);
+ await f.host.docker('DELETE','/volumes/'+source.volume);assert.equal(f.volumes.has(source.volume),false);assert.equal(f.volumes.has(destination.volume),true);assert.equal(f.volumes.has(project+'-library'),true);
+});
