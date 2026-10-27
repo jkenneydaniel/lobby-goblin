@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {assert} from '../common.js';
 import {definitionData, freezeDefinition} from './definition-data.js';
 import {resources, validId, labels} from './instance.js';
@@ -42,8 +43,10 @@ export function softwareWorkerDeclaration(value, application) {
   createSteamProvider({
     source,
     requiredFiles: value.requiredFiles,
-    software: '/software',
-    control: '/control',
+    // This constructor validates metadata only; use canonical host paths so
+    // Windows launchers can inspect Linux application declarations too.
+    software: path.resolve('/software'),
+    control: path.resolve('/control'),
   });
   return freezeDefinition({
     version: 1,

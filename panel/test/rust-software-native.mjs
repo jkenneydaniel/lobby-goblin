@@ -40,6 +40,8 @@ function freshItem() {
     image,
     softwareMode: 'managed',
     name: mode === 'clone' ? 'Native Rust clone' : 'Native Rust source',
+    gamePort: 28015,
+    queryPort: 28017,
     memoryGiB: 10,
     cpu: 2,
     seed: 12345,

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import {createRust} from '../applications/rust/controller.js';
+import {readSettings} from '../applications/rust/settings.js';
 import {createRustSoftware} from '../applications/rust/software.js';
 import {createSteamProvider} from '../providers/steamcmd/provider.js';
 import {softwareWorkerPaths} from '../core/software-worker-policy.js';
@@ -137,6 +139,8 @@ async function fixture(t) {
   const ctx = {
     config: {
       softwareManaged: true,
+      restartPolicy: 'no',
+      identity: 'lobby-goblin-rust',
       managedVolume: 'fixture-volume',
       instance,
       image,
@@ -144,6 +148,7 @@ async function fixture(t) {
       installRoot: path.join(root, 'data/engine'),
       state: path.join(root, 'state'),
     },
+    env: {},
     softwareWorkers: workers,
     host: {
       info: async () => ({
@@ -156,6 +161,7 @@ async function fixture(t) {
           },
         ],
         HostConfig: {
+          RestartPolicy: {Name: 'no'},
           Mounts: [
             {
               Source: 'fixture-volume',
@@ -399,4 +405,52 @@ test('completed publication with orphan coordination needs explicit metadata rec
   await restored.recover({confirm: true, review: inspected.review});
   await restored.ensure();
   assert.equal((await restored.status()).recoveryRequired, false);
+});
+
+test('settings stay locked after interrupted setup and become editable after reviewed publication', async (t) => {
+  const f = await fixture(t);
+  f.runtime.fault = 'selected';
+  await assert.rejects(f.software.ensure());
+  const game = await createRust(f.ctx, {
+    rcon: async () => assert.fail('Settings must not contact the game'),
+  });
+  let settings;
+  const response = {
+    writeHead() {},
+    end(value) {
+      settings = JSON.parse(value);
+    },
+  };
+  await game.handle(
+    {method: 'GET'},
+    response,
+    new URL('http://fixture/settings'),
+  );
+  assert.equal(settings.editable, false);
+  assert.match(settings.message, /initial software setup/);
+  const file = path.join(f.ctx.config.data, 'lobby-goblin-rust/cfg/server.cfg'),
+    before = await fs.readFile(file, 'utf8');
+  const input = {
+    values: {...settings.values, 'server.hostname': 'Authorized new name'},
+    revision: settings.revision,
+  };
+  await assert.rejects(
+    game.actions['save-settings'](input),
+    /initial software setup/,
+  );
+  assert.equal(await fs.readFile(file, 'utf8'), before);
+  const review = await f.software.inspect();
+  await f.software.recover({confirm: true, review: review.review});
+  await game.handle(
+    {method: 'GET'},
+    response,
+    new URL('http://fixture/settings'),
+  );
+  assert.equal(settings.editable, true);
+  await game.actions['save-settings']({...input, revision: settings.revision});
+  assert.equal(
+    (await readSettings(file)).values['server.hostname'],
+    'Authorized new name',
+  );
+  await f.software.ensure();
 });

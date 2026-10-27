@@ -65,6 +65,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
   }
   const mods=createModManager({root:config.installRoot,state:config.state,getActive:()=>ctx.active,fetcher:modFetcher,assertStopped:async()=>{assert(!(await owned()).State?.Running,'Stop Rust before changing mod files.',409);},command:async value=>{assert(started(await owned(),await serverInfo()),'Wait for Rust to finish startup.',409);return command(value);}});
   const modLibrary=createRustModLibrary(ctx,{mods,owned,start,stop,command,ready:async()=>{const current=await owned();assert(current.State?.Running&&started(current,await serverInfo()),'Wait for Rust to be ready before applying plugins while running.',409);},fetcher:modFetcher});
+  async function softwareReadyForSettings(){if(!software)return true;const value=await software.status();return value.phase==='complete'&&!value.recoveryRequired;}
   async function start(_params,job=ctx.active){await owned();if(software)await software.ensure(job);const info=await owned();await modLibrary.assertReady();await mods.assertReady();if(!info.State?.Running)await host.control('start');await ready();return 'Rust is ready.';}
   async function stop(){
     const info=await owned();if(!info.State?.Running)return 'Rust is already stopped.';
@@ -103,7 +104,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     operationSources:[...(software?[software.operationSource]:[]),modLibrary.operationSource,mods.operationSource],
     actions:{...modLibrary.actions,'software-recover':async(params,job)=>{assert(software,'This installation uses the legacy Rust installer.',409);await software.recover(params,job);return 'Initial Rust software recovered. Start Rust when ready.';},'software-cancel':async params=>{assert(software,'This installation uses the legacy Rust installer.',409);return software.cancel(params);},start,stop,restart:async()=>{await stop();await start();return 'Rust restarted and is ready.';},
       'install-framework':async (params,job)=>{assert(!software,'This managed setup currently supports vanilla Rust. Framework changes require paired software and mod recovery.',409);const image=await docker('GET','/images/'+encodeURIComponent((await owned()).Image)+'/json');assert(image.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1','Framework management requires the mod-capable Rust image (steam-lg.2 or newer). Upgrade that game image before installation.',409);return mods.install(params.planId,job);},'recover-framework':()=>mods.recover(),plugin:params=>mods.plugin(params),'plugin-config':params=>mods.configuration(params.name,params),
-      'save-settings':async params=>{await owned();assert(!(await owned()).State?.Running,'Stop Rust before saving settings.',409);await saveSettings(settingsFile,params.values,params.revision);return 'Settings saved. They take effect when Rust starts.';}},
+      'save-settings':async params=>{await owned();assert(await softwareReadyForSettings(),'Finish or recover initial software setup before editing Rust settings.',409);assert(!(await owned()).State?.Running,'Stop Rust before saving settings.',409);await saveSettings(settingsFile,params.values,params.revision);return 'Settings saved. They take effect when Rust starts.';}},
     status,recentStatus:()=>recent,locations:[{id:'rust-identity',title:'Rust identity',path:identityRoot}],
     backupExtension:'.tar.gz',writeBackup:backup,verifyBackupFile:verifyArchive,
     backupVerified:result=>`Rust archive verified: ${result.files} files, including a world save. Archive integrity checked; game-load recovery is a separate test.`,
@@ -133,8 +134,8 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
         return json(res,200,{logs:sanitizeLogs(demultiplex(logs),password)});
       }
       if(url.pathname==='/settings'){
-        const info=await owned(),value=await readSettings(settingsFile);
-        return json(res,200,{fields,values:value.values,configured:value.configured,revision:value.revision,editable:!info.State?.Running&&!ctx.active,message:'Stop Rust before saving. Changes apply at the next start. Unlisted settings are preserved.'});
+        const info=await owned(),value=await readSettings(settingsFile),setupReady=await softwareReadyForSettings();
+        return json(res,200,{fields,values:value.values,configured:value.configured,revision:value.revision,editable:setupReady&&!info.State?.Running&&!ctx.active,message:setupReady?'Stop Rust before saving. Changes apply at the next start. Unlisted settings are preserved.':'Finish or recover initial software setup before editing Rust settings.'});
       }
       assert(false,'Not found.',404);
     },

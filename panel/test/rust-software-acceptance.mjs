@@ -95,6 +95,7 @@ const base = (scope, role, mounts = []) => ({
     'io.lobby-goblin.acceptance': 'rust-software',
   },
   HostConfig: {
+    Init: true,
     NetworkMode: 'none',
     ReadonlyRootfs: true,
     Memory: 512 * 1024 ** 2,
