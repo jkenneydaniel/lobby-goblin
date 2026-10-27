@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "repository": "ghcr.io/jkenneydaniel/lobby-goblin-steam-worker",
+  "tag": "1-lg.1",
+  "revision": 1,
+  "platform": "linux/amd64",
+  "baseImage": "ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:acb54444388c2b0886fbb5937d0faa16a18a8cf14e28586cb62de203cd64429b"
+}

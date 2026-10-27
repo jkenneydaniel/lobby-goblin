@@ -15,6 +15,25 @@ const exact = (value, keys) =>
   !Array.isArray(value) &&
   Object.keys(value).every((key) => keys.includes(key));
 
+// Reviewed module closures, never recipe-supplied repository or host paths.
+const runtimeProfiles = Object.freeze({
+  'software-provider-v1': Object.freeze([
+    'panel/common.js',
+    'panel/core/definition-data.js',
+    'panel/core/software-installation.js',
+    'panel/core/storage/files.js',
+    'panel/core/storage/coordination.js',
+  ]),
+});
+async function publicImageSource(root, logical) {
+  const file = await sourceFile(root, installationPath(logical));
+  assert(
+    (await fs.lstat(file)).isFile() && (await fs.realpath(file)) === file,
+    'Image sources must be regular files without links.',
+  );
+  return file;
+}
+
 // Build manifests are reviewed repository data. HTTP never exposes this runner.
 async function packageImages(root, group) {
   const registry = await fs
@@ -61,6 +80,7 @@ async function packageImages(root, group) {
           'checks',
           'acceptance',
           'dependencies',
+          'runtimeProfile',
         ]) &&
           identifier(recipe.id) &&
           safeSnapshotPath(recipe.manifest) &&
@@ -72,17 +92,10 @@ async function packageImages(root, group) {
           safeSnapshotPath(relative),
           'Image source must stay inside its package.',
         );
-        const file = await sourceFile(
+        return publicImageSource(
           root,
-          installationPath(
-            'panel/' + group + '/' + application + '/' + relative,
-          ),
+          'panel/' + group + '/' + application + '/' + relative,
         );
-        assert(
-          (await fs.lstat(file)).isFile() && (await fs.realpath(file)) === file,
-          'Image sources must be regular files without links.',
-        );
-        return file;
       };
       const value = JSON.parse(
         await fs.readFile(await locate(recipe.manifest), 'utf8'),
@@ -109,6 +122,25 @@ async function packageImages(root, group) {
             recipe.files.length &&
           recipe.files.some((file) => file.target === recipe.dockerfile),
         'Invalid image context allowlist.',
+      );
+      assert(
+        recipe.runtimeProfile === undefined ||
+          (group === 'providers' &&
+            typeof recipe.runtimeProfile === 'string' &&
+            Object.hasOwn(runtimeProfiles, recipe.runtimeProfile)),
+        'Choose a registered provider image runtime profile.',
+      );
+      const runtimeFiles = (runtimeProfiles[recipe.runtimeProfile] || []).map(
+        (source) => ({
+          source,
+          target: 'runtime/' + source,
+        }),
+      );
+      assert(
+        new Set([...recipe.files, ...runtimeFiles].map((file) => file.target))
+          .size ===
+          recipe.files.length + runtimeFiles.length,
+        'Package sources cannot replace shared runtime modules.',
       );
       assert(
         exact(recipe.buildArgs, Object.keys(recipe.buildArgs || {})) &&
@@ -170,6 +202,14 @@ async function packageImages(root, group) {
         metadata: value,
         image: value.repository + ':' + value.tag,
         locate,
+        runtimeFiles,
+        locateRuntime: async (source) => {
+          assert(
+            runtimeFiles.some((file) => file.source === source),
+            'Unknown shared image source.',
+          );
+          return publicImageSource(root, source);
+        },
       });
     }
   }
@@ -244,6 +284,11 @@ export async function imageContext(recipe, run) {
       const target = path.join(directory, file.target);
       await fs.mkdir(path.dirname(target), {recursive: true});
       await fs.copyFile(await recipe.locate(file.source), target);
+    }
+    for (const file of recipe.runtimeFiles || []) {
+      const target = path.join(directory, file.target);
+      await fs.mkdir(path.dirname(target), {recursive: true});
+      await fs.copyFile(await recipe.locateRuntime(file.source), target);
     }
     return await run(directory);
   } finally {

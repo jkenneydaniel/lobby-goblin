@@ -1,12 +1,78 @@
 {
   "version": 1,
-  "images": [{
-    "id": "runtime",
-    "manifest": "images/image.json",
-    "dockerfile": "Dockerfile",
-    "files": [{"source": "images/Dockerfile", "target": "Dockerfile"}],
-    "buildArgs": {"BASE_IMAGE": "baseImage", "STEAMCMD_SHA256": "steamcmdSha256"},
-    "checks": [{"runner": "node-test", "file": "metadata.test.mjs"}, {"runner": "node-test", "file": "provider.test.mjs"}],
-    "acceptance": ["images/acceptance.mjs"]
-  }]
+  "images": [
+    {
+      "id": "runtime",
+      "manifest": "images/image.json",
+      "dockerfile": "Dockerfile",
+      "files": [
+        {
+          "source": "images/Dockerfile",
+          "target": "Dockerfile"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage",
+        "STEAMCMD_SHA256": "steamcmdSha256"
+      },
+      "checks": [
+        {
+          "runner": "node-test",
+          "file": "metadata.test.mjs"
+        },
+        {
+          "runner": "node-test",
+          "file": "provider.test.mjs"
+        }
+      ],
+      "acceptance": ["images/acceptance.mjs"]
+    },
+    {
+      "id": "worker",
+      "manifest": "images/worker/image.json",
+      "dockerfile": "Dockerfile",
+      "dependencies": ["shared/steamcmd/runtime"],
+      "runtimeProfile": "software-provider-v1",
+      "files": [
+        {
+          "source": "images/worker/Dockerfile",
+          "target": "Dockerfile"
+        },
+        {
+          "source": "images/worker/package.json",
+          "target": "runtime/package.json"
+        },
+        {
+          "source": "worker.js",
+          "target": "runtime/panel/providers/steamcmd/worker.js"
+        },
+        {
+          "source": "provider.js",
+          "target": "runtime/panel/providers/steamcmd/provider.js"
+        },
+        {
+          "source": "metadata.js",
+          "target": "runtime/panel/providers/steamcmd/metadata.js"
+        },
+        {
+          "source": "files.js",
+          "target": "runtime/panel/providers/steamcmd/files.js"
+        },
+        {
+          "source": "command.js",
+          "target": "runtime/panel/providers/steamcmd/command.js"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage"
+      },
+      "checks": [
+        {
+          "runner": "node-test",
+          "file": "worker.test.mjs"
+        }
+      ],
+      "acceptance": ["images/worker-acceptance.mjs"]
+    }
+  ]
 }

@@ -261,6 +261,9 @@ export function createSteamProvider({
     const state = await readState();
     if (state.state !== 'uninstalled' || (await isApplicationEmpty()) !== true)
       return false;
+    return emptySoftwareTree();
+  }
+  async function emptySoftwareTree() {
     const stat = await fs.lstat(software).catch((error) => {
       if (error.code === 'ENOENT') return null;
       throw error;
@@ -315,7 +318,7 @@ export function createSteamProvider({
     }
     return null;
   }
-  async function resolve(initial) {
+  async function resolve(initial, {signal} = {}) {
     definitionData(initial);
     assert(
       initial &&
@@ -323,11 +326,12 @@ export function createSteamProvider({
         typeof initial.channel === 'string',
       'Steam initial selection requires a branch. Historical builds are not automatically downloadable.',
     );
-    return (await discovery(initial.channel)).selection;
+    return (await discovery(initial.channel, signal)).selection;
   }
-  async function stage(
+  async function stageWork(
     value,
     {confirm = false, operationId = crypto.randomUUID(), signal} = {},
+    preparationOnly = false,
   ) {
     const target = boundSelection(value);
     await initialize();
@@ -340,13 +344,15 @@ export function createSteamProvider({
       );
       assert(
         confirm === true &&
-          (current.installed || (await isApplicationEmpty()) === true),
+          (preparationOnly ||
+            current.installed ||
+            (await isApplicationEmpty()) === true),
         'Explicit software staging or empty-application confirmation is required.',
         409,
       );
       if (current.state === 'uninstalled')
         assert(
-          await empty(),
+          preparationOnly ? await emptySoftwareTree() : await empty(),
           'Existing software requires explicit adoption or recovery.',
           409,
         );
@@ -385,14 +391,8 @@ export function createSteamProvider({
       try {
         await atomicRecord(stateFile, preparing);
         current = preparing;
+        assert(!signal?.aborted, 'Software preparation was cancelled.', 409);
         if (cached) await fault('cached-preparing');
-        const discovered = await discovery(target.source.branch, signal);
-        assert(
-          softwareSelectionKey(discovered.selection) ===
-            softwareSelectionKey(target),
-          'Steam branch moved. Refresh the installation plan.',
-          409,
-        );
         if (cached) {
           await move({state: 'validating'});
           await fault('cached-validating');
@@ -403,6 +403,13 @@ export function createSteamProvider({
           });
           return {operationId, revision: current.revision, receipt: cached};
         }
+        const discovered = await discovery(target.source.branch, signal);
+        assert(
+          softwareSelectionKey(discovered.selection) ===
+            softwareSelectionKey(target),
+          'Steam branch moved. Refresh the installation plan.',
+          409,
+        );
         assert(
           (await disk(software)) >= discovered.bytes * 2 + 512 * 1024 ** 2,
           'There is insufficient space to stage this Steam installation.',
@@ -487,6 +494,7 @@ export function createSteamProvider({
           maxBytes,
           sync: true,
         });
+        assert(!signal?.aborted, 'Software preparation was cancelled.', 409);
         checkRequired(inventory);
         const receipt = boundReceipt({
           format: 1,
@@ -569,9 +577,16 @@ export function createSteamProvider({
         'Staged software changed. Inspect it before activation.',
         409,
       );
+      if (!current.installed)
+        assert(
+          (await isApplicationEmpty()) === true,
+          'Existing application data requires explicit adoption or recovery before activation.',
+          409,
+        );
       await verify(receipt);
       assert(
-        (await isApplicationStopped()) === true,
+        (await isApplicationStopped()) === true &&
+          (current.installed || (await isApplicationEmpty()) === true),
         'Application state changed before software activation.',
         409,
       );
@@ -629,7 +644,7 @@ export function createSteamProvider({
       'Existing or interrupted applications need explicit adoption or recovery.',
       409,
     );
-    return activate(await stage(target, {...options, confirm: true}), {
+    return activate(await stageWork(target, {...options, confirm: true}), {
       confirm: true,
     });
   }
@@ -816,7 +831,10 @@ export function createSteamProvider({
     installed,
     empty,
     install,
-    stage,
+    stage: (value, options) => stageWork(value, options),
+    // An isolated worker may prepare private software without application data
+    // or lifecycle access. It cannot activate; the controller rechecks both.
+    prepare: (value, options) => stageWork(value, options, true),
     activate,
     inspect,
     recover,

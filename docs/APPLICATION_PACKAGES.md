@@ -103,6 +103,12 @@ Manual Factorio publication retains migration and backup-recovery acceptance.
 Both games bind native acceptance to their recipe's image reference and immutable
 local build ID, including Rust's fresh installation and mod checks.
 
+Shared provider recipes can select a registered runtimeProfile. The
+software-provider-v1 profile copies only its fixed public core-module closure into
+the isolated context. A recipe cannot choose arbitrary shared-source paths or
+replace those modules. Application images inherit a pinned provider image and
+retain their own lifecycle/configuration sources.
+
 ## Historical source bundles
 
 The repository owns image sources inside each package. Release generation still
