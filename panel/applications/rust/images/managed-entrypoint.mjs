@@ -62,6 +62,30 @@ async function ensureDirectory(location) {
   if (!stat) await fs.mkdir(location, {mode: 0o755});
   return realDirectory(location);
 }
+async function validateWorldTree(root) {
+  // The game is stopped. Recursive chown must never give it ownership of a
+  // protected file through a hardlink retained in mutable storage.
+  let count = 0;
+  async function walk(directory, depth) {
+    check(depth <= 32, 'Managed Rust world nesting exceeds its limit');
+    for (const name of await fs.readdir(directory)) {
+      check(
+        ++count <= 100000,
+        'Managed Rust world inventory exceeds its limit',
+      );
+      const location = path.join(directory, name),
+        stat = await fs.lstat(location);
+      check(!stat.isSymbolicLink(), 'Managed Rust world files cannot be links');
+      if (stat.isDirectory()) await walk(location, depth + 1);
+      else
+        check(
+          stat.isFile() && stat.nlink === 1,
+          'Managed Rust world files cannot be hardlinks or special files',
+        );
+    }
+  }
+  await walk(root, 0);
+}
 async function record(file, max) {
   const handle = await fs.open(
     file,
@@ -284,6 +308,7 @@ export async function managedStartup(
   );
   const worldRoot = path.join(root, 'server');
   await ensureDirectory(worldRoot);
+  await validateWorldTree(worldRoot);
   const link = path.join(engine, 'server'),
     linked = await fs.lstat(link).catch((error) => {
       if (error.code === 'ENOENT') return null;

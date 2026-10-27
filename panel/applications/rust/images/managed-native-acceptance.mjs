@@ -9,6 +9,7 @@ import {
   sha256,
 } from './mod-packages.js';
 import {oxideCompiler} from './mod-layout.js';
+import {createWebRcon} from './transport.js';
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -113,16 +114,20 @@ async function ready() {
     await sleep(2000);
   }
 }
-const rcon = async (command) =>
-  run([
-    'exec',
-    game,
-    'node',
-    '--input-type=module',
-    '-e',
-    "import {createWebRcon} from '/app/transport.js';const r=createWebRcon();try{console.log(await r({host:'127.0.0.1',port:28016,password:process.env.RUST_RCON_PASSWORD,command:process.argv[1]}));}finally{r.close();}",
-    command,
-  ]);
+// Match the controller's reusable remote connection. Spawning a new loopback
+// client for every assertion can hit Rust's per-IP reconnect controls and
+// prevent the supervisor's separate loopback save/quit connection.
+const consoleClient = createWebRcon();
+const rcon = async (command) => {
+  const current = await info(),
+    networks = Object.values(current.NetworkSettings.Networks)
+      .map((network) => network.IPAddress)
+      .filter(Boolean);
+  assert.equal(current.Config.Labels['io.lobby-goblin.acceptance'], id);
+  assert.equal(networks.length, 1);
+  assert.match(networks[0], /^\d{1,3}(?:\.\d{1,3}){3}$/);
+  return consoleClient({host: networks[0], port: 28016, password, command});
+};
 async function worldTime() {
   const value = await rcon('env.time'),
     match = value.match(/env\.time:\s*"?([0-9]+(?:\.[0-9]+)?)/);
@@ -403,6 +408,7 @@ try {
   console.error(logs.replaceAll(password, '[redacted]').slice(-12000));
   throw error;
 } finally {
+  consoleClient.close();
   const containers = (await run(['ps', '-aq', '--filter', 'label=' + owner]))
     .split('\n')
     .filter(Boolean);

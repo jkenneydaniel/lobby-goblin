@@ -138,8 +138,23 @@ test('linked identities are refused before creating configuration outside the wo
   await fs.mkdir(outside);
   await fs.mkdir(path.join(f.root, 'server'));
   await fs.symlink(outside, path.join(f.root, 'server/lobby-goblin-rust'));
-  await assert.rejects(managedStartup(f.env, f.root), /cannot be linked/);
+  await assert.rejects(managedStartup(f.env, f.root), /cannot be links/);
   assert.deepEqual(await fs.readdir(outside), []);
+});
+
+test('world hardlinks cannot pass the ownership handoff for protected software', async (t) => {
+  const f = await fixture(t),
+    world = path.join(f.root, 'server/lobby-goblin-rust'),
+    protectedFile = path.join(f.engine, 'protected-library.dll');
+  await fs.mkdir(world, {recursive: true});
+  await fs.writeFile(protectedFile, 'sealed library', {mode: 0o644});
+  const before = await fs.stat(protectedFile);
+  await fs.link(protectedFile, path.join(world, 'plugin-cache.dll'));
+  await assert.rejects(managedStartup(f.env, f.root), /cannot be hardlinks/);
+  assert.equal(await fs.readFile(protectedFile, 'utf8'), 'sealed library');
+  assert.equal((await fs.stat(protectedFile)).uid, before.uid);
+  assert.equal((await fs.stat(protectedFile)).mode, before.mode);
+  assert.equal((await fs.lstat(path.join(world, 'plugin-cache.dll'))).nlink, 2);
 });
 
 test('readiness writes use a reserved descriptor and cannot follow a replaced temporary path', async (t) => {

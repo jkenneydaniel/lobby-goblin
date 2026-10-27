@@ -272,6 +272,8 @@ are prepared only by a game-user helper with a minimal environment. No privilege
 write follows mutable configuration paths. The game child's Harmony log path is
 set to the mutable Carbon logs directory before its first constructor runs;
 Carbon's own later logging setup must not require a write into the sealed engine.
+Startup rejects links, hardlinks and special files in the bounded world inventory
+before its ownership handoff, preserving unexpected files for operator review.
 Existing nonempty data in an execution
 tree is retained for explicit migration; startup never discards it. The existing
 managed image 1 default remains pinned while controller integration is completed.
