@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {Readable} from 'node:stream';
 import {startDockerBroker} from '/app/core/docker-broker.js';
 import {
   brokerClient,
@@ -158,8 +159,20 @@ if (mode === 'broker') {
         return active;
       },
     };
+    let beforeFrameworkCommit = null;
     const rcon = createWebRcon(),
-      game = await rust.createController(ctx, {rcon, readyTimeout: 900000});
+      game = await rust.createController(ctx, {
+        rcon,
+        readyTimeout: 900000,
+        frameworkFault: async (phase) => {
+          if (phase === 'before-framework-commit' && beforeFrameworkCommit) {
+            const run = beforeFrameworkCommit;
+            beforeFrameworkCommit = null;
+            await run();
+            throw Error('Injected loss after native framework validation');
+          }
+        },
+      });
     // Use the application controller, not a raw game-start shortcut.
     try {
       await game.init();
@@ -254,12 +267,172 @@ if (mode === 'broker') {
         );
         exactBackup = true;
       }
+      let pairedFrameworks = false;
+      if (!clone) {
+        async function query(method, pathname, body) {
+          const data = Buffer.from(JSON.stringify(body || {})),
+            req = Readable.from([data]);
+          req.method = method;
+          req.headers = {'content-length': String(data.length)};
+          let result;
+          await game.handle(
+            req,
+            {
+              writeHead: (code) => assert.equal(code, 200),
+              end: (text) => {
+                result = JSON.parse(text);
+              },
+            },
+            new URL(pathname, 'http://127.0.0.1'),
+          );
+          return result;
+        }
+        async function operation(action, params = {}) {
+          active = {id: 'native-' + action + '-' + randomUUID(), action};
+          console.log(JSON.stringify({operation: action, event: 'started'}));
+          try {
+            await game.beforeJob(active);
+            const result = await game.actions[action](params, active);
+            console.log(
+              JSON.stringify({operation: action, event: 'completed'}),
+            );
+            return result;
+          } finally {
+            active = null;
+          }
+        }
+        const protocol = await readRecord(
+          path.join(config.state, 'software/rust/protocol.json'),
+        );
+        assert.equal(protocol.buildId, status.software.version);
+        assert.match(protocol.protocol, /^\d+\.\d+\.\d+$/);
+        const carbon = await query('POST', '/mods-plan', {framework: 'carbon'});
+        await operation('install-framework', {
+          planId: carbon.id,
+          confirm: true,
+        });
+        assert.equal((await ctx.host.info()).State.Running, false);
+        assert.equal(
+          (await query('GET', '/framework-change')).phase,
+          'prepared',
+        );
+        await operation('start');
+        assert.equal(
+          (await query('GET', '/framework-change')).phase,
+          'complete',
+        );
+        await operation('stop', {confirm: true});
+        const plugin =
+          'using Oxide.Core; namespace Oxide.Plugins { [Info("PairedProbe", "Lobby Goblin", "1.0.0")] public class PairedProbe : RustPlugin { protected override void LoadDefaultConfig() { Config["marker"] = "PAIRED_CONFIG"; SaveConfig(); } [ConsoleCommand("lg.paired")] void Probe(ConsoleSystem.Arg arg) { int value=Interface.Oxide.DataFileSystem.ReadObject<int>("PairedProbe")+1; Interface.Oxide.DataFileSystem.WriteObject("PairedProbe",value); arg.ReplyWith("PAIRED_DATA:"+value); } } }';
+        await operation('plugin', {
+          operation: 'install',
+          name: 'PairedProbe.cs',
+          source: plugin,
+          confirm: true,
+        });
+        await operation('start');
+        const deadline = Date.now() + 180000;
+        let loaded = false;
+        do {
+          if (String(await command('lg.paired')).includes('PAIRED_DATA:1')) {
+            loaded = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        } while (Date.now() < deadline);
+        assert.equal(
+          loaded,
+          true,
+          'Carbon must compile the actual user plugin and persist its data',
+        );
+        await command('env.time 9.5');
+        await operation('stop', {confirm: true});
+        const oxide = await query('POST', '/mods-plan', {framework: 'oxide'});
+        assert.ok(oxide.compiler.sha256);
+        await operation('install-framework', {planId: oxide.id, confirm: true});
+        beforeFrameworkCommit = async () => {
+          await command('env.time 7.5');
+          await command('server.save');
+          await fs.writeFile(
+            path.join(config.data, config.identity, 'native-newer-world.txt'),
+            'NEWER DATA MUST BE RETAINED',
+          );
+        };
+        await assert.rejects(
+          operation('start'),
+          /Injected loss after native framework validation/,
+        );
+        assert.equal((await ctx.host.info()).State.Running, false);
+        const recovery = await query('GET', '/framework-change');
+        assert.equal(recovery.phase, 'validating');
+        await operation('recover-framework', {
+          confirm: true,
+          review: recovery.review,
+        });
+        assert.equal(
+          (await query('GET', '/framework-change')).phase,
+          'recovered',
+        );
+        const retained = path.join(
+          config.state,
+          'software/rust/framework-changes/history',
+          recovery.observation.record.id,
+          'quarantine-world',
+          config.identity,
+          'native-newer-world.txt',
+        );
+        assert.equal(
+          await fs.readFile(retained, 'utf8'),
+          'NEWER DATA MUST BE RETAINED',
+        );
+        await assert.rejects(
+          fs.access(
+            path.join(config.data, config.identity, 'native-newer-world.txt'),
+          ),
+        );
+        await operation('start');
+        const restoredTime = Number(
+          String(await command('env.time')).match(
+            /env\.time:\s*"?([0-9]+(?:\.[0-9]+)?)/,
+          )[1],
+        );
+        assert.ok(Math.abs(restoredTime - 9.5) < 0.75);
+        const pluginDeadline = Date.now() + 180000;
+        loaded = false;
+        do {
+          if (String(await command('lg.paired')).includes('PAIRED_DATA:2')) {
+            loaded = true;
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        } while (Date.now() < pluginDeadline);
+        assert.equal(
+          loaded,
+          true,
+          'Recovery must restore Carbon and its pre-Oxide plugin data',
+        );
+        await operation('stop', {confirm: true});
+        const vanilla = await query('POST', '/mods-plan', {framework: 'none'});
+        await operation('install-framework', {
+          planId: vanilla.id,
+          confirm: true,
+        });
+        await operation('start');
+        await operation('stop', {confirm: true});
+        assert.equal((await query('GET', '/mods')).framework, 'none');
+        assert.equal(
+          await fs.readFile(sentinel, 'utf8'),
+          'new independent CI world only',
+        );
+        pairedFrameworks = true;
+      }
       console.log(
         JSON.stringify({
           passed: true,
           clone,
           buildId: status.software.version,
           exactBackup,
+          pairedFrameworks,
           preparationActions,
           worldLoaded: clone,
           worldTime,

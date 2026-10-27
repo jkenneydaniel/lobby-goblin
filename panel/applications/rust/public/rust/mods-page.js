@@ -23,10 +23,12 @@ export function createRustMods({
     const status = getStatus();
     const stopped =
       busy() || !status || status.running || !modStatus?.available;
-    $('#plugin-upload button').disabled = stopped || !canAction('plugin');
+    const pending = !!modStatus?.pairedPending;
+    $('#plugin-upload button').disabled =
+      stopped || pending || !canAction('plugin');
     $('#plugin-upload input').disabled = !canAction('plugin');
     $('#plugin-config button[type=submit]').disabled =
-      stopped || !canAction('plugin-config');
+      stopped || pending || !canAction('plugin-config');
     $('#plugin-config [name=source]').disabled = !canAction('plugin-config');
     $('#load-plugin-config').disabled = busy() || !canAction('plugin-config');
     $('#plugin-config-name').disabled = !canAction('plugin-config');
@@ -34,11 +36,15 @@ export function createRustMods({
       stopped || !canAction('recover-framework');
     $('#framework select').disabled = !canAction('install-framework');
     $('#framework button[type=submit]').disabled =
-      busy() || !modStatus?.imageCapable || !canAction('install-framework');
+      busy() ||
+      pending ||
+      !modStatus?.imageCapable ||
+      !canAction('install-framework');
     all('[data-plugin-operation]').forEach(
       (button) =>
         (button.disabled =
           busy() ||
+          pending ||
           !canAction('plugin') ||
           !status ||
           (button.dataset.pluginOperation === 'reload'
@@ -48,7 +54,8 @@ export function createRustMods({
   }
   async function load() {
     modStatus = await api('mods');
-    $('#mod-tools').open = modStatus.framework === 'none';
+    $('#mod-tools').open =
+      modStatus.framework === 'none' || modStatus.recoveryRequired;
     library?.dispose();
     library = null;
     $('#mod-library').hidden = !canAction('mod-library-install');
@@ -123,13 +130,21 @@ export function createRustMods({
     'click',
     () =>
       guarded(async () => {
+        const review = modStatus.pairedRecovery
+          ? await api('framework-change')
+          : null;
         if (
           await confirm(
             'Recover framework?',
-            'Restore the framework files from the interrupted installation. Rust stays stopped. Worlds and plugin data are preserved.',
+            review
+              ? 'Restore the previous software, settings, plugins and world together. Any newer world data is retained privately. Rust stays stopped.'
+              : 'Restore the framework files from the interrupted installation. Rust stays stopped. Worlds and plugin data are preserved.',
           )
         )
-          await job('recover-framework', {confirm: true});
+          await job('recover-framework', {
+            confirm: true,
+            ...(review ? {review: review.review} : {}),
+          });
       }),
     {signal: events.signal},
   );

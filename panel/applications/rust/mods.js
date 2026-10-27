@@ -57,6 +57,14 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
   assert(!transaction||transaction.phase==='complete'||transaction.phase==='recovered','An interrupted framework change needs recovery from Mods before Rust can start.',409);
   assert(!active||active.status==='complete','Framework files are incomplete. Recover the change from Mods before starting.',409);
  }
+ async function verifyInstalled(){
+  await assertReady();const record=await installed();
+  for(const entry of record.files){const data=await bytes(entry.name);assert(data&&sha256(data)===entry.sha256,'A managed framework file changed outside the panel. Preserve those changes before switching frameworks: '+entry.name,409);}
+  assert(!record.removed||Array.isArray(record.removed),'Invalid removed framework components.',409);
+  for(const entry of record.removed||[]){safePath(entry.name);assert(!await bytes(entry.name),'A removed framework component was restored outside the panel. Preserve that change before switching: '+entry.name,409);}
+  if(record.framework==='none')for(const name of ['libdoorstop.so','RustDedicated_Data/Managed/Oxide.Rust.dll'])assert(!await bytes(name),'An unmanaged framework already exists. Preserve it before selecting managed installation.',409);
+  return record;
+ }
  async function status(){
   if(!root)return {available:false,framework:'none',plugins:[],configs:[],message:'Update the Rust controller storage mount to enable mod management.'};
   await available();const record=await installed(),transaction=await readJSON(transactionFile,null),definition=frameworks[record.framework];let plugins=[],configs=[];
@@ -156,9 +164,9 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
    // original files and downloaded packages, so recovery needs no network.
    const active=path.join(storage,'backup-active');await fs.rm(active,{recursive:true,force:true});await fs.mkdir(active,{mode:0o700});
    for(const entry of record.files){const data=await bytes(entry.name);assert(data&&sha256(data)===entry.sha256,'Managed framework files changed; reconcile them before backing up.');await write(entry.name,data,{base:active});}
-   await write('.lobby-goblin-mods.json',Buffer.from(JSON.stringify({format:1,status:'complete',framework:record.framework})),{base:active});extras.push({prefix:'mod-state',root:storage});
+   const activeMarker=mutableStores?await bytes('.lobby-goblin-mods.json'):Buffer.from(JSON.stringify({format:1,status:'complete',framework:record.framework}));assert(activeMarker&&activeMarker.length<=4096&&JSON.parse(activeMarker).framework===record.framework&&JSON.parse(activeMarker).status==='complete','Framework startup marker differs from its installed selection.',409);await write('.lobby-goblin-mods.json',activeMarker,{base:active});extras.push({prefix:'mod-state',root:storage});
   }
   return extras;
  }
- return {status,plan,install,recover,plugin,configuration,store,assertReady,backupRoots,operationSource:journal.operationSource,inspectOperation:journal.inspect};
+ return {status,plan,install,recover,plugin,configuration,store,assertReady,verifyInstalled,backupRoots,operationSource:journal.operationSource,inspectOperation:journal.inspect};
 }
