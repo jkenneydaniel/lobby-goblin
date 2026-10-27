@@ -6,7 +6,7 @@
     "dockerfile": "Dockerfile",
     "files": [{"source": "images/Dockerfile", "target": "Dockerfile"}],
     "buildArgs": {"BASE_IMAGE": "baseImage", "STEAMCMD_SHA256": "steamcmdSha256"},
-    "checks": [{"runner": "node-test", "file": "metadata.test.mjs"}],
+    "checks": [{"runner": "node-test", "file": "metadata.test.mjs"}, {"runner": "node-test", "file": "provider.test.mjs"}],
     "acceptance": ["images/acceptance.mjs"]
   }]
 }

@@ -268,7 +268,13 @@ export function softwareInstallation(value) {
 const transitions = {
   uninstalled: ['preparing'],
   installed: ['preparing'],
-  preparing: ['preparing', 'downloading', 'failed', 'recovery-required'],
+  preparing: [
+    'preparing',
+    'downloading',
+    'validating',
+    'failed',
+    'recovery-required',
+  ],
   downloading: ['downloading', 'validating', 'failed', 'recovery-required'],
   validating: ['validating', 'activating', 'failed', 'recovery-required'],
   // Once activation is submitted, an uncertain outcome requires inspection.
@@ -375,6 +381,21 @@ export function reviewSoftwareInstallation(
     409,
   );
   fields(observation, ['state', 'receipt']);
+  if (observation.state === 'partial') {
+    assert(
+      !current.installed && current.target && observation.receipt === undefined,
+      'Partial recovery cannot discard installed software.',
+      409,
+    );
+    return softwareInstallation({
+      format: 1,
+      revision: current.revision + 1,
+      state: 'failed',
+      error: 'interrupted',
+      operationId: current.operationId,
+      target: current.target,
+    });
+  }
   if (observation.state === 'empty') {
     assert(
       !current.installed && observation.receipt === undefined,
@@ -388,7 +409,7 @@ export function reviewSoftwareInstallation(
     });
   }
   assert(
-    observation.state === 'installed',
+    ['installed', 'staged'].includes(observation.state),
     'Installation outcome is unknown. Preserve it for inspection.',
     409,
   );
@@ -401,6 +422,21 @@ export function reviewSoftwareInstallation(
     'Recovery observed unrelated software.',
     409,
   );
+  if (observation.state === 'staged') {
+    assert(
+      current.target && softwareSelectionKey(current.target) === key,
+      'Recovery staged software differs from its target.',
+      409,
+    );
+    return softwareInstallation({
+      format: 1,
+      revision: current.revision + 1,
+      state: 'validating',
+      operationId: current.operationId,
+      target: current.target,
+      ...(current.installed ? {installed: current.installed} : {}),
+    });
+  }
   return softwareInstallation({
     format: 1,
     revision: current.revision + 1,
