@@ -45,13 +45,13 @@ Copy the matching command from **Hosts → Add host → I have a pairing code �
 I need to install the agent**. Run it on the game-host machine. For example:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.12-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+curl -fsSL https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.13-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
 ```
 
 Or use wget:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.12-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+wget -qO- https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.13-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
 ```
 
 Use your panel's release version. The public script downloads source from that

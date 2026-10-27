@@ -4,7 +4,7 @@ set -eu
 goblin_bootstrap() (
   set -eu
   if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
-    printf '%s\n' 'Lobby Goblin public installer' 'Usage: bash -s -- --version VERSION [--host-agent] [Install.sh options]' 'Use the release version shown by your panel. Source is downloaded from that GitHub tag.' 'Example: --version 0.3.12-alpha --host-agent --start --host host.example.com --address host.example.com --memory 16'
+    printf '%s\n' 'Lobby Goblin public installer' 'Usage: bash -s -- --version VERSION [--host-agent] [Install.sh options]' 'Use the release version shown by your panel. Source is downloaded from that GitHub tag.' 'Example: --version 0.3.13-alpha --host-agent --start --host host.example.com --address host.example.com --memory 16'
     exit 0
   fi
   [ "${1:-}" = --version ] && [ "$#" -ge 2 ] || { printf '%s\n' 'Specify --version VERSION matching your panel, followed by the installation options.' >&2; exit 1; }
