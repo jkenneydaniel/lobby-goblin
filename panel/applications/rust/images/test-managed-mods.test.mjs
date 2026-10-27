@@ -78,6 +78,9 @@ test('game-user Carbon configuration preserves values and disables both automati
       SelfUpdating: {Enabled: true, HookUpdates: true, Other: 'preserve'},
     }),
   );
+  const automatic = path.join(layout.mutable, 'config.auto.json'),
+    web = path.join(layout.mutable, 'config.webpanel.json');
+  await fs.writeFile(automatic, '{"preserved":true}\n', {mode: 0o640});
   await prepareCarbonConfig(layout.mutable);
   const value = JSON.parse(await fs.readFile(layout.carbonConfig, 'utf8'));
   assert.deepEqual(value, {
@@ -85,6 +88,43 @@ test('game-user Carbon configuration preserves values and disables both automati
     SelfUpdating: {Enabled: false, HookUpdates: false, Other: 'preserve'},
   });
   assert.equal((await fs.stat(layout.carbonConfig)).mode & 0o777, 0o600);
+  assert.equal(await fs.readFile(automatic, 'utf8'), '{"preserved":true}\n');
+  assert.equal((await fs.stat(automatic)).mode & 0o777, 0o640);
+  assert.deepEqual(JSON.parse(await fs.readFile(web, 'utf8')), {
+    Enabled: false,
+  });
+  assert.deepEqual(
+    JSON.parse(
+      await fs.readFile(path.join(layout.mutable, 'oxide.config.json'), 'utf8'),
+    ),
+    {},
+  );
+  await fs.writeFile(web, '{"Enabled":true,"preserved":true}\n');
+  await prepareCarbonConfig(layout.mutable);
+  assert.equal(
+    await fs.readFile(web, 'utf8'),
+    '{"Enabled":true,"preserved":true}\n',
+  );
+});
+test('missing Carbon configuration initialization refuses redirected existing targets', async (t) => {
+  const f = await fixture(t),
+    layout = await prepareFrameworkLayout({...f, framework: 'carbon'}),
+    outside = path.join(f.root, 'outside.json'),
+    target = path.join(layout.mutable, 'config.webpanel.json');
+  await fs.writeFile(outside, '{"untouched":true}');
+  await fs.symlink(outside, target);
+  await assert.rejects(
+    prepareCarbonConfig(layout.mutable),
+    /Invalid mutable Carbon configuration/,
+  );
+  assert.equal(await fs.readFile(outside, 'utf8'), '{"untouched":true}');
+  await fs.unlink(target);
+  await fs.link(outside, target);
+  await assert.rejects(
+    prepareCarbonConfig(layout.mutable),
+    /Invalid mutable Carbon configuration/,
+  );
+  assert.equal(await fs.readFile(outside, 'utf8'), '{"untouched":true}');
 });
 test('Oxide data remains independent and native bindings are prepared before image startup', async (t) => {
   const f = await fixture(t);

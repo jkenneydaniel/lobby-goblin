@@ -269,7 +269,10 @@ prepared by the controller before startup. Its compiler is a separate reviewed,
 SHA-256-pinned download prepared with framework software, not a game-start
 download. The image checks the compiler's bytes before launch. Carbon settings
 are prepared only by a game-user helper with a minimal environment. No privileged
-write follows mutable configuration paths. The game child's Harmony log path is
+write follows mutable configuration paths. Missing managed JSON targets are
+initialized exclusively as that user before Mono follows their fixed links;
+existing configuration is retained, and a new web-panel configuration is disabled.
+The game child's Harmony log path is
 set to the mutable Carbon logs directory before its first constructor runs;
 Carbon's own later logging setup must not require a write into the sealed engine.
 The controller must prepare Carbon's required compiler-library removals in a private

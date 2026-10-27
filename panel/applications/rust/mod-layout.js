@@ -305,4 +305,31 @@ export async function prepareCarbonConfig(root) {
   } finally {
     await fs.rm(temporary, {force: true});
   }
+  // Mono can report a dangling configuration link as existing, then fail its
+  // first read. Initialize managed JSON targets as the game user without
+  // replacing an existing configuration. Native profiler defaults remain owned
+  // by Carbon's native initializer.
+  for (const [name, initial] of [
+    ['config.auto.json', {}],
+    ['config.webpanel.json', {Enabled: false}],
+    ['oxide.config.json', {}],
+  ]) {
+    const file = path.join(root, name);
+    try {
+      await fs.writeFile(file, JSON.stringify(initial), {
+        flag: 'wx',
+        mode: 0o600,
+      });
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const stat = await fs.lstat(file);
+      check(
+        stat.isFile() &&
+          !stat.isSymbolicLink() &&
+          stat.nlink === 1 &&
+          stat.size <= 512 * 1024,
+        'Invalid mutable Carbon configuration',
+      );
+    }
+  }
 }

@@ -166,6 +166,18 @@ if (mode === 'base') {
       : engine + '/RustDedicated_Data/Managed/Oxide.Rust.dll';
   assert.equal((await fs.stat(code)).uid, 0);
   if (framework === 'carbon') {
+    for (const name of [
+      'config.json',
+      'config.auto.json',
+      'config.webpanel.json',
+      'oxide.config.json',
+    ])
+      assert.equal((await fs.lstat(path.join(mutable, name))).uid, 1000);
+    assert.equal(
+      JSON.parse(await fs.readFile(mutable + '/config.webpanel.json', 'utf8'))
+        .Enabled,
+      false,
+    );
     const log = await fs.lstat(mutable + '/logs/Carbon.Harmony.bootstrap.log');
     assert.ok(log.isFile() && !log.isSymbolicLink() && log.nlink === 1);
     assert.equal(log.uid, 1000);
