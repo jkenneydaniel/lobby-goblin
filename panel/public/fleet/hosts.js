@@ -19,7 +19,8 @@ export function mountHosts({
 }) {
   const events = createEventScope((problem) => error(problem.message)),
     rows = createEventScope((problem) => error(problem.message));
-  let hosts = [],
+  let panelVersion = null,
+    hosts = [],
     expires = null,
     setupPlan = null,
     updatePlan = null,
@@ -85,10 +86,26 @@ export function mountHosts({
     $('#create-pairing').disabled = !secure;
   }
   async function refresh() {
-    const result = await api('/hosts');
+    const [result, status] = await Promise.all([api('/hosts'), api('/status')]);
+    panelVersion = status.version;
     hosts = result.hosts;
+    installCommand();
     render();
     return hosts;
+  }
+  function installCommand() {
+    const version = String(panelVersion || '');
+    const valid = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version);
+    const url =
+      'https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh';
+    const download =
+      $('#manual-download-tool').value === 'wget'
+        ? `wget -qO- ${url}`
+        : `curl -fsSL ${url}`;
+    $('#manual-host-command').value = valid
+      ? `${download} | bash -s -- --version ${version} --host-agent${$('#manual-install-docker').checked ? ' --install-docker' : ''} --start --host host.example.com --agent-port 24443 --address host.example.com --memory 16`
+      : 'Cannot read this panel’s release. Reload before copying an install command.';
+    $('#copy-host-command').disabled = !valid;
   }
   async function pairing() {
     if (getSession()?.role !== 'admin') return;
@@ -148,6 +165,7 @@ export function mountHosts({
     $('#ssh-password-field').hidden = false;
     setupPlan = null;
     method(true);
+    installCommand();
     error('', '#add-host-error');
     error('', '#host-setup-error');
     $('#add-host-dialog').showModal();
@@ -261,6 +279,8 @@ export function mountHosts({
     else if (file)
       error('Choose a private key smaller than 64 KiB.', '#host-setup-error');
   });
+  events.set($('#manual-download-tool'), 'change', installCommand);
+  events.set($('#manual-install-docker'), 'change', installCommand);
   events.set($('#copy-host-command'), 'click', async () => {
     try {
       await navigator.clipboard.writeText($('#manual-host-command').value);
@@ -400,6 +420,15 @@ export function mountHosts({
       button.disabled = false;
     }
   });
+  void api('/status')
+    .then((status) => {
+      panelVersion = status.version;
+      installCommand();
+    })
+    .catch(() => {
+      panelVersion = null;
+      installCommand();
+    });
   return {
     refresh,
     pairing,
