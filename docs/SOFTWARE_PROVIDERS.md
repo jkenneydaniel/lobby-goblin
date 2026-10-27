@@ -184,6 +184,22 @@ observations again before clearing request metadata, so altered bytes invalidate
 the review. Partial request initialization has the same explicit closure path;
 it cannot replay create/start or infer an installation outcome.
 
+## Rust execution image
+
+The separate `rust/managed` image consumes controller-prepared software; it has
+no automatic game download or update step. The legacy `rust/server` recipe and
+`steam-lg.2` application default remain unchanged. Application opt-in, execution
+publication and paired update/recovery integration follow image validation.
+
+The managed image uses a controller-owned `engine` directory and exact execution
+receipt, verifies the binary checksum before startup, and keeps mutable world,
+settings and player files under the stable `server` directory. Its only supported
+execution-tree link is `engine/server -> ../server`. The supervisor checks that
+target and changes ownership only in the mutable world directory. Rust runs as
+UID/GID 1000. Readiness and clean shutdown use the existing process-scoped startup
+and save/quit evidence. Missing software or an existing world with missing
+software cannot trigger an upstream installation.
+
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
 [Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).

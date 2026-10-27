@@ -22,6 +22,7 @@ test('all registered package images build from isolated declarations and clean u
       'factorio/server',
       'factorio/runtime',
       'rust/server',
+      'rust/managed',
       'status-page/server',
     ],
   );
@@ -53,9 +54,9 @@ test('shared provider images have a separate catalogue and retain isolated build
     shared.map((recipe) => recipe.key),
     ['shared/steamcmd/runtime', 'shared/steamcmd/worker'],
   );
-  assert.equal((await applicationImages(project)).length, 4);
+  assert.equal((await applicationImages(project)).length, 5);
   const all = await imageCatalogue(project);
-  assert.equal(all.length, 6);
+  assert.equal(all.length, 7);
   assert.equal(all[0].key, 'shared/steamcmd/runtime');
   await imageContext(shared[0], async (directory) => {
     assert.deepEqual(await fs.readdir(directory), ['Dockerfile']);
