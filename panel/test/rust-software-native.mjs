@@ -21,6 +21,8 @@ import {publishSnapshot, verifySnapshot} from '/app/fleet/snapshots.js';
 import {atomicRecord, readRecord} from '/app/providers/steamcmd/files.js';
 import {createWebRcon, sanitizeLogs} from '/app/applications/rust/transport.js';
 import {verifyArchive} from '/app/applications/rust/archive.js';
+import {createRustSoftware} from '/app/applications/rust/software.js';
+import {rustSoftwareProtocol} from '/app/applications/rust/software-protocol.js';
 
 assert.equal(process.env.RUST_SOFTWARE_ACCEPTANCE, 'disposable');
 assert.equal(process.getuid(), 0);
@@ -193,6 +195,18 @@ if (mode === 'broker') {
           ),
         );
       }
+      const preparedReceipt = await createRustSoftware(ctx).ensure(active);
+      const preparedProtocol = await rustSoftwareProtocol({
+        ...ctx.softwareWorkers.paths,
+        receipt: preparedReceipt,
+      });
+      assert.equal((await ctx.host.info()).State.Running, false);
+      console.log(
+        JSON.stringify({
+          event: 'protocol-before-first-boot',
+          ...preparedProtocol,
+        }),
+      );
       await game.actions.start({}, active);
       active = null;
       const status = await game.status();
@@ -306,6 +320,7 @@ if (mode === 'broker') {
         );
         assert.equal(protocol.buildId, status.software.version);
         assert.match(protocol.protocol, /^\d+\.\d+\.\d+$/);
+        assert.equal(protocol.protocol, preparedProtocol.protocol);
         const carbon = await query('POST', '/mods-plan', {framework: 'carbon'});
         await operation('install-framework', {
           planId: carbon.id,

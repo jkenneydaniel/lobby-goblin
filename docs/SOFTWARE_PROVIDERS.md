@@ -274,6 +274,15 @@ user. Managed plugin changes use stopped mode or automatic stop/start; hot file
 replacement is not advertised for this layout. No additional controller
 capabilities or arbitrary game-container execution are introduced.
 
+Carbon preparation reads the exact Rust protocol from literal metadata in the
+private pristine Steam installation, so it does not require a vanilla boot first.
+The bounded reader verifies the inventory receipt and module hash, inspects only
+fixed assembly names, and never loads or executes managed code. Framework-patched
+execution files and a previous build's cached RCON response cannot identify a new
+build. Missing, ambiguous or unsupported metadata blocks preparation for explicit
+inspection. Native acceptance compares the pre-boot result with the actual Rust
+version response on a newly created disposable world.
+
 Preparation, publication and validation are journaled. Pending changes fence
 other mutations. Explicit inspection-bound recovery verifies retained copies,
 quarantines newer world/code/mod state, and restores previous software, settings,

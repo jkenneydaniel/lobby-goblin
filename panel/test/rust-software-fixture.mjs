@@ -7,7 +7,7 @@ import {createSteamProvider} from '../providers/steamcmd/provider.js';
 import {softwareWorkerPaths} from '../core/software-worker-policy.js';
 import {atomicRecord, softwareInventory} from '../providers/steamcmd/files.js';
 
-export async function fixture(t) {
+export async function fixture(t, {module} = {}) {
   const root = await fs.realpath(
     await fs.mkdtemp(path.join(os.tmpdir(), 'lobby-rust-software-')),
   );
@@ -74,6 +74,15 @@ export async function fixture(t) {
       );
     const target = args[args.indexOf('+force_install_dir') + 1];
     await fs.mkdir(path.join(target, 'steamapps'), {recursive: true});
+    if (module) {
+      await fs.mkdir(path.join(target, 'RustDedicated_Data/Managed'), {
+        recursive: true,
+      });
+      await fs.writeFile(
+        path.join(target, 'RustDedicated_Data/Managed/Rust.Global.dll'),
+        module,
+      );
+    }
     await fs.writeFile(
       path.join(target, 'RustDedicated'),
       'synthetic Rust executable',
