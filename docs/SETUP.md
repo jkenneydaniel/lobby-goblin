@@ -307,6 +307,10 @@ The map, world-preview and ZIP limits below apply to Factorio. Rust has separate
   deployments are unsupported. Web restarts expire browser sessions.
 - Saved maps are sampled overviews of explored Nauvis, capped at 2,048 chunks,
   80,000 objects and 24 MB. They are not full game graphics.
+  Map → Map refresh settings controls automatic refresh after completed saves:
+  disable it or set a minimum interval of 0–1440 minutes (0 keeps every-save
+  refresh). This setting persists and does not change game autosaves. Cancel draft
+  in the world editor discards the draft only; submitted world creation continues.
 - Live player positions are off by default. Enabling them requires explicit
   acknowledgement that Lua commands disable achievements for that world; the
   panel creates a verified backup first. Turning tracking off does not undo this.

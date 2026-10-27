@@ -18,6 +18,8 @@ export const contract = {
         'Factorio: View saved maps, terrain thumbnails and live player positions',
       'application.factorio.map.generate':
         'Factorio: Generate a saved map preview',
+      'application.factorio.map.configure':
+        'Factorio: Configure automatic saved map refresh',
       'application.factorio.map.pins':
         'Factorio: Add and remove shared map pins',
       'application.factorio.map.tracking':
@@ -35,6 +37,7 @@ export const contract = {
       '/upload': {POST: 'worlds.manage'},
       '/map': {GET: 'application.factorio.map.view'},
       '/map-status': {GET: 'application.factorio.map.view'},
+      '/map-settings': {POST: 'application.factorio.map.configure'},
       '/live-players': {GET: 'application.factorio.map.view'},
       '/pins': {POST: 'application.factorio.map.pins'},
       '/world-options': {GET: 'worlds.manage'},
@@ -109,6 +112,7 @@ export const contract = {
     '/upload': {POST: 'admin'},
     '/map': {GET: 'viewer'},
     '/map-status': {GET: 'viewer'},
+    '/map-settings': {POST: 'admin'},
     '/live-players': {GET: 'viewer'},
     '/pins': {POST: 'admin'},
     '/world-options': {GET: 'admin'},

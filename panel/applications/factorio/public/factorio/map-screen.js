@@ -78,6 +78,26 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     }
   }
   function bind(ctx) {
+    const settings = $('#map-refresh-form');
+    if (settings)
+      ctx.on(settings, 'submit', async (event) => {
+        event.preventDefault();
+        const button = settings.querySelector('button');
+        button.disabled = true;
+        try {
+          const automatic = await ctx.request('/map-settings', {
+            method: 'POST',
+            body: {
+              enabled: settings.elements.enabled.checked,
+              intervalMinutes: Number(settings.elements.intervalMinutes.value),
+            },
+          });
+          $('#map-refresh-state').textContent = mapRefreshLabel(automatic);
+          $('#map-settings-result').textContent = 'Map refresh settings saved.';
+        } finally {
+          button.disabled = false;
+        }
+      });
     const toggle = $('#toggle-live-players');
     if (toggle)
       ctx.on(toggle, 'click', async () => {

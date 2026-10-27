@@ -245,6 +245,7 @@ export function worldEditorView(
   );
   part(view, '#world-create').hidden = draft.step !== 3;
   part(view, '#world-create').disabled = !!busy;
+  part(view, '#cancel-world-draft').disabled = !!busy;
   return view;
 }
 export function worldReviewView({name, seed, baseline, changes}, template) {

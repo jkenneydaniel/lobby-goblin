@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {completedSave,saveVersion,SaveMapQueue} from '../applications/factorio/save-map.js';
+import {completedSave,saveVersion,SaveMapQueue,mapRefreshSettings} from '../applications/factorio/save-map.js';
 
 const loaded='0.1 Loading map /factorio/saves/Factory.zip: 100 bytes.\n';
 test('completed saves include autosaves, manual saves, disconnect saves, and shutdown saves',()=>{
@@ -37,4 +37,20 @@ test('failed exports retry later, pending saves survive restart, and manual expo
   const restarted=new SaveMapQueue(JSON.parse(JSON.stringify(queue)),{debounceMs:10,retryMs:1000});assert.equal(restarted.claim(false,1020).version,'latest');
   restarted.finish(candidate,true);assert.equal(restarted.lastError,null);
   const manual=new SaveMapQueue();manual.observe(candidate,null,0);manual.observe(candidate,{world:'Factory.zip',sourceVersion:'latest'},1);assert.equal(manual.pending,null);
+});
+test('refresh preferences preserve legacy defaults and coalesce newer saves across persisted rate limits',()=>{
+  const first={world:'Factory.zip',source:'Factory.zip',version:'one'},second={...first,version:'two'},latest={...first,version:'three'},queue=new SaveMapQueue({}, {debounceMs:0});
+  assert.deepEqual(mapRefreshSettings({enabled:true,intervalMinutes:0}),{enabled:true,intervalMinutes:0});
+  assert.equal(queue.status().intervalMinutes,0);assert.equal(queue.status().enabled,true);
+  queue.configure({enabled:true,intervalMinutes:5});queue.observe(first,null,1000);const task=queue.claim(false,1000);
+  queue.finish(task,true,null,1001);queue.observe(second,null,2000);queue.observe(latest,null,3000);
+  const restarted=new SaveMapQueue(JSON.parse(JSON.stringify(queue)),{debounceMs:0});
+  assert.equal(restarted.claim(false,300999),null);assert.equal(restarted.claim(false,301000).version,'three');
+  restarted.configure({enabled:false,intervalMinutes:5});restarted.finish(latest,true,null,301001);
+  restarted.observe({...first,version:'four'},null,400000);assert.equal(restarted.claim(false,900000),null);
+  const disabled=new SaveMapQueue(JSON.parse(JSON.stringify(restarted)),{debounceMs:0});assert.equal(disabled.status().enabled,false);
+  disabled.configure({enabled:true,intervalMinutes:0});assert.equal(disabled.claim(false,900000).version,'four');
+});
+test('refresh preferences reject unknown keys, coercions and unbounded intervals',()=>{
+  for(const value of [null,[],{}, {enabled:'false',intervalMinutes:0},{enabled:true,intervalMinutes:-1},{enabled:true,intervalMinutes:1441},{enabled:true,intervalMinutes:0.5},{enabled:true,intervalMinutes:'5'},{enabled:true,intervalMinutes:0,source:'another.zip'}])assert.throws(()=>mapRefreshSettings(value),/Choose automatic refresh/);
 });

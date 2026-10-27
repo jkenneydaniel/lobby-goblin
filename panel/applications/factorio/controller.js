@@ -15,7 +15,7 @@ import {zipEntries} from '../../core/archive.js';
 import {validateWorld} from './world-archive.js';
 import {validateBackup} from './backup.js';
 import {exportMap} from './map-export.js';
-import {completedSave,saveVersion,SaveMapQueue} from './save-map.js';
+import {completedSave,saveVersion,SaveMapQueue,mapRefreshSettings} from './save-map.js';
 import {SnapshotMetadata} from './snapshot-metadata.js';
 import {LivePlayers} from './live-players.js';
 import {validateConfiguration} from './world-settings.js';
@@ -38,8 +38,8 @@ const autoMapFile=path.join(state,'map-refresh.json');
 const snapshotMetadata=new SnapshotMetadata(path.join(state,'map.json'));
 const autoMap=new SaveMapQueue(await readJSON(autoMapFile,{}),{debounceMs:Number(ctx.env.MAP_SAVE_DEBOUNCE_MS||2000)});
 let autoMapWrites=Promise.resolve(),autoMapSaved=null,autoMapPolling=false;
-function persistAutoMap(){
-  autoMapWrites=autoMapWrites.catch(()=>{}).then(async()=>{const value=JSON.stringify(autoMap);if(value!==autoMapSaved){await writeJSON(autoMapFile,JSON.parse(value));autoMapSaved=value;}});return autoMapWrites;
+function persistAutoMap(settings){
+  autoMapWrites=autoMapWrites.catch(()=>{}).then(async()=>{const value=JSON.stringify({...autoMap.toJSON(),...settings});if(settings||value!==autoMapSaved){await writeJSON(autoMapFile,JSON.parse(value));if(settings)autoMap.configure(settings);autoMapSaved=value;}});return autoMapWrites;
 }
 const logFile=path.join(data,'factorio-current.log');
 const worldPreviews=new WorldPreviews({canRun:()=>!ctx.imageMigrationPending&&!ctx.active&&!ctx.updater.busy,render:async input=>{assert(!await runtimeUpdates.pending(),'Recover the software update before generating previews.',409);const server=await info();assert(await runtimeIdentity(data,server)===input.image,'Factorio changed. Refresh this preview.');return renderWorldPreview(input,{data,state,env:ctx.env,server,docker,gameContainerRoute});}});
@@ -285,6 +285,9 @@ async function handle(req,res,url){
   }
   if(req.method==='GET'&&url.pathname==='/map-status'){
     const snapshot=await snapshotMetadata.read();return json(res,200,{created:snapshot?.created||null,automatic:autoMap.status(),active:ctx.active?.action==='refresh-map'?{message:ctx.active.message}:null});
+  }
+  if(req.method==='POST'&&url.pathname==='/map-settings'){
+    const settings=mapRefreshSettings(await requestJSON(req));await persistAutoMap(settings);return json(res,200,autoMap.status());
   }
   if(req.method==='GET'&&url.pathname==='/live-players')return json(res,200,await livePlayers.get());
   if(req.method==='POST'&&url.pathname==='/pins'){

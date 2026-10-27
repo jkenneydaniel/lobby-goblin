@@ -101,6 +101,11 @@ export function createWorldsScreen({
         toast: notify,
         api: request,
         template: ui.template,
+        isCurrent: ctx.isCurrent,
+        canCancel: () => !getState().busyJob,
+        onCancel: () => {
+          if (ctx.isCurrent()) location.hash = '#worlds';
+        },
       });
     bindCommon(ctx);
   }
@@ -123,6 +128,8 @@ export function createWorldsScreen({
       await load(ctx);
     },
     async refresh(ctx, options) {
+      const cancel = ctx.root.querySelector('#cancel-world-draft');
+      if (cancel) cancel.disabled = !!getState().busyJob;
       if (options.reason !== 'status') await load(ctx);
     },
     async completed(action, params, job) {

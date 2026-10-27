@@ -1,4 +1,4 @@
-import {mountWorldPreview} from './world-preview.js';
+import {mountWorldPreview, cleanWorldPreview} from './world-preview.js';
 import {iconNode} from './shared/templates.js';
 import {
   displayValue,
@@ -142,7 +142,16 @@ export function worldForm(options, busy = false, template) {
 
 export function bindWorldEditor(
   options,
-  {startJob, confirmAction, toast, api, template},
+  {
+    startJob,
+    confirmAction,
+    toast,
+    api,
+    template,
+    onCancel = () => {},
+    isCurrent = () => true,
+    canCancel = () => true,
+  },
 ) {
   const form = document.querySelector('#create-form');
   if (!form) return;
@@ -532,6 +541,7 @@ export function bindWorldEditor(
     dirty = draftUnsaved,
     queue = Promise.resolve(),
     stopped = false,
+    paused = false,
     conflict = draftConflict;
   const label = form.querySelector('#draft-save-state');
   const write = (body) => {
@@ -552,7 +562,7 @@ export function bindWorldEditor(
   };
   async function save() {
     clearTimeout(timer);
-    if (!dirty || conflict) return;
+    if (paused || !dirty || conflict) return;
     const value = capture();
     Object.assign(draft, {
       advanced: value.advanced,
@@ -580,7 +590,7 @@ export function bindWorldEditor(
     }
   }
   scheduleSave = () => {
-    if (stopped) return;
+    if (stopped || paused) return;
     dirty = true;
     draftUnsaved = true;
     label.textContent = 'Unsaved changes…';
@@ -635,6 +645,45 @@ export function bindWorldEditor(
     // this tab's writes settle; the server still checks the exact revision/ID.
     return write(typeof body === 'function' ? body() : body);
   }
+  form
+    .querySelector('#cancel-world-draft')
+    .addEventListener('click', async () => {
+      if (!canCancel()) return;
+      if (
+        !(await confirmAction(
+          'Cancel this world draft?',
+          'This discards your account’s saved draft and returns to the world library. Saved worlds and presets are kept. A terrain preview already requested may finish in the background. This does not cancel a submitted Create world operation.',
+          'Cancel draft',
+        )) ||
+        !isCurrent() ||
+        !canCancel()
+      )
+        return;
+      form.inert = true;
+      // Quiesce seed callbacks and new autosaves before draining existing
+      // writes; otherwise a preview can queue a fresh draft after the discard.
+      paused = true;
+      previewChanged.pause();
+      try {
+        await presetAction(() => ({
+          operation: 'discard',
+          draftId: options.setups.draft?.id,
+        }));
+        if (!isCurrent() || epoch !== editorEpoch) return;
+        await stopSaving(false);
+        cleanWorldPreview();
+        clearWorldDraft();
+        onCancel();
+        toast('World draft cancelled.');
+      } catch (error) {
+        if (!isCurrent() || epoch !== editorEpoch) return;
+        form.querySelector('#world-form-error').textContent = error.message;
+        form.inert = false;
+        paused = false;
+        previewChanged.resume();
+        if (dirty && !conflict) scheduleSave();
+      }
+    });
   function presets() {
     select.replaceChildren(
       new Option(
@@ -763,6 +812,9 @@ export function bindWorldEditor(
           toast,
           api,
           template,
+          onCancel,
+          isCurrent,
+          canCancel,
         });
       } catch (error) {
         result.textContent = error.message;
