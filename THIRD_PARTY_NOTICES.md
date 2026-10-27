@@ -15,10 +15,14 @@ respective owners.
   independently from Debian and the official Wube headless download; its startup
   and RCON tools are maintained in `panel/applications/factorio/images/`.
 - [Rust](https://rust.facepunch.com/) is proprietary software from Facepunch
-  Studios. The Rust module downloads its dedicated server separately through a
-  reviewed [Didstopia image](https://github.com/Didstopia/rust-server). Neither
-  the game binaries nor that image wrapper are included in this source release;
-  their terms and licenses apply separately.
+  Studios. The first-party Rust image downloads its dedicated server separately
+  through SteamCMD. The [Didstopia image](https://github.com/Didstopia/rust-server)
+  remains a legacy migration input. Game binaries are not included in this
+  source release; their terms and licenses apply separately.
+- [SteamCMD](https://developer.valvesoftware.com/wiki/SteamCMD) is Valve's
+  distribution tool. Steam-capable images obtain it from Valve during the image
+  build and retain its installed files and notices. Lobby Goblin's MIT license
+  covers its own wrapper/tooling, not SteamCMD or downloaded game software.
 - [Node.js](https://nodejs.org/) and the Debian base image are external runtime
   dependencies. Their licenses and component notices remain in their images.
 - [ws](https://github.com/websockets/ws) is the MIT-licensed Rust WebRCON client.

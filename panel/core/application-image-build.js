@@ -16,13 +16,14 @@ const exact = (value, keys) =>
   Object.keys(value).every((key) => keys.includes(key));
 
 // Build manifests are reviewed repository data. HTTP never exposes this runner.
-export async function applicationImages(root) {
-  const ids = JSON.parse(
-    await fs.readFile(
-      path.join(root, 'panel/applications/registry.json'),
-      'utf8',
-    ),
-  );
+async function packageImages(root, group) {
+  const registry = await fs
+    .readFile(path.join(root, 'panel', group, 'registry.json'), 'utf8')
+    .catch((error) => {
+      if (group === 'providers' && error.code === 'ENOENT') return '[]';
+      throw error;
+    });
+  const ids = JSON.parse(registry);
   assert(
     Array.isArray(ids) &&
       ids.length <= 64 &&
@@ -32,7 +33,7 @@ export async function applicationImages(root) {
   );
   const images = [];
   for (const application of ids) {
-    const packageRoot = path.join(root, 'panel/applications', application);
+    const packageRoot = path.join(root, 'panel', group, application);
     const manifest = await fs
       .readFile(path.join(packageRoot, 'images.json'), 'utf8')
       .catch((error) => {
@@ -59,6 +60,7 @@ export async function applicationImages(root) {
           'buildArgs',
           'checks',
           'acceptance',
+          'dependencies',
         ]) &&
           identifier(recipe.id) &&
           safeSnapshotPath(recipe.manifest) &&
@@ -73,7 +75,7 @@ export async function applicationImages(root) {
         const file = await sourceFile(
           root,
           installationPath(
-            'panel/applications/' + application + '/' + relative,
+            'panel/' + group + '/' + application + '/' + relative,
           ),
         );
         assert(
@@ -137,7 +139,25 @@ export async function applicationImages(root) {
           recipe.acceptance.every((file) => safeSnapshotPath(file)),
         'Image recipes need package-owned native acceptance.',
       );
-      const key = application + '/' + recipe.id;
+      const key =
+        (group === 'providers' ? 'shared/' : '') +
+        application +
+        '/' +
+        recipe.id;
+      const dependencies = recipe.dependencies || [];
+      assert(
+        Array.isArray(dependencies) &&
+          dependencies.length <= 8 &&
+          dependencies.every(
+            (item) =>
+              typeof item === 'string' &&
+              /^(?:shared\/)?[a-z][a-z0-9-]{0,63}\/[a-z][a-z0-9-]{0,63}$/.test(
+                item,
+              ),
+          ) &&
+          new Set(dependencies).size === dependencies.length,
+        'Invalid image dependencies.',
+      );
       assert(
         !images.some((image) => image.key === key),
         'Duplicate package image.',
@@ -146,6 +166,7 @@ export async function applicationImages(root) {
         key,
         application,
         ...recipe,
+        dependencies,
         metadata: value,
         image: value.repository + ':' + value.tag,
         locate,
@@ -153,6 +174,66 @@ export async function applicationImages(root) {
     }
   }
   return images;
+}
+export const applicationImages = (root) => packageImages(root, 'applications');
+export const sharedImages = (root) => packageImages(root, 'providers');
+export function imageBuildOrder(recipes) {
+  const indexed = new Map(recipes.map((recipe) => [recipe.key, recipe]));
+  assert(indexed.size === recipes.length, 'Duplicate image identity.');
+  const complete = new Set(),
+    pending = new Set(),
+    ordered = [];
+  function visit(recipe) {
+    if (complete.has(recipe.key)) return;
+    assert(!pending.has(recipe.key), 'Image dependency cycle.');
+    pending.add(recipe.key);
+    for (const dependency of recipe.dependencies || []) {
+      assert(indexed.has(dependency), 'Unknown image dependency.');
+      visit(indexed.get(dependency));
+    }
+    pending.delete(recipe.key);
+    complete.add(recipe.key);
+    ordered.push(recipe);
+  }
+  for (const recipe of recipes) visit(recipe);
+  return ordered;
+}
+export async function imageCatalogue(root) {
+  const [shared, applications] = await Promise.all([
+    sharedImages(root),
+    applicationImages(root),
+  ]);
+  const ordered = imageBuildOrder([...shared, ...applications]);
+  for (const recipe of ordered)
+    if (recipe.dependencies.length) {
+      assert(
+        recipe.dependencies.length === 1,
+        'An image may declare one pinned base dependency.',
+      );
+      const base = ordered.find(
+        (candidate) => candidate.key === recipe.dependencies[0],
+      );
+      assert(
+        recipe.metadata.baseImage.startsWith(
+          base.metadata.repository + '@sha256:',
+        ) && recipe.metadata.platform === base.metadata.platform,
+        'Image dependency must match its pinned base and platform.',
+      );
+    }
+  return ordered;
+}
+export function selectImageRecipes(recipes, key) {
+  const wanted = new Set();
+  function include(name) {
+    if (wanted.has(name)) return;
+    const recipe = recipes.find((candidate) => candidate.key === name);
+    assert(recipe, 'Unknown application image.');
+    wanted.add(name);
+    for (const dependency of recipe.dependencies || []) include(dependency);
+  }
+  if (key) include(key);
+  else for (const recipe of recipes) include(recipe.key);
+  return imageBuildOrder(recipes).filter((recipe) => wanted.has(recipe.key));
 }
 export async function imageContext(recipe, run) {
   const directory = await fs.mkdtemp(

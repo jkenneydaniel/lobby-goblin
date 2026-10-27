@@ -70,6 +70,9 @@ test('compatible release bundles contain an importable core/module runtime and p
       for(const command of ['describe','runtime-describe']){const described=await run(process.execPath,['tools/factorio-image.mjs',command],{cwd:complete,timeout:5000});assert.match(JSON.parse(described.stdout).image,/ghcr.io\/jkenneydaniel\/factorio-server:/);}
       const catalogue=await run(process.execPath,['tools/application-images.mjs','matrix'],{cwd:complete,timeout:5000});
       assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='status-page/server'));
+      assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='shared/steamcmd/runtime'));
+      assert.ok(files.has('panel/providers/steamcmd/images/Dockerfile'));
+      await run(process.execPath,['tools/application-images.mjs','check','shared/steamcmd/runtime'],{cwd:complete,env:childEnv,timeout:5000});
       // Repack an extracted source bundle without changing its installed paths.
       await run(process.execPath,['tools/release.mjs'],{cwd:complete,timeout:10000});
       continue;
