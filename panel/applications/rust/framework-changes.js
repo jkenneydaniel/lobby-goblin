@@ -100,7 +100,15 @@ export function rustExecutionLinks(config, framework) {
 // together, retaining any newer data in the transaction's quarantine.
 export function createRustFrameworkChanges(
   ctx,
-  {software, mods, protocol, validate, fault = async () => {}, fetcher = fetch},
+  {
+    software,
+    mods,
+    protocol,
+    prepareValidation = async () => {},
+    validate,
+    fault = async () => {},
+    fetcher = fetch,
+  },
 ) {
   if (!software) return null;
   const {config} = ctx,
@@ -393,6 +401,8 @@ export function createRustFrameworkChanges(
     await stopped();
     value = await checkpoint(value, 'validating');
     try {
+      await stopped();
+      await prepareValidation(value.review.framework, value.id);
       const result = await run();
       if (ctx.active)
         await ctx.stageMessage(

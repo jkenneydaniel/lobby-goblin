@@ -1,5 +1,5 @@
 import {createRustSoftware} from './software.js';
-import {validateRustFramework} from './framework-validation.js';
+import {validateRustFramework,prepareRustFrameworkValidation} from './framework-validation.js';
 import {atomicRecord,readRecord} from '../../providers/steamcmd/files.js';
 import {createRustFrameworkChanges,pairedFrameworkMissing} from './framework-changes.js';
 import {createRustModStores} from './mod-stores.js';
@@ -76,9 +76,9 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
   const frameworkChanges=createRustFrameworkChanges(ctx,{software,mods,fetcher:modFetcher,fault:frameworkFault,protocol:async()=>{
     const record=await readRecord(path.join(config.state,'software/rust/protocol.json'),{optional:true,max:4096}),buildId=(await software.maintenance.execution()).receipt.selection.softwareVersion;
     assert(record?.format===1&&record.buildId===buildId&&/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(record.protocol||''),'Start and cleanly stop this Rust build once to retain its exact protocol before installing Carbon.',409);return record.protocol;
-  },validate:async(framework,id)=>{
+  },prepareValidation:(framework,id)=>prepareRustFrameworkValidation({framework,id,store:framework==='none'?null:mods.store(framework)}),validate:async(framework,id)=>{
     const before=await owned();
-    return validateRustFramework({framework,id,store:framework==='none'?null:mods.store(framework),command,running:async()=>{const current=await owned();return current.State?.Running&&!current.State.Restarting&&!current.State.OOMKilled&&current.State.StartedAt===before.State.StartedAt&&current.RestartCount===before.RestartCount;},timeout:Math.min(readyTimeout,300000),interval:pollInterval});
+    return validateRustFramework({framework,id,store:framework==='none'?null:mods.store(framework),command,running:async()=>{const current=await owned();return current.State?.Running&&!current.State.Restarting&&!current.State.OOMKilled&&current.State.StartedAt===before.State.StartedAt&&current.RestartCount===before.RestartCount;},timeout:Math.min(readyTimeout,300000),interval:pollInterval,progress:async(message,phase)=>{if(ctx.active)await ctx.stageMessage(ctx.active,message,phase);}});
   }});
   const modLibrary=createRustModLibrary(ctx,{mods,changes:frameworkChanges,owned,start,stop,command,ready:async()=>{const current=await owned();assert(current.State?.Running&&started(current,await serverInfo()),'Wait for Rust to be ready before applying plugins while running.',409);},fetcher:modFetcher});
   async function softwareReadyForSettings(){if(!software)return true;const value=await software.status();return value.phase==='complete'&&!value.recoveryRequired&&!(await frameworkChanges.inspect()).pending;}

@@ -339,3 +339,27 @@ test('framework publication preserves plugin-library identities and history; rec
     tracked,
   );
 });
+
+test('validation source preparation happens inside the stopped barrier before game startup', async (t) => {
+  const f = await paired(t);
+  await f.changes.prepare(await f.plan());
+  const order = [],
+    changes = createRustFrameworkChanges(f.ctx, {
+      software: f.software,
+      mods: f.mods,
+      protocol: async () => '2635.289.1',
+      prepareValidation: async () => {
+        assert.equal(f.runtime.running, false);
+        order.push('prepare');
+      },
+      validate: async () => {
+        assert.equal(f.runtime.running, true);
+        order.push('validate');
+      },
+    });
+  await changes.start(async () => {
+    order.push('start');
+    f.runtime.running = true;
+  });
+  assert.deepEqual(order, ['prepare', 'start', 'validate']);
+});

@@ -54,7 +54,8 @@ export function createRustMods({
   }
   async function load() {
     modStatus = await api('mods');
-    $('#mod-tools').open = modStatus.framework === 'none';
+    $('#mod-tools').open =
+      modStatus.framework === 'none' || modStatus.recoveryRequired;
     library?.dispose();
     library = null;
     $('#mod-library').hidden = !canAction('mod-library-install');

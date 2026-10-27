@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateRustFramework} from '../applications/rust/framework-validation.js';
+import {
+  validateRustFramework,
+  prepareRustFrameworkValidation,
+} from '../applications/rust/framework-validation.js';
 
 const id = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
 const token = id.replaceAll('-', '');
@@ -12,16 +15,19 @@ for (const framework of ['carbon', 'oxide']) {
       const files = new Map(),
         calls = [];
       let probes = 0;
+      const store = {
+        read: async (name) =>
+          files.has(name) ? {data: files.get(name)} : null,
+        write: async (name, data) => {
+          if (data === null) files.delete(name);
+          else files.set(name, data);
+        },
+      };
+      await prepareRustFrameworkValidation({framework, id, store});
       await validateRustFramework({
+        store,
         framework,
         id,
-        store: {
-          read: async (name) => files.get(name),
-          write: async (name, data) => {
-            if (data === null) files.delete(name);
-            else files.set(name, data);
-          },
-        },
         running: async () => true,
         timeout: 1000,
         interval: 1,
@@ -47,15 +53,17 @@ for (const framework of ['carbon', 'oxide']) {
   );
 }
 test('failed framework validation retains its source as recovery evidence and refuses a stopped server', async () => {
-  const files = new Map();
+  const files = new Map(),
+    store = {
+      read: async (name) => (files.has(name) ? {data: files.get(name)} : null),
+      write: async (name, data) => files.set(name, data),
+    };
+  await prepareRustFrameworkValidation({framework: 'carbon', id, store});
   await assert.rejects(
     validateRustFramework({
       framework: 'carbon',
       id,
-      store: {
-        read: async (name) => files.get(name),
-        write: async (name, data) => files.set(name, data),
-      },
+      store,
       running: async () => false,
       command: async () => 'queued',
       timeout: 1000,

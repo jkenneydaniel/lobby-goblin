@@ -268,7 +268,11 @@ retained before publication. The candidate starts from the verified pristine Rus
 release, so framework switching and returning to vanilla cannot leave patched
 libraries behind. The framework-management permission prepares files and leaves
 Rust stopped. A separate server-start operation boots them and verifies actual
-C# compilation with a temporary, uniquely named validation plugin.
+C# compilation with a temporary, uniquely named validation plugin. Its source is
+staged while stopped, before the existing image hands mutable files to the game
+user. Managed plugin changes use stopped mode or automatic stop/start; hot file
+replacement is not advertised for this layout. No additional controller
+capabilities or arbitrary game-container execution are introduced.
 
 Preparation, publication and validation are journaled. Pending changes fence
 other mutations. Explicit inspection-bound recovery verifies retained copies,

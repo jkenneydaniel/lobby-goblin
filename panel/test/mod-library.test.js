@@ -108,6 +108,13 @@ test('Rust supports Browse, tracked Updates, disabled plugin updates, and preser
 test('Rust hot installation/reload is explicit, keeps the game online, and performs no stop/start',async t=>{
   const f=await rust(t);f.run(true);await assert.rejects(f.library.plan({id:'example'}),/Stop Rust/);await f.library.install((await f.library.plan({id:'example',mode:'hot'})).id);assert.deepEqual(f.commands,['oxide.load Example']);f.version('1.1.0');await f.library.install((await f.library.plan({id:'example',mode:'hot'})).id);assert.deepEqual(f.commands,['oxide.load Example','oxide.reload Example']);assert.deepEqual(f.lifecycle(),{running:true,starts:0,stops:0});
 });
+test('managed Rust advertises stop/restart plugin changes and refuses hot writes before download or lifecycle changes',async t=>{
+  const f=await rust(t);f.ctx.config.softwareManaged=true;f.run(true);
+  assert.equal((await view(f.library)).hotAvailable,false);
+  await assert.rejects(f.library.plan({id:'example',mode:'hot'}),/stopped Rust or automatic stop\/start/);
+  assert.deepEqual(f.lifecycle(),{running:true,starts:0,stops:0});
+  assert.deepEqual(f.commands,[]);
+});
 test('Carbon adapter hot changes use its own plugin directory and command namespace',async t=>{
   const f=await rust(t),commands=[],mods={...f.mods,status:async()=>({available:true,framework:'carbon',version:'fixture'})},library=createRustModLibrary(f.ctx,{mods,owned:async()=>({State:{Running:true}}),fetcher:f.fetcher,ready:async()=>{},start:async()=>assert.fail('Hot apply must not start Rust'),stop:async()=>assert.fail('Hot apply must not stop Rust'),command:async value=>{commands.push(value);return 'Loaded';}});
   await fs.mkdir(path.join(f.game,'carbon/plugins'),{recursive:true});await library.install((await library.plan({id:'example',mode:'hot'})).id);assert.deepEqual(commands,['c.load Example']);assert.match(await fs.readFile(path.join(f.game,'carbon/plugins/Example.cs'),'utf8'),/RustPlugin/);
