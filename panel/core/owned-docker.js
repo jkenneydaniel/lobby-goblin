@@ -1,5 +1,13 @@
 import {assert} from '../common.js';
 import {validId} from './instance.js';
+import {
+  softwareWorkerKind,
+  softwareWorkerDeployment,
+  softwareWorkerScope,
+  validateSoftwareWorkerImage,
+  validateSoftwareWorkerCreate,
+  validateSoftwareWorkerContainer,
+} from './software-worker-policy.js';
 // Every child controller is fenced to its declared game/volume and its own workers.
 // This also scopes legacy preview cleanup queries; unrelated installations are invisible.
 export function ownedDocker(
@@ -9,6 +17,7 @@ export function ownedDocker(
     container: game,
     dataTarget: target,
     previewWorker,
+    softwareWorker,
     archiveReadPaths = [],
     execCommands = [],
     enforceBoundary = false,
@@ -27,6 +36,52 @@ export function ownedDocker(
     'io.lobby-goblin.instance': id,
   };
   const execIds = new Map();
+  const softwareStarts = new Set();
+  const softwareScope = softwareWorker
+    ? softwareWorkerScope({
+        fleet,
+        instance: id,
+        volume,
+        declaration: softwareWorker,
+      })
+    : null;
+  const workerList = () =>
+    request(
+      'GET',
+      '/containers/json?all=1&filters=' +
+        encodeURIComponent(
+          JSON.stringify({
+            label: [
+              ...Object.entries(marker).map(
+                ([key, value]) => key + '=' + value,
+              ),
+              'io.lobby-goblin.worker=true',
+            ],
+          }),
+        ),
+    );
+  async function softwareImage() {
+    return validateSoftwareWorkerImage(
+      await request(
+        'GET',
+        '/images/' +
+          encodeURIComponent(softwareWorkerDeployment.imageId) +
+          '/json',
+      ),
+    );
+  }
+  async function stoppedForPreparation(owner) {
+    assert(
+      owner.State?.Running === false && owner.State?.Restarting !== true,
+      'Stop the application before preparing software.',
+      409,
+    );
+    assert(
+      owner.HostConfig?.Memory >= 2 * 1024 ** 3,
+      'This application allocation cannot support the software worker.',
+      409,
+    );
+  }
   function softwareMount(mounts) {
     if (mounts.length === 1) return true;
     const extra = mounts[1],
@@ -113,6 +168,17 @@ export function ownedDocker(
         'Not an owned worker.',
         409,
       );
+      if (
+        softwareScope &&
+        info.Config.Labels['io.lobby-goblin.worker-kind'] === softwareWorkerKind
+      ) {
+        validateSoftwareWorkerContainer(
+          info,
+          softwareScope,
+          await softwareImage(),
+        );
+        return info;
+      }
       if (enforceBoundary) {
         const owner = await owned(game);
         const mounts = info.HostConfig?.Mounts || [],
@@ -155,7 +221,7 @@ export function ownedDocker(
     }
     return info;
   }
-  return async (method, route, data, options) => {
+  const dispatch = async (method, route, data, options) => {
     assert(
       ['GET', 'POST', 'DELETE'].includes(method) &&
         typeof route === 'string' &&
@@ -179,6 +245,48 @@ export function ownedDocker(
       .split('/')
       .filter(Boolean)
       .map(decodeURIComponent);
+    if (softwareScope)
+      assert(
+        new Set(url.searchParams.keys()).size ===
+          [...url.searchParams.keys()].length,
+        'Duplicate software worker query options.',
+        403,
+      );
+    if (
+      softwareScope &&
+      method === 'POST' &&
+      url.pathname === '/images/create'
+    ) {
+      const from = url.searchParams.get('fromImage'),
+        tag = url.searchParams.get('tag'),
+        reference = from + (tag ? '@' + tag : '');
+      assert(
+        data === undefined &&
+          reference === softwareWorkerDeployment.image &&
+          url.searchParams.get('platform') ===
+            softwareWorkerDeployment.platform &&
+          [...url.searchParams.keys()].every((key) =>
+            ['fromImage', 'tag', 'platform'].includes(key),
+          ),
+        'Software image download is outside its published contract.',
+        403,
+      );
+      return request(method, route, undefined, options);
+    }
+    if (
+      softwareScope &&
+      method === 'GET' &&
+      bits[0] === 'images' &&
+      bits.at(-1) === 'json' &&
+      [
+        softwareWorkerDeployment.image,
+        softwareWorkerDeployment.imageId,
+      ].includes(bits.slice(1, -1).join('/'))
+    ) {
+      assert(!url.searchParams.size, 'Unreviewed software image query.', 403);
+      const image = await request(method, route, undefined, options);
+      return validateSoftwareWorkerImage(image);
+    }
     if (url.pathname === '/containers/json') {
       assert(method === 'GET', 'Unsupported managed container operation.', 409);
       if (enforceBoundary)
@@ -199,6 +307,63 @@ export function ownedDocker(
     }
     if (url.pathname === '/containers/create') {
       const owner = await owned(game);
+      if (
+        softwareScope &&
+        data?.Labels?.['io.lobby-goblin.worker-kind'] === softwareWorkerKind
+      ) {
+        assert(
+          method === 'POST' &&
+            url.searchParams.get('platform') ===
+              softwareWorkerDeployment.platform &&
+            [...url.searchParams.keys()].every((key) =>
+              ['name', 'platform'].includes(key),
+            ),
+          'Unreviewed software worker query.',
+          403,
+        );
+        const {action} = validateSoftwareWorkerCreate(
+          data,
+          url.searchParams.get('name'),
+          softwareScope,
+        );
+        await softwareImage();
+        assert(
+          owner.HostConfig?.NetworkMode === softwareScope.network,
+          'Software preparation requires its owned application network.',
+          409,
+        );
+        const network = await request(
+          'GET',
+          '/networks/' + encodeURIComponent(softwareScope.network),
+        );
+        assert(
+          network.Driver === 'bridge' &&
+            Object.entries({
+              ...marker,
+              'io.lobby-goblin.game':
+                softwareScope.declaration.source.application,
+            }).every(([key, value]) => network.Labels?.[key] === value),
+          'Software worker network is outside its installation.',
+          403,
+        );
+        if (action === 'prepare') await stoppedForPreparation(owner);
+        assert(
+          (await workerList()).length === 0,
+          'Finish the existing game worker before preparing software.',
+          429,
+        );
+        return request(method, route, data, options);
+      }
+      if (softwareScope)
+        assert(
+          !(await workerList()).some(
+            (worker) =>
+              worker.Labels?.['io.lobby-goblin.worker-kind'] ===
+              softwareWorkerKind,
+          ),
+          'Wait for software preparation before creating a game worker.',
+          409,
+        );
       assert(
         method === 'POST' &&
           data &&
@@ -366,6 +531,111 @@ export function ownedDocker(
           (method === 'DELETE' && bits.length === 2) ||
           (method === 'POST' && bits[2] === 'stop'),
       });
+      const software =
+        softwareScope &&
+        info.Config?.Labels?.['io.lobby-goblin.worker-kind'] ===
+          softwareWorkerKind;
+      if (software) {
+        assert(
+          data === undefined,
+          'Software worker control cannot include a request body.',
+          403,
+        );
+        const operation = bits[2];
+        assert(
+          (method === 'DELETE' &&
+            bits.length === 2 &&
+            !url.searchParams.size &&
+            info.State?.Running === false &&
+            !info.State?.Restarting) ||
+            (bits.length === 3 &&
+              {
+                json: 'GET',
+                logs: 'GET',
+                start: 'POST',
+                stop: 'POST',
+                wait: 'POST',
+              }[operation] === method),
+          'Software workers cannot replay, execute commands or access archives.',
+          403,
+        );
+        const queries = {
+          json: [],
+          logs: ['stdout', 'stderr', 'tail'],
+          start: [],
+          stop: ['t'],
+          wait: ['condition'],
+        };
+        assert(
+          [...url.searchParams.keys()].every((key) =>
+            (queries[operation] || []).includes(key),
+          ),
+          'Unreviewed software worker query.',
+          403,
+        );
+        if (operation === 'start') {
+          assert(
+            info.State?.Status === 'created' && !softwareStarts.has(info.Id),
+            'Software worker execution cannot be replayed.',
+            409,
+          );
+          if (info.Config.Labels['io.lobby-goblin.worker-action'] === 'prepare')
+            await stoppedForPreparation(await owned(game));
+          softwareStarts.add(info.Id);
+        }
+        if (operation === 'stop')
+          assert(
+            /^\d{1,2}$/.test(url.searchParams.get('t') || '') &&
+              Number(url.searchParams.get('t')) <= 30,
+            'Invalid software worker stop timeout.',
+            403,
+          );
+        if (operation === 'wait')
+          assert(
+            url.searchParams.get('condition') === 'not-running',
+            'Invalid software worker wait.',
+            403,
+          );
+        if (operation === 'logs')
+          assert(
+            /^[1-9]\d{0,2}$/.test(url.searchParams.get('tail') || '') &&
+              Number(url.searchParams.get('tail')) <= 300 &&
+              ['stdout', 'stderr'].every(
+                (key) =>
+                  !url.searchParams.has(key) ||
+                  ['0', '1'].includes(url.searchParams.get(key)),
+              ),
+            'Software worker logs require a bounded tail.',
+            403,
+          );
+        const result = await request(
+          method,
+          '/containers/' +
+            encodeURIComponent(info.Id) +
+            (operation ? '/' + operation : '') +
+            url.search,
+          data,
+          options,
+        );
+        if (method === 'DELETE') softwareStarts.delete(info.Id);
+        return result;
+      }
+      if (
+        softwareScope &&
+        info.Name === '/' + game &&
+        method === 'POST' &&
+        ['start', 'restart'].includes(bits[2])
+      )
+        assert(
+          !(await workerList()).some(
+            (worker) =>
+              worker.Labels?.['io.lobby-goblin.worker-kind'] ===
+                softwareWorkerKind &&
+              worker.Labels?.['io.lobby-goblin.worker-action'] === 'prepare',
+          ),
+          'Finish software preparation before starting the application.',
+          409,
+        );
       assert(
         (bits.length === 3 &&
           {
@@ -552,5 +822,20 @@ export function ownedDocker(
       'This controller cannot operate other Docker resources.',
       409,
     );
+  };
+  let mutations = Promise.resolve();
+  return (method, route, ...args) => {
+    if (
+      softwareScope &&
+      ((method === 'POST' &&
+        (/^\/containers\/create(?:\?|$)/.test(route) ||
+          /\/(start|restart)(?:\?|$)/.test(route))) ||
+        method === 'DELETE')
+    ) {
+      const next = mutations.then(() => dispatch(method, route, ...args));
+      mutations = next.catch(() => {});
+      return next;
+    }
+    return dispatch(method, route, ...args);
   };
 }

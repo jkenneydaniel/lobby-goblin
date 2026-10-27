@@ -45,7 +45,7 @@ async function copy(relative) {
     },
   });
 }
-for (const directory of ['core', 'applications', 'fleet', 'public'])
+for (const directory of ['core', 'applications', 'providers', 'fleet', 'public'])
   await copy(directory);
 for (const entry of await fs.readdir(source, {withFileTypes: true}))
   if (

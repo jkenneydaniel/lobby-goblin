@@ -116,6 +116,40 @@ updater compatibility and existing source layouts. Publication and operational
 adoption/deployment are separate actions; these changes do not authorize
 accessing existing worlds or changing running servers.
 
+## Brokered preparation workers
+
+A managed application may declare `helpers.softwareWorker` with version 1,
+provider `steamcmd`, its reviewed source and required executable files. This is
+trusted package data, never a Docker specification supplied by the panel user.
+No existing application opts in as part of the broker contract change.
+
+The broker pins both the published worker manifest and image configuration
+identity. It permits only the fixed executable, no added environment values,
+the instance's bridge network and bounded CPU, memory, process and log usage.
+The worker runs as UID 1000 with GID 0 and no capabilities. Group access applies
+only to controller-created private claims: request input is read-only, result
+output is writable, and preparation additionally mounts private software and
+provider control directories. Application data, daemon sockets and management
+credentials are never worker mounts. Controllers must create the group-accessible
+claims before requesting a worker; file exchange and durable request recovery
+are delivered separately before enabling an application.
+
+Metadata resolution reserves 512 MiB without provider storage. Preparation needs
+2 GiB and an explicitly stopped application allocation of at least that size.
+The worker temporarily uses its own stopped application's memory reservation;
+all other stopped applications retain theirs. Creating and starting containers
+are serialized across host and instance capabilities. An existing preparation
+claim blocks application start until the worker has stopped and been deleted,
+including created or exited workers whose outcome still needs inspection.
+Cancellation can stop the worker without waiting behind that admission queue.
+
+An instance may start its created worker once, inspect it, obtain bounded logs,
+wait, stop it and remove it after stopping. It cannot replay an exited worker,
+execute commands or read archives. The host can inspect, stop and delete a
+verified worker even after its application/controller has been removed, but
+cannot start it. A controller must retain uncertain requests for inspection;
+the broker alone does not make an interrupted operation safe to retry.
+
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
 [Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).

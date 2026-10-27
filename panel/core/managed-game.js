@@ -2,6 +2,7 @@ import {assert} from '../common.js';
 import {validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
 import {validateManagedBinding} from './managed-bindings.js';
+import {softwareWorkerDeclaration} from './software-worker-policy.js';
 
 // Versioned, trusted built-in adapters. No module path or image comes from a request.
 export function validateManagedGame(module) {
@@ -119,6 +120,10 @@ export function validateManagedGame(module) {
     'Duplicate game creation fields.',
   );
   const catalog = managed.catalog;
+  if (managed.softwareWorker !== undefined) {
+    softwareWorkerDeclaration(managed.softwareWorker, module.id);
+    assert(creation.minMemoryGiB >= 2, 'Steam preparation requires an application allocation of at least 2 GiB.');
+  }
   assert(
     typeof catalog.version === 'string' &&
       typeof catalog.image === 'string' &&
