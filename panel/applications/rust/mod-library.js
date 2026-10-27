@@ -1,6 +1,6 @@
 import path from 'node:path';
 import {assert} from '../../common.js';
-import {createModStore,realDirectory} from '../../core/mod-store.js';
+import {realDirectory} from '../../core/mod-store.js';
 import {createModDownloads,digest} from '../../core/mod-downloads.js';
 import {createModLibrary} from '../../core/mod-library.js';
 import {frameworks} from './mod-packages.js';
@@ -12,7 +12,7 @@ export function createRustModLibrary(ctx,{mods,owned,start,stop,command,ready,fe
   const adapter={
     game:'rust',note:'Public Rust plugins from uMod. Use Oxide or Carbon; check plugin compatibility and compilation after starting. Frameworks and paid plugins are managed separately.',
     editable:async()=>{const status=await mods.status();return status.available&&['oxide','carbon'].includes(status.framework)&&!(await owned()).State?.Running&&!ctx.active&&!ctx.imageMigrationPending&&!ctx.updater.busy;},
-    async store(context){assert(installRoot&&frameworks[context.scope],'Install Oxide or Carbon before changing plugins.',409);return createModStore(path.join(installRoot,frameworks[context.scope].plugins),{accept:name=>/\.cs(?:\.disabled)?$/.test(name)});},
+    async store(context){assert(installRoot&&frameworks[context.scope],'Install Oxide or Carbon before changing plugins.',409);return mods.store(context.scope);},
     policy:async()=>({running:!!(await owned()).State?.Running,hotAvailable:true}),
     async reviewMode(mode){const status=await mods.status();assert(frameworks[status.framework],'Install Oxide or Carbon first.',409);if(mode==='stopped')await assertStopped();if(mode==='hot'){await ready();assert(await realDirectory((await adapter.store({scope:status.framework})).root),'The framework plugin folder is not ready. Choose automatic stop/start.',409);}},
     async prepare(mode){if(mode!=='restart'||!(await owned()).State?.Running)return false;await stop();return true;},

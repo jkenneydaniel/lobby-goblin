@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert,readJSON,writeJSON} from '../../common.js';
+import {createModStore} from '../../core/mod-store.js';
 import {frameworks,frameworkRelease,frameworkFiles,boundedDownload,sha256,safePath} from './mod-packages.js';
 
 const pluginName=value=>{assert(typeof value==='string'&&/^[A-Za-z][A-Za-z0-9_]{0,79}\.cs$/.test(value),'Use the original plugin filename, such as GatherManager.cs.');return value;};
@@ -22,7 +23,7 @@ export function validateModAction(action,params){
  }
 }
 
-export function createModManager({root,state,assertStopped,command,fetcher=fetch,getActive=()=>null}){
+export function createModManager({root,state,assertStopped,command,fetcher=fetch,getActive=()=>null,mutableStores=null}){
  const storage=path.join(state,'mods'),installedFile=path.join(storage,'installed.json'),transactionFile=path.join(storage,'transaction.json');
  const journal=workflowJournal({file:transactionFile,history:path.join(storage,'recovery'),source:'frameworks',label:'Framework transactions',action:'framework-change',getActive});
  const marker=root&&path.join(root,'.lobby-goblin-mods.json');
@@ -39,8 +40,11 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
   location=path.join(location,parts.at(-1));const stat=await fs.lstat(location).catch(error=>{if(error.code!=='ENOENT')throw error;return null;});
   assert(!stat||stat.isFile()&&!stat.isSymbolicLink(),'Mod files cannot be links or special files.');return {location,stat};
  }
- async function bytes(name,options){const found=await file(name,options);if(!found?.stat)return null;assert(found.stat.size<=(options?.limit??128*1024**2),'Mod file exceeds its size limit.');return fs.readFile(found.location);}
+ const mutable=name=>{const slash=name.lastIndexOf('/');return slash>0&&mutableStores?.get(name.slice(0,slash));};
+ function store(scope){assert(frameworks[scope],'Choose an installed framework.',409);return mutableStores?.get(frameworks[scope].plugins)||createModStore(path.join(root,frameworks[scope].plugins),{accept:name=>/\.cs(?:\.disabled)?$/.test(name)});}
+ async function bytes(name,options){const dataStore=(!options?.base||options.base===root)&&mutable(name);if(dataStore)return (await dataStore.read(name.slice(name.lastIndexOf('/')+1)))?.data??null;const found=await file(name,options);if(!found?.stat)return null;assert(found.stat.size<=(options?.limit??128*1024**2),'Mod file exceeds its size limit.');return fs.readFile(found.location);}
  async function write(name,data,{mode=0o644,base=root}={}){
+  const dataStore=base===root&&mutable(name);if(dataStore)return dataStore.write(name.slice(name.lastIndexOf('/')+1),data,mode);
   const target=await file(name,{create:true,base});
   if(data===null){if(target.stat)await fs.unlink(target.location);return;}
   const temporary=target.location+'.lg-'+crypto.randomUUID();
@@ -57,6 +61,7 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
   if(!root)return {available:false,framework:'none',plugins:[],configs:[],message:'Update the Rust controller storage mount to enable mod management.'};
   await available();const record=await installed(),transaction=await readJSON(transactionFile,null),definition=frameworks[record.framework];let plugins=[],configs=[];
   async function listing(directory,pattern,disabled=false){
+   const dataStore=mutableStores?.get(directory);if(dataStore)return [...await dataStore.list()].filter(([name])=>pattern.test(name)).map(([name,file])=>({name:disabled?name.replace(/\.disabled$/,''):name,disabled,size:file.data.length}));
    const parent=await file(directory+'/unused');if(!parent)return [];
    const values=[];for(const name of await fs.readdir(path.dirname(parent.location)).catch(error=>{if(error.code!=='ENOENT')throw error;return [];}))if(pattern.test(name)){const result=await file(directory+'/'+name);if(result?.stat)values.push({name:disabled?name.replace(/\.disabled$/,''):name,disabled,size:result.stat.size});}return values;
   }
@@ -77,8 +82,9 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
   await writeJSON(installedFile,transaction.previous);await writeJSON(marker,{format:1,status:'complete',framework:transaction.previous.framework});
   transaction.phase='recovered';await journal.write(transaction);
  }
- async function recover(){await available();await assertStopped();const transaction=await readJSON(transactionFile,null);assert(transaction&&!['complete','recovered'].includes(transaction.phase),'No interrupted framework change needs recovery.',409);await restoreTransaction(transaction);return 'Previous framework files restored. Rust remains stopped; worlds and plugin data were preserved.';}
+ async function recover(){assert(!mutableStores,'Managed framework recovery requires the paired software and data workflow.',409);await available();await assertStopped();const transaction=await readJSON(transactionFile,null);assert(transaction&&!['complete','recovered'].includes(transaction.phase),'No interrupted framework change needs recovery.',409);await restoreTransaction(transaction);return 'Previous framework files restored. Rust remains stopped; worlds and plugin data were preserved.';}
  async function install(planId,parent){
+  assert(!mutableStores,'Managed framework changes require the paired software and data workflow.',409);
   await available();await assertStopped();await assertReady();
   const reviewed=await readJSON(path.join(storage,'plan-'+planId+'.json'),null),previous=await installed();
   assert(reviewed&&Date.now()-reviewed.created<15*60000&&reviewed.current===sha256(Buffer.from(JSON.stringify(previous))),'Framework review expired or the installation changed. Review again.',409);
@@ -144,7 +150,7 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
  async function backupRoots(){
   if(!root)return [];
   await available();await assertStopped();await assertReady();const record=await installed(),extras=[];
-  for(const framework of ['carbon','oxide'])if(await fs.lstat(path.join(root,framework)).catch(error=>{if(error.code!=='ENOENT')throw error;return null;}))extras.push({prefix:'mods/'+framework,root:path.join(root,framework)});
+  for(const framework of mutableStores?[]:['carbon','oxide'])if(await fs.lstat(path.join(root,framework)).catch(error=>{if(error.code!=='ENOENT')throw error;return null;}))extras.push({prefix:'mods/'+framework,root:path.join(root,framework)});
   if(await fs.lstat(installedFile).catch(error=>{if(error.code!=='ENOENT')throw error;return null;})){
    // Include the exact active loader/DLL bytes and selection marker alongside
    // original files and downloaded packages, so recovery needs no network.
@@ -154,5 +160,5 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
   }
   return extras;
  }
- return {status,plan,install,recover,plugin,configuration,assertReady,backupRoots,operationSource:journal.operationSource,inspectOperation:journal.inspect};
+ return {status,plan,install,recover,plugin,configuration,store,assertReady,backupRoots,operationSource:journal.operationSource,inspectOperation:journal.inspect};
 }
