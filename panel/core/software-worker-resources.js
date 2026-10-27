@@ -64,7 +64,11 @@ export function softwareReservedMemory(containers, fleet) {
       Number.isSafeInteger(matches[0].HostConfig?.Memory) &&
       matches[0].HostConfig.Memory > 0 &&
       matches[0].HostConfig.Memory <= info.HostConfig?.Memory;
-    return total + (reused ? 0 : info.HostConfig?.Memory || 0);
+    return (
+      total +
+      (info.HostConfig?.Memory || 0) -
+      (reused ? matches[0].HostConfig.Memory : 0)
+    );
   }, 0);
 }
 export function assertPreparationAdmission(containers, candidate, fleet) {

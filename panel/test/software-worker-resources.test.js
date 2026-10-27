@@ -105,3 +105,21 @@ test('created or exited preparation workers fence application start until explic
     /Stop/,
   );
 });
+
+test('a worker borrows only its own memory and preserves the unused application reservation', () => {
+  const one = game(instance),
+    two = game(other),
+    claim = worker();
+  one.HostConfig.Memory = 8 * GiB;
+  const before = softwareReservedMemory([one, two], fleet);
+  assert.equal(before, 10 * GiB);
+  assert.equal(softwareReservedMemory([one, two, claim], fleet), before);
+  assert.equal(
+    softwareReservedMemory(
+      [one, two, {...claim, State: {Running: false, Status: 'exited'}}],
+      fleet,
+    ),
+    before,
+  );
+  assert.equal(softwareReservedMemory([one, two], fleet), before);
+});

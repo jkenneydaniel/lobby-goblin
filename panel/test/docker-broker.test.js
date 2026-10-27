@@ -557,6 +557,62 @@ unix(
 );
 
 unix(
+  'preparing a larger stopped server never frees capacity for another server',
+  async (t) => {
+    const f = await steamFixture(t),
+      GiB = 1024 ** 3;
+    f.owner.HostConfig.Memory = 8 * GiB;
+    f.setCapacity(11 * GiB); // 8 GiB application + 1 GiB controller + 2 GiB host reserve.
+    const {Id} = await f.client.docker('POST', f.route, f.spec);
+    const second = f.seed(two, 'rust'),
+      module = modules.find((value) => value.id === 'rust'),
+      original = f.containers.get(second.container);
+    f.containers.delete(second.container);
+    f.networks.set(second.network, {
+      Id: 'second-network',
+      Name: second.network,
+      Driver: 'bridge',
+      Labels: labels(fleet, two, 'rust'),
+    });
+    const ports = module.managed.ports.map(
+      (value) => value.containerPort + '/' + value.protocol,
+    );
+    const spec = {
+      Image: second.image,
+      Env: [],
+      Labels: labels(fleet, two, 'rust'),
+      ExposedPorts: Object.fromEntries(ports.map((value) => [value, {}])),
+      NetworkingConfig: {
+        EndpointsConfig: {[second.network]: {Aliases: [second.container]}},
+      },
+      HostConfig: {
+        NetworkMode: second.network,
+        Memory: 6 * GiB,
+        NanoCpus: 1e9,
+        Mounts: original.HostConfig.Mounts,
+        PortBindings: Object.fromEntries(
+          ports.map((value, index) => [
+            value,
+            [{HostIp: '127.0.0.1', HostPort: String(40000 + index)}],
+          ]),
+        ),
+      },
+    };
+    const create = () =>
+      f.host.docker(
+        'POST',
+        '/containers/create?name=' + second.container,
+        spec,
+      );
+    await assert.rejects(create(), /headroom/);
+    await f.client.docker('DELETE', '/containers/' + Id);
+    await assert.rejects(create(), /headroom/);
+    await f.host.docker('POST', '/containers/' + f.item.container + '/start');
+    assert.equal(f.owner.State.Running, true);
+  },
+);
+
+unix(
   'resolving metadata cannot mount provider storage, and legacy profiles cannot launch provider workers',
   async (t) => {
     const f = await steamFixture(t);
