@@ -22,6 +22,7 @@ import {JobsRepository,ConfigurationRepository} from './storage/state-repositori
 import {OperationFeed,jobOperationSource,operationProgressSnapshot} from './operation-feed.js';
 import {validateConfiguration,validateController,validateUpdater,validateActionRequest,normalizeStatus,publicContract} from './game-contract.js';
 import {controllerAccess} from './routes.js';
+import {SoftwareWorkers} from './software-workers.js';
 
 // One controller/operation lock per installation. The module supplies game
 // behavior; the core owns persistence, authentication and operation coordination.
@@ -58,7 +59,8 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const timers=[];
   const every=(fn,ms)=>{const timer=setInterval(()=>{if(!maintenance.held)fn();},ms);timer.unref();timers.push(timer);return timer;};
   const host=createHost({docker,container:config.container,stopTimeout:module.stopTimeout});
-  const ctx={config,env,host,docker,every,runJob,stageMessage,
+  const softwareWorkers=env.FLEET_ID&&module.managed?.softwareWorker?new SoftwareWorkers({docker,env,declaration:module.managed.softwareWorker}):null;
+  const ctx={config,env,host,docker,every,runJob,stageMessage,softwareWorkers,
     get jobs(){return jobs;},get active(){return active;},get schedule(){return schedule;},
     get updater(){return updater;},get backups(){return backups;},get imageMigrationPending(){return migrationPending;}};
   let migrationPending=false,migrationLaunching=false,migrationError=null,migrationWorker=null;
