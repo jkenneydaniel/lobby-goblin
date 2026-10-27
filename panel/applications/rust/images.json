@@ -38,6 +38,56 @@
         }
       ],
       "acceptance": ["images/acceptance.mjs"]
+    },
+    {
+      "id": "managed",
+      "manifest": "images/managed/image.json",
+      "dockerfile": "Dockerfile",
+      "dependencies": ["shared/steamcmd/runtime"],
+      "files": [
+        {
+          "source": "images/managed/Dockerfile",
+          "target": "Dockerfile"
+        },
+        {
+          "source": "images/managed-entrypoint.mjs",
+          "target": "managed-entrypoint.mjs"
+        },
+        {
+          "source": "images/entrypoint.mjs",
+          "target": "entrypoint.mjs"
+        },
+        {
+          "source": "images/package.json",
+          "target": "package.json"
+        },
+        {
+          "source": "images/package-lock.json",
+          "target": "package-lock.json"
+        },
+        {
+          "source": "transport.js",
+          "target": "transport.js"
+        },
+        {
+          "source": "images/managed-helper.mjs",
+          "target": "managed-helper.mjs"
+        },
+        {
+          "source": "images/managed-health.mjs",
+          "target": "managed-health.mjs"
+        }
+      ],
+      "buildArgs": {
+        "BASE_IMAGE": "baseImage"
+      },
+      "checks": [
+        {
+          "runner": "node-test",
+          "file": "images/test-managed.test.mjs"
+        }
+      ],
+      "acceptance": ["images/managed-acceptance.mjs"]
     }
   ]
 }
