@@ -16,6 +16,15 @@ export function createMapViews(getState, ui) {
       map = payload.snapshot;
     const view = template(map ? 'map' : 'map-empty');
     text(view, '#map-refresh-state', mapRefreshLabel(payload.automatic));
+    if (getState().can('application.factorio.map.configure')) {
+      const controls = template('map-refresh-settings');
+      part(controls, '[name=enabled]').checked =
+        payload.automatic?.enabled !== false;
+      part(controls, '[name=intervalMinutes]').value = String(
+        payload.automatic?.intervalMinutes || 0,
+      );
+      part(view, '[data-part=map-settings]').append(controls);
+    }
     part(view, '[data-part=banners]').append(jobBanner());
     if (map) {
       if (!payload.staleWorld) part(view, '[data-part=stale]').remove();
@@ -76,11 +85,16 @@ export function createMapViews(getState, ui) {
     if (active) return 'Updating after a save · ' + active.message;
     if (automatic?.running)
       return 'Updating the map from the latest completed save…';
+    if (automatic?.enabled === false)
+      return 'Automatic refresh is off. Use Refresh map to update this snapshot.';
     if (automatic?.lastError)
       return 'Automatic refresh will retry: ' + automatic.lastError;
-    if (automatic?.pending) return 'A save completed. Map refresh is queued.';
+    if (automatic?.pending)
+      return 'A save completed. Map refresh is queued for the next allowed refresh.';
     return automatic?.enabled
-      ? 'Refreshes automatically after completed saves.'
+      ? automatic.intervalMinutes
+        ? `Refreshes from completed saves, at most once every ${automatic.intervalMinutes} minutes.`
+        : 'Refreshes automatically after completed saves.'
       : 'Use Refresh map to update this snapshot.';
   }
   return {mapPage, mapRefreshLabel};

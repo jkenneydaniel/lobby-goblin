@@ -1,3 +1,4 @@
+import {spatialIndex} from './map-spatial.js';
 const colors = {
   resources: '#77b7c7',
   railways: '#dad3b8',
@@ -55,21 +56,44 @@ export function mountMap(payload, view = null) {
           )
         : []
       : map.players;
-  const chunks = map.chunks.map((chunk) => {
-    const image = document.createElement('canvas');
-    image.width = 16;
-    image.height = 16;
-    const ctx = image.getContext('2d');
+  const chunks = map.chunks,
+    terrainIndex = spatialIndex(chunks, 32, (chunk) => ({
+      x: chunk.x * 32,
+      y: chunk.y * 32,
+    })),
+    entities = map.entities,
+    objectIndex = spatialIndex(entities),
+    palette = map.palette?.map((tile) => rgb(tile.color)),
+    atlas = chunks.length ? document.createElement('canvas') : null,
+    columns = Math.ceil(Math.sqrt(chunks.length)),
+    tiles = new Map(chunks.map((chunk, i) => [chunk, i]));
+  // One small atlas replaces thousands of canvas objects. Decode terrain only
+  // when first visible, using row spans rather than one draw call per tile.
+  if (atlas) {
+    atlas.width = columns * 16;
+    atlas.height = Math.ceil(chunks.length / columns) * 16;
+  }
+  const painted = new Set();
+  function terrain(chunk) {
+    const index = tiles.get(chunk),
+      x = (index % columns) * 16,
+      y = Math.floor(index / columns) * 16;
+    if (painted.has(index)) return [x, y];
+    const ctx = atlas.getContext('2d');
     let cell = 0;
     for (let i = 0; i < chunk.tiles.length; i += 2) {
-      ctx.fillStyle = rgb(map.palette[chunk.tiles[i] - 1].color);
-      for (let j = 0; j < chunk.tiles[i + 1]; j++, cell++)
-        ctx.fillRect(cell % 16, Math.floor(cell / 16), 1, 1);
+      ctx.fillStyle = palette[chunk.tiles[i] - 1];
+      let remaining = chunk.tiles[i + 1];
+      while (remaining > 0) {
+        const span = Math.min(remaining, 16 - (cell % 16));
+        ctx.fillRect(x + (cell % 16), y + Math.floor(cell / 16), span, 1);
+        cell += span;
+        remaining -= span;
+      }
     }
-    return {...chunk, image};
-  });
-  const entities = map.entities;
-  const enemies = entities.filter((entity) => entity.category === 'enemies');
+    painted.add(index);
+    return [x, y];
+  }
   const pos = (x, y) => [
     (x - cx) * scale + width / 2,
     (y - cy) * scale + height / 2,
@@ -91,17 +115,32 @@ export function mountMap(payload, view = null) {
     context.fillStyle = '#151f20';
     context.fillRect(0, 0, width, height);
     context.imageSmoothingEnabled = false;
-    for (const chunk of chunks) {
+    const [left, top] = world(0, 0),
+      [right, bottom] = world(width, height),
+      margin = 128 + 8 / scale,
+      objects = objectIndex.query(
+        left - margin,
+        top - margin,
+        right + margin,
+        bottom + margin,
+      );
+    for (const chunk of terrainIndex.query(
+      left - 32,
+      top - 32,
+      right,
+      bottom,
+    )) {
       const [x, y] = pos(chunk.x * 32, chunk.y * 32),
         size = 32 * scale;
       if (x + size < 0 || y + size < 0 || x > width || y > height) continue;
-      context.drawImage(chunk.image, x, y, size + 0.5, size + 0.5);
+      const [sx, sy] = terrain(chunk);
+      context.drawImage(atlas, sx, sy, 16, 16, x, y, size + 0.5, size + 0.5);
       if (layers.has('pollution') && chunk.pollution > 0) {
         context.fillStyle = `rgba(224,64,42,${Math.min(0.65, Math.log1p(chunk.pollution) / 12)})`;
         context.fillRect(x, y, size, size);
       }
     }
-    for (const entity of entities) {
+    for (const entity of objects) {
       if (entity.category === 'enemies' || !visible(entity)) continue;
       const [x, y] = pos(entity.x, entity.y),
         w = Math.max(entity.w * scale, entity.category === 'resources' ? 1 : 2),
@@ -117,7 +156,8 @@ export function mountMap(payload, view = null) {
     }
     // Keep threats legible above resources/buildings, including at overview zoom.
     if (layers.has('enemies'))
-      for (const entity of enemies) {
+      for (const entity of objects) {
+        if (entity.category !== 'enemies') continue;
         const [x, y] = pos(entity.x, entity.y),
           unit = entity.type === 'unit',
           base = entity.type === 'unit-spawner',
@@ -209,6 +249,13 @@ export function mountMap(payload, view = null) {
   }
   function select(x, y) {
     const [wx, wy] = world(x, y);
+    const margin = 128 + 8 / scale,
+      nearby = objectIndex.query(
+        wx - margin,
+        wy - margin,
+        wx + margin,
+        wy + margin,
+      );
     document.querySelector('#map-coordinates').textContent =
       `X ${Math.round(wx)} · Y ${Math.round(wy)}`;
     const pinForm = document.querySelector('#pin-form');
@@ -231,7 +278,8 @@ export function mountMap(payload, view = null) {
     let nearest = null,
       distance = Infinity;
     if (layers.has('enemies'))
-      for (const item of enemies) {
+      for (const item of nearby) {
+        if (item.category !== 'enemies') continue;
         const d = Math.hypot(item.x - wx, item.y - wy);
         if (d * scale <= enemyRadius(item) + 2 && d < distance) {
           nearest = item;
@@ -239,7 +287,7 @@ export function mountMap(payload, view = null) {
         }
       }
     if (!nearest)
-      for (const item of entities) {
+      for (const item of nearby) {
         if (!visible(item)) continue;
         const d = Math.hypot(item.x - wx, item.y - wy);
         if (d < Math.max(item.w, item.h, 8 / scale) && d < distance) {

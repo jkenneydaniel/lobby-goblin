@@ -1,4 +1,4 @@
-import {mountWorldPreview} from './world-preview.js';
+import {mountWorldPreview, cleanWorldPreview} from './world-preview.js';
 import {iconNode} from './shared/templates.js';
 import {
   displayValue,
@@ -142,7 +142,16 @@ export function worldForm(options, busy = false, template) {
 
 export function bindWorldEditor(
   options,
-  {startJob, confirmAction, toast, api, template},
+  {
+    startJob,
+    confirmAction,
+    toast,
+    api,
+    template,
+    onCancel = () => {},
+    isCurrent = () => true,
+    canCancel = () => true,
+  },
 ) {
   const form = document.querySelector('#create-form');
   if (!form) return;
@@ -635,6 +644,38 @@ export function bindWorldEditor(
     // this tab's writes settle; the server still checks the exact revision/ID.
     return write(typeof body === 'function' ? body() : body);
   }
+  form
+    .querySelector('#cancel-world-draft')
+    .addEventListener('click', async () => {
+      if (!canCancel()) return;
+      if (
+        !(await confirmAction(
+          'Cancel this world draft?',
+          'This discards your account’s saved draft and returns to the world library. Saved worlds and presets are kept. A terrain preview already requested may finish in the background. This does not cancel a submitted Create world operation.',
+          'Cancel draft',
+        )) ||
+        !isCurrent() ||
+        !canCancel()
+      )
+        return;
+      form.inert = true;
+      try {
+        await presetAction(() => ({
+          operation: 'discard',
+          draftId: options.setups.draft?.id,
+        }));
+        if (!isCurrent() || epoch !== editorEpoch) return;
+        await stopSaving(false);
+        cleanWorldPreview();
+        clearWorldDraft();
+        onCancel();
+        toast('World draft cancelled.');
+      } catch (error) {
+        if (!isCurrent() || epoch !== editorEpoch) return;
+        form.querySelector('#world-form-error').textContent = error.message;
+        form.inert = false;
+      }
+    });
   function presets() {
     select.replaceChildren(
       new Option(
@@ -763,6 +804,9 @@ export function bindWorldEditor(
           toast,
           api,
           template,
+          onCancel,
+          isCurrent,
+          canCancel,
         });
       } catch (error) {
         result.textContent = error.message;

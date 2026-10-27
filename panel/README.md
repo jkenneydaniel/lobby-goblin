@@ -150,6 +150,13 @@ completed autosaves, manual saves, last-player disconnect saves and shutdown sav
 it does not recursively request another save. Pending exports are coalesced and
 persist across controller restarts. Open maps check for updates every five seconds
 and preserve pan, zoom and enabled layers.
+Administrators can open **Map refresh settings** on the map to turn automatic
+refresh off or choose a minimum interval of 0–1440 whole minutes. Zero preserves
+the existing refresh-after-every-save behavior. A positive interval limits export
+starts; newer saves replace queued work until the next permitted refresh. Settings
+and the last automatic start time persist across restarts. This does not change
+game autosave frequency, live-player polling or the manual Refresh map action.
+Members need the separate **Configure automatic saved map refresh** permission.
 Export helpers use lower CPU priority (`CpuShares: 128`) so the active game takes
 precedence when CPU is contested. They can use idle CPU without a hard quota;
 exports may take longer under load. The existing one-GB memory limit remains.
@@ -166,6 +173,18 @@ at overview zoom and can be selected for details. At the 80,000-object cap,
 enemies replace resource entries first, then other objects; bases and worms can
 also replace units. The cap and incomplete-map warning remain. Refresh old
 snapshots after updating to include enemy units.
+
+The browser indexes snapshot objects and chunks for viewport rendering and
+inspection. Terrain is decoded on first view into one small texture atlas, using
+row spans. Export limits remain 2,048 chunks, 80,000 objects and 24 MB; a faster
+browser alone does not prove larger Factorio exports fit the isolated worker.
+
+**Cancel draft** in the world editor discards the account's saved draft and
+returns to the world library. It waits for pending draft writes and checks the
+saved revision and draft identity, preserving newer work from another tab.
+Saved worlds and presets are kept. It does not cancel a submitted Create world
+operation, and a terrain preview already requested may finish in the background.
+**Back to worlds** keeps the draft; **Start fresh** replaces it with a new draft.
 
 Optional live positions update on demand every two seconds while a signed-in
 browser views the map. They require per-world achievement consent and a backup.

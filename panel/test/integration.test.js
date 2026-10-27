@@ -251,6 +251,21 @@ test('authenticated panel and controller manage isolated worlds, backups, and fa
     const map=await (await request('/map',{user:viewer})).json();assert.equal(map.pins.length,1);assert.equal(map.staleWorld,false);
     await request('/pins',{method:'POST',body:{remove:map.pins[0].id}});assert.equal((await (await request('/map')).json()).pins.length,0);
   });
+  await t.test('map refresh preferences require administrator permissions and CSRF and persist without game commands',async()=>{
+    const before=gameQueries.length,body={enabled:false,intervalMinutes:15};
+    assert.equal((await fetch(origin+'/api/map-settings',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify(body)})).status,401);
+    assert.equal((await request('/map-settings',{method:'POST',body,user:viewer})).status,403);
+    assert.equal((await request('/map-settings',{method:'POST',body,csrf:false})).status,403);
+    assert.equal((await request('/map-settings',{method:'POST',body:{...body,intervalMinutes:1441}})).status,400);
+    const response=await request('/map-settings',{method:'POST',body});assert.equal(response.status,200);assert.equal((await response.json()).enabled,false);
+    const saved=JSON.parse(await fs.readFile(path.join(state,'map-refresh.json'),'utf8'));assert.equal(saved.enabled,false);assert.equal(saved.intervalMinutes,15);
+    assert.equal((await (await request('/map-status')).json()).automatic.intervalMinutes,15);
+    const file=path.join(state,'map-refresh.json');await fs.rm(file);await fs.mkdir(file);
+    assert.equal((await request('/map-settings',{method:'POST',body:{enabled:true,intervalMinutes:5}})).status,500);
+    const retained=(await (await request('/map-status')).json()).automatic;assert.equal(retained.enabled,false);assert.equal(retained.intervalMinutes,15,'A failed durable write must not change active preferences.');
+    await fs.rm(file,{recursive:true});assert.equal((await request('/map-settings',{method:'POST',body})).status,200);
+    assert.equal(gameQueries.length,before,'Changing map cadence must not save, restart or script the game.');
+  });
   await t.test('password changes, session revocation, roles and account removal take effect immediately',async()=>{
     const first=await login('NewEngineer','my new long password'),second=await login('NewEngineer','my new long password');
     const list=await (await request('/sessions',{user:first})).json();assert.equal(list.sessions.some(item=>item.id===second.cookie.split('=')[1]),false);

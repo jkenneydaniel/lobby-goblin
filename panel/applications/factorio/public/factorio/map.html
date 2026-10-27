@@ -1,5 +1,6 @@
 <template id="map">
   <p id="map-refresh-state" class="form-note" role="status"></p>
+  <div data-part="map-settings"></div>
   <div data-part="banners"></div>
   <div class="warning" data-part="stale">
     This snapshot belongs to a different world. Refresh to draw the current
@@ -142,9 +143,38 @@
 </template>
 <template id="map-empty"
   ><p id="map-refresh-state" class="form-note" role="status"></p>
+  <div data-part="map-settings"></div>
   <div data-part="banners"></div>
   <div data-part="empty"></div
 ></template>
+<template id="map-refresh-settings">
+  <details class="section-spacer">
+    <summary>Map refresh settings</summary>
+    <form id="map-refresh-form">
+      <label class="check-label"
+        ><input name="enabled" type="checkbox" />Refresh automatically after
+        saves</label
+      >
+      <label
+        >Minimum time between refreshes (minutes)<input
+          name="intervalMinutes"
+          type="number"
+          min="0"
+          max="1440"
+          step="1"
+          required
+      /></label>
+      <p class="hint">
+        0 refreshes after every completed save. Choose 1–1440 to limit
+        background work. Only completed saves are used; this does not change
+        game autosaves. Turning this off leaves any refresh already running to
+        finish.
+      </p>
+      <button class="button">Save map refresh settings</button>
+      <p id="map-settings-result" class="form-note" role="status"></p>
+    </form>
+  </details>
+</template>
 <template id="pin"
   ><div class="detail-row">
     <button class="text-button" data-map-pin></button

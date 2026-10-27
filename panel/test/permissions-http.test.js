@@ -58,6 +58,18 @@ test('permission changes revoke existing sessions and refresh available tools af
  assert.equal((await f.request(renewed,one+'/api/status')).status,404);
  assert.equal((await f.request(renewed,remote+'/api/status')).status,200);
 });
+test('Factorio map generation grants cannot change refresh preferences without the separate server-scoped permission',async t=>{
+ const f=await fixture(t),owner=await f.login('Owner','owner-fixture-password');
+ const grants=['server.view','application.factorio.map.view','application.factorio.map.generate'];
+ assert.equal((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'grants',grants:{[one]:grants},revision:0,confirm:true})).status,200);
+ let member=await f.login('Assigned','member-fixture-password');
+ assert.equal((await f.request(member,one+'/api/map-settings',{enabled:false,intervalMinutes:15})).status,403);
+ assert.equal((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'grants',grants:{[one]:[...grants,'application.factorio.map.configure']},revision:1,confirm:true})).status,200);
+ member=await f.login('Assigned','member-fixture-password');
+ assert.equal((await f.request(member,one+'/api/map-settings',{enabled:false,intervalMinutes:15})).status,200);
+ assert.equal(f.calls.at(-1).user,'Assigned');
+ assert.equal((await f.request(member,two+'/api/map-settings',{enabled:false,intervalMinutes:15})).status,404);
+});
 
 for(const sqlite of [false,true])test(`fleet account deletion cleans package data with ${sqlite?'transactional':'legacy JSON'} storage`,async t=>{
  const f=await fixture(t),accounts=new FactorioAccounts(f.auth);
