@@ -218,3 +218,128 @@ export const readExecutionReceipt = (root) =>
     optional: true,
     max: 16384,
   });
+
+// Application-owned ABI links are compared as inert strings, never followed.
+// This permits inventorying a retained sealed execution tree after it has been
+// renamed into private recovery storage without traversing mutable world data.
+export async function executionInventory(root, links = {}) {
+  await directory(root);
+  const files = [];
+  let bytes = 0,
+    entries = 0;
+  async function walk(relative = '', depth = 0) {
+    assert(depth <= 32, 'Execution tree is too deeply nested.', 413);
+    const parent = path.join(root, relative),
+      stat = await fs.lstat(parent);
+    assert(
+      stat.isDirectory() &&
+        !stat.isSymbolicLink() &&
+        stat.uid === process.getuid() &&
+        !(stat.mode & 0o022),
+      'Execution directories must remain sealed.',
+      409,
+    );
+    const names = await fs.readdir(parent);
+    assert(
+      (entries += names.length) <= 200000,
+      'Execution metadata exceeds its budget.',
+      413,
+    );
+    for (const leaf of names.sort()) {
+      const name = relative ? relative + '/' + leaf : leaf;
+      assert(!/[\x00-\x1f\\]/.test(name), 'Invalid execution path.', 409);
+      const location = path.join(root, name),
+        before = await fs.lstat(location);
+      if (before.isSymbolicLink()) {
+        const target = await fs.readlink(location);
+        assert(
+          Object.hasOwn(links, name) &&
+            target === links[name] &&
+            before.uid === process.getuid(),
+          'Execution link differs from its declared data target.',
+          409,
+        );
+        files.push({name, link: target});
+      } else if (before.isDirectory()) await walk(name, depth + 1);
+      else {
+        assert(
+          before.isFile() &&
+            before.nlink === 1 &&
+            before.uid === process.getuid() &&
+            !(before.mode & 0o022) &&
+            (bytes += before.size) <= 128 * 1024 ** 3 &&
+            files.length < 100000,
+          'Execution files must remain bounded sealed ordinary files.',
+          409,
+        );
+        const input = await fs.open(
+          location,
+          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        );
+        try {
+          const opened = await input.stat();
+          assert(
+            opened.isFile() &&
+              opened.nlink === 1 &&
+              opened.dev === before.dev &&
+              opened.ino === before.ino &&
+              opened.size === before.size,
+            'Execution changed while opening it.',
+            409,
+          );
+          const hash = crypto.createHash('sha256'),
+            buffer = Buffer.alloc(1024 ** 2);
+          let size = 0;
+          for (;;) {
+            const count = await input.read(
+              buffer,
+              0,
+              Math.min(buffer.length, before.size - size + 1),
+              null,
+            );
+            if (!count.bytesRead) break;
+            size += count.bytesRead;
+            assert(
+              size <= before.size,
+              'Execution grew during inventory.',
+              409,
+            );
+            hash.update(buffer.subarray(0, count.bytesRead));
+          }
+          const after = await input.stat();
+          assert(
+            size === before.size &&
+              after.nlink === 1 &&
+              after.size === opened.size &&
+              after.mtimeMs === opened.mtimeMs &&
+              after.ctimeMs === opened.ctimeMs,
+            'Execution changed during inventory.',
+            409,
+          );
+          files.push({
+            name,
+            size,
+            sha256: hash.digest('hex'),
+            executable: !!(before.mode & 0o111),
+          });
+        } finally {
+          await input.close();
+        }
+      }
+    }
+  }
+  await walk();
+  assert(
+    Buffer.byteLength(JSON.stringify(files)) <= 32 * 1024 ** 2,
+    'Execution inventory exceeds its metadata budget.',
+    413,
+  );
+  return {
+    sha256: crypto
+      .createHash('sha256')
+      .update(JSON.stringify(files))
+      .digest('hex'),
+    files: files.length,
+    bytes,
+  };
+}

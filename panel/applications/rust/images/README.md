@@ -8,14 +8,16 @@ libraries, WebRCON transport, startup and shutdown. The recipe declares its shar
 base dependency so targeted checks/builds include that prerequisite.
 Rust and Steam remain subject to their own licenses.
 
-The additional `rust/managed` recipe builds `managed-lg.1`. It never installs or
+The additional `rust/managed` recipe builds `managed-lg.2`. It never installs or
 updates a game at startup: a controller must first publish exact, verified
 software into the sealed `engine` directory and write its execution receipt.
 Worlds, settings and player data stay in the stable `server` directory, reached
 through the single checked `engine/server -> ../server` link. The supervisor
 changes ownership only under `server`; software remains controller-owned and
 Rust runs as UID/GID 1000. The legacy recipe and application default stay intact.
-Application opt-in and paired software/data update recovery follow this image.
+The explicit managed application choice uses its published digest. Framework
+changes use controller-owned candidates and paired world/software recovery;
+legacy installations and their default image remain unchanged.
 
 `node tools/application-images.mjs check rust/managed` validates the isolated
 recipe without Docker. Its normal native smoke refuses missing software without

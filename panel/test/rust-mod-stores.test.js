@@ -83,6 +83,10 @@ for (const framework of ['carbon', 'oxide']) {
         path.join(state, 'mods/installed.json'),
         JSON.stringify({format: 1, framework, files: []}),
       );
+      await fs.writeFile(
+        path.join(root, '.lobby-goblin-mods.json'),
+        JSON.stringify({format: 1, status: 'complete', framework}),
+      );
       const commands = [];
       const mods = createModManager({
         root,

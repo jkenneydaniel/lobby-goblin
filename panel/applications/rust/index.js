@@ -1,4 +1,5 @@
 import {definition} from './definition.js';
+import {pairedFrameworkMissing} from './framework-changes.js';
 import {applicationMetadata} from '../../core/application-services.js';
 const presentation = definition.presentation,
   imagePolicy = definition.services[0].configuration.imagePolicy;
@@ -146,9 +147,10 @@ export async function validateInstallation(config) {
         {max: 65536},
       );
       assert(
-        pending.instance === config.instance &&
-          pending.phase !== 'complete' &&
-          /^[a-f0-9-]{36}$/.test(pending.id || ''),
+        (await pairedFrameworkMissing(config, 'world')) ||
+          (pending.instance === config.instance &&
+            pending.phase !== 'complete' &&
+            /^[a-f0-9-]{36}$/.test(pending.id || '')),
         'Missing Rust world storage requires installation recovery.',
         409,
       );

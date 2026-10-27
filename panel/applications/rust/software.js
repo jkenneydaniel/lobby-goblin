@@ -71,6 +71,7 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
     engine = path.join(data, 'engine'),
     root = path.join(config.state, 'software/rust'),
     journalFile = path.join(root, 'installation.json'),
+    currentFile = path.join(root, 'current.json'),
     bootstrapFile = path.join(
       workers.root,
       'control/managed-rust-bootstrap.json',
@@ -281,20 +282,84 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
       'Initial software publication needs recovery.',
       409,
     );
-    const receipt = softwareReceipt(value.prepared.receipt);
+    const active = await execution(value);
+    const receipt = active.receipt;
     assert(
       await provider.installed(receipt),
       'Private Rust software changed. Recover it before starting.',
       409,
     );
-    const projected = executionProjection(receipt, value.binary, 'rust');
+    const projected = executionProjection(receipt, active.binary, 'rust');
     assert(
       same(await readExecutionReceipt(data), projected),
       'Execution receipt changed. No upstream software was selected.',
       409,
     );
-    await executionBinary(engine, 'RustDedicated', value.binary.sha256);
+    await executionBinary(engine, 'RustDedicated', active.binary.sha256);
     return receipt;
+  }
+  async function execution(value = null) {
+    value ||= await record();
+    assert(
+      value?.phase === 'complete',
+      'Finish initial Rust installation first.',
+      409,
+    );
+    const current = await readRecord(currentFile, {optional: true, max: 65536});
+    if (!current)
+      return {
+        receipt: softwareReceipt(value.prepared.receipt),
+        binary: value.binary,
+      };
+    assert(
+      Object.keys(current).every((key) =>
+        ['format', 'initialId', 'transactionId', 'receipt', 'binary'].includes(
+          key,
+        ),
+      ) &&
+        current.format === 1 &&
+        current.initialId === value.id &&
+        uuid(current.transactionId) &&
+        current.binary?.name === 'RustDedicated' &&
+        current.binary.executable === true &&
+        /^[a-f0-9]{64}$/.test(current.binary.sha256),
+      'Current Rust software identity needs paired recovery.',
+      409,
+    );
+    const receipt = softwareReceipt(current.receipt);
+    target(receipt.selection);
+    return {receipt, binary: current.binary};
+  }
+  async function publishCurrent(receipt, binary, transactionId) {
+    await stopped();
+    const initial = await record();
+    assert(
+      initial?.phase === 'complete' && uuid(transactionId),
+      'A paired transaction must own software publication.',
+      409,
+    );
+    receipt = softwareReceipt(receipt);
+    target(receipt.selection);
+    assert(
+      binary?.name === 'RustDedicated' &&
+        binary.executable === true &&
+        /^[a-f0-9]{64}$/.test(binary.sha256) &&
+        (await provider.installed(receipt)),
+      'Paired software is not privately active.',
+      409,
+    );
+    await executionBinary(engine, 'RustDedicated', binary.sha256);
+    await publishExecutionReceipt(
+      data,
+      executionProjection(receipt, binary, 'rust'),
+    );
+    await atomicRecord(currentFile, {
+      format: 1,
+      initialId: initial.id,
+      transactionId,
+      receipt,
+      binary,
+    });
   }
   async function finish(value, job, recovering = false) {
     await stopped();
@@ -557,8 +622,10 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
           (await workers.history()).map((item) => workers.inspect(item.id)),
         )
       : [];
+    const active = value.phase === 'complete' ? await execution(value) : null;
     const observation = {
       record: value,
+      ...(active ? {current: active} : {}),
       lease: await leaseAt(root),
       requestLease: await leaseAt(workers.paths.requests),
       provider: await provider.inspect(),
@@ -572,7 +639,10 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
         !!observation.requestLease ||
         !!observation.provider.lease ||
         requests.length > 0,
-      buildId: value.target?.softwareVersion || null,
+      buildId:
+        active?.receipt.selection.softwareVersion ||
+        value.target?.softwareVersion ||
+        null,
       phase: value.phase,
       review: crypto
         .createHash('sha256')
@@ -582,6 +652,11 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
     };
   }
   async function recover(params, job) {
+    assert(
+      !(await readRecord(currentFile, {optional: true, max: 65536})),
+      'Use paired software recovery for an updated Rust installation.',
+      409,
+    );
     assert(
       params?.confirm === true &&
         /^[a-f0-9]{64}$/.test(params.review || '') &&
@@ -738,6 +813,7 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
   }
   async function status() {
     const value = await record();
+    const active = value?.phase === 'complete' ? await execution(value) : null;
     const retained =
       value &&
       ((await leaseAt(root)) ||
@@ -747,8 +823,7 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
       mode: 'runtime',
       provider: 'steamcmd',
       managed: true,
-      version:
-        value?.phase === 'complete' ? value.target.softwareVersion : null,
+      version: active?.receipt.selection.softwareVersion || null,
       phase: value?.phase || 'uninstalled',
       recoveryRequired:
         !!value && (value.phase !== 'complete' || !!retained) && !busy,
@@ -796,5 +871,18 @@ export function createRustSoftware(ctx, {fault = async () => {}} = {}) {
     status,
     operationSource,
     receipt: async () => verified(await record()),
+    // Trusted application workflow seam. HTTP handlers expose only explicit
+    // reviewed operations, never these provider or filesystem authorities.
+    maintenance: {
+      provider,
+      stopped,
+      workers,
+      target,
+      root,
+      data,
+      engine,
+      execution,
+      publishCurrent,
+    },
   };
 }

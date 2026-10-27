@@ -205,7 +205,7 @@
           "controllerPrepared": true,
           "imagePolicy": {
             "version": 1,
-            "defaultImage": "ghcr.io/jkenneydaniel/rust-server:managed-lg.1@sha256:1560a7df90a04cc7700730cbec57e4b7b37df88854588c99af026c1d9843dc24",
+            "defaultImage": "ghcr.io/jkenneydaniel/rust-server:managed-lg.2@sha256:138cf1e76d6dcd5b88eb172dd2b3264f2abc508eb2b29d568851682a2b0cf802",
             "referencePattern": "^ghcr\\.io/jkenneydaniel/rust-server:managed-lg\\.(?<revision>[1-9]\\d*)$",
             "architecture": "amd64",
             "labels": {

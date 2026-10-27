@@ -156,7 +156,7 @@ export function createModManager({root,state,assertStopped,command,fetcher=fetch
    // original files and downloaded packages, so recovery needs no network.
    const active=path.join(storage,'backup-active');await fs.rm(active,{recursive:true,force:true});await fs.mkdir(active,{mode:0o700});
    for(const entry of record.files){const data=await bytes(entry.name);assert(data&&sha256(data)===entry.sha256,'Managed framework files changed; reconcile them before backing up.');await write(entry.name,data,{base:active});}
-   await write('.lobby-goblin-mods.json',Buffer.from(JSON.stringify({format:1,status:'complete',framework:record.framework})),{base:active});extras.push({prefix:'mod-state',root:storage});
+   const activeMarker=mutableStores?await bytes('.lobby-goblin-mods.json'):Buffer.from(JSON.stringify({format:1,status:'complete',framework:record.framework}));assert(activeMarker&&activeMarker.length<=4096&&JSON.parse(activeMarker).framework===record.framework&&JSON.parse(activeMarker).status==='complete','Framework startup marker differs from its installed selection.',409);await write('.lobby-goblin-mods.json',activeMarker,{base:active});extras.push({prefix:'mod-state',root:storage});
   }
   return extras;
  }

@@ -257,9 +257,26 @@ Steam and absent from that instance's verified cache fails before moving copied
 data. Each installation verifies its own inventory; two downloads of the same
 build can have different inventory digests because Steam metadata contains times.
 
-The managed choice currently supports vanilla Rust. Existing Carbon/Oxide
-installations keep their current path. Framework changes and updates need the
-paired software, mod and data workflow before they are enabled on this choice.
+New explicitly selected managed Rust instances use the published, digest-pinned
+managed image 2. Existing managed image 1 and legacy installations retain their
+images. Image 1 remains vanilla-only; no running container is replaced.
+
+Managed framework changes require an owned stopped server and a reviewed official
+archive. Oxide review also pins the separate compiler download. A complete
+stopped-world copy and the previous sealed execution tree/private mod records are
+retained before publication. The candidate starts from the verified pristine Rust
+release, so framework switching and returning to vanilla cannot leave patched
+libraries behind. The framework-management permission prepares files and leaves
+Rust stopped. A separate server-start operation boots them and verifies actual
+C# compilation with a temporary, uniquely named validation plugin.
+
+Preparation, publication and validation are journaled. Pending changes fence
+other mutations. Explicit inspection-bound recovery verifies retained copies,
+quarantines newer world/code/mod state, and restores previous software, settings,
+plugins and world together. Recovery never boots the server or downgrades code
+against a world saved during validation. Renames and recovery-copy interruptions
+retain their evidence and can be reconciled without discarding newer data.
+Managed build-version updates are a separate pending integration.
 
 The separately versioned managed image revision 2 adds mod-data ABI 1. Carbon
 code remains under the sealed engine while fixed links place its mutable folders
@@ -284,7 +301,8 @@ Startup rejects links, hardlinks and special files in the bounded world inventor
 before its ownership handoff, preserving unexpected files for operator review.
 Existing nonempty data in an execution
 tree is retained for explicit migration; startup never discards it. The existing
-managed image 1 default remains pinned while controller integration is completed.
+legacy default remains pinned; only the explicitly selected managed choice uses
+image 2.
 Native acceptance is an explicit workflow using a fresh engine, the published
 worker and game images, actual broker credentials, and two newly created worlds
 and volumes. No test selects an existing Docker engine, server or world.

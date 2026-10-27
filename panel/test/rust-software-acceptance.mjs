@@ -35,7 +35,7 @@ run(['pull', '--platform', 'linux/amd64', image], 1200000);
 const imageId = JSON.parse(run(['image', 'inspect', image]))[0].Id;
 assert.equal(
   imageId,
-  'sha256:789c78c368b0267b8185ca79d90bd96b8e4a8a48662a4f2b8a5562b86055d6c4',
+  'sha256:372dc5104189728730e7efacc3dea7d649203957718b702fee52a53d390bbe29',
 );
 const fleet = randomUUID().replaceAll('-', ''),
   first = randomUUID().replaceAll('-', ''),
@@ -194,7 +194,7 @@ async function controller(scope, clone) {
   spec.HostConfig.NetworkMode = scope.network;
   spec.HostConfig.Memory = 1024 ** 3;
   const id = await create(scope.controller, spec);
-  const logs = await wait(id, 2700000);
+  const logs = await wait(id, 4800000);
   console.log(logs);
   const info = await docker('GET', '/containers/' + scope.container + '/json');
   assert.equal(info.State.Running, false);
@@ -257,6 +257,7 @@ try {
   const original = await controller(scopes[0], false);
   assert.equal(original.passed, true);
   assert.equal(original.exactBackup, true);
+  assert.equal(original.pairedFrameworks, true);
   // Release only this stopped fresh fixture's allocation; retain its volume.
   await docker('DELETE', '/containers/' + scopes[0].container);
   await docker('DELETE', '/containers/' + scopes[0].controller);

@@ -41,6 +41,7 @@ export const contract = {
       '/software': {GET: 'images.change'},
       '/mods': {GET: 'mods.manage'},
       '/mods-plan': {POST: frameworkPermission},
+      '/framework-change': {GET: frameworkPermission},
       '/plugin-config': {GET: configurationPermission},
     },
   },
@@ -117,6 +118,7 @@ export const contract = {
     '/software': {GET: 'admin'},
     '/mods': {GET: 'admin'},
     '/mods-plan': {POST: 'admin'},
+    '/framework-change': {GET: 'admin'},
     '/plugin-config': {GET: 'admin'},
   },
 };
