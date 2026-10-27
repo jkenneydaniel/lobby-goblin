@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fixture} from './rust-software-fixture.mjs';
 import {createModManager} from '../applications/rust/mods.js';
+import {createRust} from '../applications/rust/controller.js';
 import {createRustFrameworkChanges} from '../applications/rust/framework-changes.js';
 
 async function paired(t) {
@@ -208,4 +209,78 @@ test('an interrupted recovery copy is retained and a fresh verified copy can fin
       name.startsWith('partial-world-'),
     ),
   );
+});
+
+test('the Mods endpoint exposes paired recovery while execution storage is held privately', async (t) => {
+  const f = await paired(t);
+  f.fail('previous-engine-held');
+  await assert.rejects(f.changes.prepare(await f.plan()), /Injected/);
+  await assert.rejects(fs.access(f.ctx.config.installRoot));
+  f.ctx.docker = async (method, route) => {
+    assert.equal(method, 'GET');
+    assert.match(route, /^\/images\//);
+    return {
+      Config: {
+        Labels: {
+          'io.lobby-goblin.rust-mods': '1',
+          'io.lobby-goblin.mod-data': '1',
+        },
+      },
+    };
+  };
+  const game = await createRust(f.ctx);
+  let result;
+  await game.handle(
+    {method: 'GET'},
+    {
+      writeHead: (code) => assert.equal(code, 200),
+      end: (body) => {
+        result = JSON.parse(body);
+      },
+    },
+    new URL('http://localhost/mods'),
+  );
+  assert.equal(result.available, true);
+  assert.equal(result.recoveryRequired, true);
+  assert.equal(result.pairedRecovery, true);
+  assert.equal(result.pairedPending, true);
+  assert.equal(result.editable, false);
+  assert.match(result.message, /recover the previous software and world/);
+});
+
+test('orphan software coordination blocks framework preparation before a paired journal is opened', async (t) => {
+  const f = await paired(t),
+    plan = await f.plan();
+  await fs.mkdir(
+    path.join(f.ctx.config.state, 'software/rust/.panel-storage-lock'),
+  );
+  await assert.rejects(f.changes.prepare(plan), /coordination/);
+  assert.equal((await f.changes.inspect()).pending, false);
+});
+
+test('outside framework edits and unmanaged loaders fail before paired publication and remain intact', async (t) => {
+  for (const managed of [false, true]) {
+    const f = await paired(t),
+      name = managed ? 'carbon/managed/Carbon.Preloader.dll' : 'libdoorstop.so';
+    const target = path.join(f.ctx.config.installRoot, name);
+    await fs.mkdir(path.dirname(target), {recursive: true});
+    await fs.writeFile(target, 'OUTSIDE EDIT');
+    if (managed) {
+      await fs.mkdir(path.join(f.ctx.config.state, 'mods'), {recursive: true});
+      await fs.writeFile(
+        path.join(f.ctx.config.state, 'mods/installed.json'),
+        JSON.stringify({
+          format: 1,
+          framework: 'carbon',
+          files: [{name, sha256: 'a'.repeat(64), original: null}],
+        }),
+      );
+    }
+    await assert.rejects(
+      f.changes.prepare(await f.plan()),
+      managed ? /changed outside the panel/ : /unmanaged framework/,
+    );
+    assert.equal(await fs.readFile(target, 'utf8'), 'OUTSIDE EDIT');
+    assert.equal((await f.changes.inspect()).pending, false);
+  }
 });

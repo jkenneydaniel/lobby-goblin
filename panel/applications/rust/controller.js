@@ -1,4 +1,5 @@
 import {createRustSoftware} from './software.js';
+import {validateRustFramework} from './framework-validation.js';
 import {atomicRecord,readRecord} from '../../providers/steamcmd/files.js';
 import {createRustFrameworkChanges,pairedFrameworkMissing} from './framework-changes.js';
 import {createRustModStores} from './mod-stores.js';
@@ -76,14 +77,8 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     const record=await readRecord(path.join(config.state,'software/rust/protocol.json'),{optional:true,max:4096}),buildId=(await software.maintenance.execution()).receipt.selection.softwareVersion;
     assert(record?.format===1&&record.buildId===buildId&&/^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(record.protocol||''),'Start and cleanly stop this Rust build once to retain its exact protocol before installing Carbon.',409);return record.protocol;
   },validate:async(framework,id)=>{
-    if(framework==='none')return;
-    const name='LobbyGoblinValidation_'+id.replaceAll('-',''),file=name+'.cs',store=mods.store(framework),token=id.replaceAll('-','');
-    assert(!await store.read(file),'Validation plugin already exists. Use paired recovery.',409);
-    await store.write(file,Buffer.from('using Oxide.Core; namespace Oxide.Plugins { [Info("'+name+'", "Lobby Goblin", "1.0.0")] public class '+name+' : RustPlugin { [ConsoleCommand("lg.validation.'+token+'")] void Probe(ConsoleSystem.Arg arg) { arg.ReplyWith("LG_VALIDATED:'+token+'"); } } }'));
-    const deadline=Date.now()+Math.min(readyTimeout,300000);let compiled=false;
-    do{const output=await command('lg.validation.'+token);if(String(output).includes('LG_VALIDATED:'+token)){compiled=true;break;}await sleep(pollInterval);}while(Date.now()<deadline);
-    assert(compiled,'The framework did not compile and load its validation plugin. Recover the previous software and world before retrying.',409);
-    await store.write(file,null);await command((framework==='carbon'?'c.':'oxide.')+'unload '+name);
+    const before=await owned();
+    return validateRustFramework({framework,id,store:framework==='none'?null:mods.store(framework),command,running:async()=>{const current=await owned();return current.State?.Running&&!current.State.Restarting&&!current.State.OOMKilled&&current.State.StartedAt===before.State.StartedAt&&current.RestartCount===before.RestartCount;},timeout:Math.min(readyTimeout,300000),interval:pollInterval});
   }});
   const modLibrary=createRustModLibrary(ctx,{mods,changes:frameworkChanges,owned,start,stop,command,ready:async()=>{const current=await owned();assert(current.State?.Running&&started(current,await serverInfo()),'Wait for Rust to be ready before applying plugins while running.',409);},fetcher:modFetcher});
   async function softwareReadyForSettings(){if(!software)return true;const value=await software.status();return value.phase==='complete'&&!value.recoveryRequired&&!(await frameworkChanges.inspect()).pending;}
@@ -146,7 +141,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       if(modLibraryRoutes.includes(url.pathname)){if(req.method==='POST'&&frameworkChanges)await frameworkChanges.guard('mod-library-plan');return modLibrary.handle(req,res,url);}
       if(url.pathname==='/mods-plan'){assert(req.method==='POST','Not found.',404);await owned();assert(!ctx.active,'Wait for the current operation.',409);if(frameworkChanges)await frameworkChanges.guard('mods-plan');return json(res,200,await (frameworkChanges||mods).plan((await requestJSON(req)).framework));}
       if(req.method==='GET'&&url.pathname==='/mods'){
-        const info=await owned(),image=config.installRoot?await docker('GET','/images/'+encodeURIComponent(info.Image)+'/json'):null,capable=image?.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1'&&(!software||image.Config.Labels['io.lobby-goblin.mod-data']==='1'),change=frameworkChanges?await frameworkChanges.inspect():null,value=await mods.status();
+        const info=await owned(),image=config.installRoot?await docker('GET','/images/'+encodeURIComponent(info.Image)+'/json'):null,capable=image?.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1'&&(!software||image.Config.Labels['io.lobby-goblin.mod-data']==='1'),change=frameworkChanges?await frameworkChanges.inspect():null,value=change?.pending?{available:true,framework:change.framework,version:null,sha256:null,plugins:[],configs:[],recoveryId:change.observation.record.id}:await mods.status();
         return json(res,200,{...value,imageCapable:capable,editable:!info.State?.Running&&!ctx.active&&!change?.pending,pairedRecovery:!!frameworkChanges,pairedPending:!!change?.pending,recoveryRequired:value.recoveryRequired||!!change?.pending,message:change?.pending?'A paired framework change is pending. Start Rust to validate prepared files, or recover the previous software and world.':capable?value.message:'Framework installation requires a compatible mod-capable Rust image and controller storage. Existing game containers are not restarted automatically.'});
       }
       if(req.method==='GET'&&url.pathname==='/plugin-config'){await owned();return json(res,200,await mods.configuration(url.searchParams.get('name')));}

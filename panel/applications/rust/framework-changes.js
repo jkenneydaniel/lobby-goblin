@@ -213,8 +213,13 @@ export function createRustFrameworkChanges(
     try {
       await guard('install-framework');
       await stopped();
-      await mods.assertReady();
-      const previousReceipt = await software.receipt(),
+      await mods.verifyInstalled();
+      assert(
+        (await software.status()).phase === 'complete',
+        'Finish initial Rust software setup before changing frameworks.',
+        409,
+      );
+      const previousReceipt = await software.ensure(),
         previous = await maintenance.execution();
       assert(
         same(previousReceipt, previous.receipt),
@@ -256,6 +261,12 @@ export function createRustFrameworkChanges(
       value = await checkpoint(value, 'reserved', {}, job);
       const transaction = location(value, '');
       value = await checkpoint(value, 'snapshotting');
+      if (job)
+        await ctx.stageMessage(
+          job,
+          'Retaining the complete stopped world for paired recovery…',
+          'paired-world-copy',
+        );
       const world = await copyStoppedData({
         source: config.data,
         destination: location(value, 'world'),
@@ -275,6 +286,12 @@ export function createRustFrameworkChanges(
         beforeCode,
         beforeMods: beforeMods.inventory,
       });
+      if (job)
+        await ctx.stageMessage(
+          job,
+          'Preparing a private framework candidate from verified Rust software…',
+          'preparing-framework',
+        );
       await stageExecution({
         software: workers.paths.software,
         staging: location(value, 'candidate'),
@@ -367,6 +384,12 @@ export function createRustFrameworkChanges(
     value = await checkpoint(value, 'validating');
     try {
       const result = await run();
+      if (ctx.active)
+        await ctx.stageMessage(
+          ctx.active,
+          'Checking framework loading and C# compilation…',
+          'validating-framework',
+        );
       await validate(value.review.framework, value.id);
       await fault('before-framework-commit');
       await checkpoint(value, 'complete');

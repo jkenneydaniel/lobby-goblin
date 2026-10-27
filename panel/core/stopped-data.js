@@ -9,6 +9,45 @@ import {syncDirectory} from './storage/files.js';
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const budget = {maxFiles: 20000, maxBytes: 64 * 1024 ** 3};
 
+async function dataInventory(root) {
+  const content = await softwareInventory(root, budget),
+    directories = [];
+  let metadata = 0;
+  async function walk(relative = '', depth = 0) {
+    assert(
+      depth <= 32,
+      'Recovery data directories are too deeply nested.',
+      413,
+    );
+    for await (const entry of await fs.opendir(path.join(root, relative))) {
+      if (!entry.isDirectory()) continue;
+      const name = relative ? relative + '/' + entry.name : entry.name;
+      metadata += Buffer.byteLength(name) + 4;
+      assert(
+        directories.length < 40000 && metadata <= 32 * 1024 ** 2,
+        'Recovery directory metadata exceeds its budget.',
+        413,
+      );
+      await directory(path.join(root, name));
+      directories.push(name);
+      await walk(name, depth + 1);
+    }
+  }
+  await walk();
+  directories.sort();
+  return {
+    ...content,
+    directories,
+    inventory: {
+      ...content.inventory,
+      directories: directories.length,
+      sha256: createHash('sha256')
+        .update(JSON.stringify({files: content.inventory, directories}))
+        .digest('hex'),
+    },
+  };
+}
+
 // This helper has no lifecycle or selection authority. Its caller must own a
 // stopped barrier for all application writers and retain any partial directory
 // for explicit recovery. Publication/restoration belongs to the paired journal.
@@ -28,6 +67,8 @@ export async function copyStoppedData({
       path.resolve(source) === source &&
       path.isAbsolute(destination) &&
       path.resolve(destination) === destination &&
+      source !== '/' &&
+      destination !== '/' &&
       source !== destination &&
       !destination.startsWith(source + path.sep) &&
       !source.startsWith(destination + path.sep),
@@ -42,7 +83,7 @@ export async function copyStoppedData({
     'Recovery copies need controller-owned private storage.',
     409,
   );
-  const original = await softwareInventory(source, budget);
+  const original = await dataInventory(source);
   assert(
     !expected || same(original.inventory, expected),
     'Recovery data changed before copying.',
@@ -58,6 +99,12 @@ export async function copyStoppedData({
   // must select a fresh reviewed recovery path instead of deleting evidence.
   await fs.mkdir(destination, {mode: 0o700});
   const parents = new Set([destination]);
+  for (const relative of original.directories) {
+    await assertStopped();
+    const parent = path.join(destination, relative);
+    await fs.mkdir(parent, {recursive: true, mode: 0o700});
+    parents.add(parent);
+  }
   for (const file of original.files) {
     await assertStopped();
     await fault('before-data-file', file.name);
@@ -126,13 +173,10 @@ export async function copyStoppedData({
     await fault('data-file', file.name);
   }
   await assertStopped();
-  const copied = await softwareInventory(destination, {...budget, sync: true});
+  const copied = await dataInventory(destination);
   assert(
     same(copied.inventory, original.inventory) &&
-      same(
-        (await softwareInventory(source, budget)).inventory,
-        original.inventory,
-      ),
+      same((await dataInventory(source)).inventory, original.inventory),
     'Paired data changed before recovery publication.',
     409,
   );
@@ -144,7 +188,7 @@ export async function copyStoppedData({
 
 export async function verifyStoppedData(root, expected, assertStopped) {
   await assertStopped();
-  const current = await softwareInventory(root, budget);
+  const current = await dataInventory(root);
   assert(
     same(current.inventory, expected),
     'Paired recovery copy failed verification.',

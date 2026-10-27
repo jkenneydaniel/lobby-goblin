@@ -289,9 +289,14 @@ if (mode === 'broker') {
         }
         async function operation(action, params = {}) {
           active = {id: 'native-' + action + '-' + randomUUID(), action};
+          console.log(JSON.stringify({operation: action, event: 'started'}));
           try {
             await game.beforeJob(active);
-            return await game.actions[action](params, active);
+            const result = await game.actions[action](params, active);
+            console.log(
+              JSON.stringify({operation: action, event: 'completed'}),
+            );
+            return result;
           } finally {
             active = null;
           }

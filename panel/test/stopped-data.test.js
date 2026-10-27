@@ -14,6 +14,7 @@ async function fixture(t) {
     destination = path.join(root, 'recovery/world');
   await fs.mkdir(path.join(source, 'mods/oxide/data'), {recursive: true});
   await fs.mkdir(path.dirname(destination), {mode: 0o700});
+  await fs.mkdir(path.join(source, 'mods/oxide/data/empty-preserved'));
   await fs.writeFile(path.join(source, 'world.sav'), 'OLD WORLD');
   await fs.writeFile(
     path.join(source, 'mods/oxide/data/coins.json'),
@@ -25,6 +26,11 @@ test('a stopped recovery copy is independent and binds complete world plus mod d
   const f = await fixture(t),
     inventory = await copyStoppedData(f);
   assert.equal(inventory.files, 2);
+  assert.ok(
+    (
+      await fs.stat(path.join(f.destination, 'mods/oxide/data/empty-preserved'))
+    ).isDirectory(),
+  );
   assert.deepEqual(
     await verifyStoppedData(f.destination, inventory, f.assertStopped),
     inventory,
