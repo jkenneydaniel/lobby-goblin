@@ -1,5 +1,6 @@
 import {softwareDelivery, publicSoftwareDelivery} from './software-delivery.js';
 import {softwareWorkerDeclaration} from './software-worker-policy.js';
+import {runtimeOption, runtimeForImage} from './runtime-option.js';
 import {assert} from '../common.js';
 import {definitionData, freezeDefinition} from './definition-data.js';
 import {serviceOrder} from './application-services.js';
@@ -53,6 +54,7 @@ function declaration(definition) {
       'environment',
       'snapshots',
       'secrets',
+      'runtimeOption',
       ...(service.profile === 'managed-container-v1' ? ['settings'] : []),
     ]) && data.version === 1,
     'Unsupported managed runtime declaration.',
@@ -216,6 +218,11 @@ export function compileManagedDefinition(definition, adapter) {
   );
   const data = declaration(definition);
   const software = softwareDelivery(serviceOrder(definition)[0].software);
+  assert(
+    !(data.runtimeOption && adapter.runtime),
+    'Declare one runtime delivery option.',
+  );
+  const runtime = data.runtimeOption || adapter.runtime;
   if (data.helpers.softwareWorker !== undefined)
     softwareWorkerDeclaration(data.helpers.softwareWorker, definition.id);
   assert(
@@ -233,21 +240,21 @@ export function compileManagedDefinition(definition, adapter) {
     exact(adapter.snapshots, ['compatible', 'collect', 'restore']),
     'Unknown snapshot adapter hook.',
   );
-  if (adapter.runtime) {
+  if (runtime) {
+    runtimeOption(runtime, {
+      application: definition.id,
+      baseSoftware: software,
+    });
     assert(
-      exact(adapter.runtime, ['imagePolicy', 'software']),
-      'Invalid runtime delivery option.',
-    );
-    validateImagePolicy(adapter.runtime.imagePolicy);
-    assert(
-      softwareDelivery(adapter.runtime.software).mode === 'runtime',
-      'Runtime delivery needs a software provider.',
+      !imageMatch(runtime.imagePolicy, data.imagePolicy.defaultImage) &&
+        !imageMatch(data.imagePolicy, runtime.imagePolicy.defaultImage),
+      'Runtime choices require separate image references.',
     );
   }
   const metadata = freezeDefinition({
     version: 1,
     software,
-    ...(adapter.runtime ? {runtime: adapter.runtime} : {}),
+    ...(runtime ? {runtime} : {}),
     catalog: {
       ...data.catalog,
       image: data.imagePolicy.defaultImage,
@@ -268,8 +275,8 @@ export function compileManagedDefinition(definition, adapter) {
     ensureImage: async (docker, image) => {
       const resolved = await ensureGameImage(
         docker,
-        adapter.runtime && imageMatch(adapter.runtime.imagePolicy, image)
-          ? adapter.runtime.imagePolicy
+        runtime && imageMatch(runtime.imagePolicy, image)
+          ? runtime.imagePolicy
           : data.imagePolicy,
         image,
       );
@@ -294,12 +301,22 @@ export function compileManagedDefinition(definition, adapter) {
     },
     creationFromSnapshot: adapter.creationFromSnapshot || ((input) => input),
     gameEnvironment: (item) =>
-      renderEnvironment(data.environment.server, publicFields(item), {
-        rconPassword: item.rconPassword,
-      }),
+      renderEnvironment(
+        {
+          ...data.environment.server,
+          ...runtimeForImage(metadata, item)?.environment?.server,
+        },
+        publicFields(item),
+        {
+          rconPassword: item.rconPassword,
+        },
+      ),
     controllerEnvironment: (item, context) =>
       renderEnvironment(
-        data.environment.controller,
+        {
+          ...data.environment.controller,
+          ...runtimeForImage(metadata, item)?.environment?.controller,
+        },
         publicFields(item, context),
         {},
         {controller: true},

@@ -2,6 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 import {catalog,validateCreation,resources,labels} from '../fleet/catalog.js';import {runWorker} from '../fleet/worker.js';import {publishSnapshot,verifySnapshot} from '../fleet/snapshots.js';import {writeArchive} from '../applications/rust/archive.js';import {makeZip} from '../core/archive.js';import {ownedDocker} from '../core/owned-docker.js';import {legacyHelperMount} from '../applications/factorio/helper-mount.js';import {FleetManager} from '../fleet/manager.js';import {startFleetWeb} from '../fleet/web.js';import {writeJSON,readJSON} from '../common.js';import {hashPassword} from '../auth.js';import {selectedApplication} from '../applications/index.js';
 import {waitForIdleJob} from './fixtures.js';
 import {runtimeImagePolicy,runtimeSoftware} from '../applications/factorio/runtime.js';
+import {runtimeFixture} from './fixtures/runtime-choice.js';
 import {arena as arenaModule} from './fixtures/arena-game.js';
 const fleet='a'.repeat(32),one='b'.repeat(32),two='c'.repeat(32),snap='d'.repeat(32),token='e'.repeat(64);
 const world=makeZip([{name:'world/level.dat',data:Buffer.from('disposable world content')}]);
@@ -60,14 +61,14 @@ test('a managed controller rejects foreign containers, alternate game IDs, unsaf
  const data={Image:'image-id',HostConfig:{NetworkMode:'none',Memory:1024**3,Mounts:[{Type:'volume',Source:'foreign',Target:'/factorio',VolumeOptions:{Subpath:'state/.panel-work/test'}}]}};await assert.rejects(fenced('POST','/containers/create?name=test',data),/outside/);data.HostConfig.Mounts[0].Source=volume;await fenced('POST','/containers/create?name=test',data);assert.equal(calls.at(-1).data.Labels['io.lobby-goblin.instance'],one);assert.equal(calls.at(-1).data.HostConfig.NanoCpus,1e9);
  await assert.rejects(fenced('DELETE','/volumes/foreign'),/cannot operate/);
 });
-async function fakeManager(t,{gameModules}={}){
+async function fakeManager(t,{gameModules,broker}={}){
  const f=await fixture(t),root=await directory(f.root,'state'),volumes=new Map(),containers=new Map(),networks=new Map(),calls=[];const host='host-test';containers.set(host,{Id:'host-id',Image:'sha256:manager-runtime',Config:{Labels:{'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.role':'host-controller'}},State:{Running:true}});
  const docker=async(method,route,data)=>{calls.push({method,route,data});const u=new URL(route,'http://docker'),bits=u.pathname.split('/').filter(Boolean).map(decodeURIComponent);const missing=()=>{throw Object.assign(Error('Not found'),{status:404});};if(route==='/info')return {OSType:'linux',Architecture:'x86_64',ServerVersion:'29.0.0',MemTotal:32*1024**3};if(bits[0]==='images'){const reference=bits[1],repo=reference.split('@')[0].slice(0,reference.split('@')[0].lastIndexOf(':'));return {Id:'sha256:'+'f'.repeat(64),Architecture:'amd64',Os:'linux',RepoDigests:[repo+'@sha256:'+'a'.repeat(64)],Config:{Labels:reference.includes('/arena:')?{game:'arena',revision:'1'}:{'io.lobby-goblin.image-revision':reference.includes('rust-server')?'2':'3','factorio.version':'2.0.77','io.lobby-goblin.compatibility':'1','io.lobby-goblin.game':reference.includes('rust-server')?'rust':'factorio'}}};}if(u.pathname==='/containers/json')return u.searchParams.has('filters')?[]:[{Ports:[{Type:'udp',PublicPort:35000}]}];
  if(method==='POST'&&u.pathname==='/volumes/create'){volumes.set(data.Name,data);return data;}if(bits[0]==='volumes')return volumes.get(bits[1])||missing();
  if(method==='POST'&&u.pathname==='/networks/create'){networks.set(data.Name,{...data,Labels:data.Labels,Containers:{}});return {Id:data.Name};}if(bits[0]==='networks'){const n=networks.get(bits[1])||missing();if(method==='GET')return n;if(bits[2]==='connect')n.Containers['host-id']={};if(bits[2]==='disconnect')delete n.Containers['host-id'];if(method==='DELETE')networks.delete(bits[1]);return null;}
  if(method==='POST'&&u.pathname==='/containers/create'){const name=u.searchParams.get('name');containers.set(name,{...data,Name:'/'+name,Id:name,Config:{Image:data.Image,Labels:data.Labels,Env:data.Env},State:{Running:false,ExitCode:0,OOMKilled:false}});return {Id:name};}
  if(bits[0]==='containers'){const c=containers.get(bits[1])||missing();if(method==='GET')return c;if(bits[2]==='start')c.State.Running=true;if(bits[2]==='stop')c.State.Running=false;if(method==='DELETE')containers.delete(bits[1]);return null;}throw Error('Unexpected fake API '+route);};
- const manager=new FleetManager({docker,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16,gameModules});await manager.init();const instanceRoots=new Map();
+ const manager=new FleetManager({docker,broker,brokerVolume:broker?`lobby-goblin-fleet-${fleet}-broker-transport`:undefined,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16,gameModules});await manager.init();const instanceRoots=new Map();
  manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library,resolveGame:id=>manager.module(id)});};
  // Exercise the real manager.request transport and ownership checks. The child
  // accepts a start job before the game is ready; creation means handoff accepted.
@@ -249,4 +250,30 @@ test('failed pre-removal snapshot prevents container deletion and keeps the serv
  f.manager.publish=async()=>{throw Object.assign(Error('Snapshot unavailable; no server resources were removed.'),{status:409});};
  const job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
  assert.equal(job.state,'failed');assert.deepEqual(f.containers.get(item.container),before);assert.equal(f.manager.list()[0].id,item.id);assert.ok(f.volumes.has(item.volume));
+});
+
+test('named runtime creation preserves legacy requests and hands preparation to the controller before game start',async t=>{
+ const module=arenaModule('/unused',{runtimeDefinition:runtimeFixture()}),broker={grant:async()=>{}};
+ const f=await fakeManager(t,{gameModules:[module],broker});
+ const old=await f.settled(await f.manager.submit('create',{game:'arena',name:'Legacy',softwareMode:'runtime'}));
+ assert.equal(old.state,'succeeded',old.message);
+ const legacy=f.manager.server(old.result.serverId);
+ assert.equal(legacy.image.split('@')[0],module.managed.catalog.image);
+ assert.equal(legacy.software.provider,'old-installer');assert.equal(f.containers.get(legacy.container).State.Running,true);
+ const created=await f.settled(await f.manager.submit('create',{game:'arena',name:'Prepared',softwareMode:'managed'}));
+ assert.equal(created.state,'succeeded',created.message);
+ const item=f.manager.server(created.result.serverId);
+ assert.equal(item.softwareMode,'managed');assert.equal(item.software.provider,'steamcmd');
+ assert.equal(item.image.split('@')[0],module.managed.runtime.imagePolicy.defaultImage);
+ assert.equal(f.containers.get(item.container).State.Running,false);
+ assert.equal(f.containers.get(item.controller).State.Running,true);
+ assert.ok(f.containers.get(item.controller).Config.Env.includes('ARENA_INSTALL_ROOT=/instance/data/engine'));
+ assert.ok(f.childRequests.some(request=>request.id===item.controller));
+ assert.ok(!f.calls.some(call=>call.route===`/containers/${item.container}/start`));
+});
+test('controller-prepared creation refuses an old host before reserving resources or Docker mutations',async t=>{
+ const module=arenaModule('/unused',{runtimeDefinition:runtimeFixture()}),f=await fakeManager(t,{gameModules:[module]});
+ const mark=f.calls.length,job=await f.settled(await f.manager.submit('create',{game:'arena',name:'Refused',softwareMode:'managed'}));
+ assert.equal(job.state,'failed');assert.match(job.message,/brokered host/);assert.equal(f.manager.state.servers.length,0);
+ assert.ok(f.calls.slice(mark).every(call=>call.method==='GET'));
 });

@@ -59,7 +59,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const timers=[];
   const every=(fn,ms)=>{const timer=setInterval(()=>{if(!maintenance.held)fn();},ms);timer.unref();timers.push(timer);return timer;};
   const host=createHost({docker,container:config.container,stopTimeout:module.stopTimeout});
-  const softwareWorkers=env.FLEET_ID&&module.managed?.softwareWorker?new SoftwareWorkers({docker,env,declaration:module.managed.softwareWorker}):null;
+  const softwareWorkers=transport.brokered&&env.FLEET_ID&&module.managed?.softwareWorker?new SoftwareWorkers({docker,env,declaration:module.managed.softwareWorker}):null;
   const ctx={config,env,host,docker,every,runJob,stageMessage,softwareWorkers,
     get jobs(){return jobs;},get active(){return active;},get schedule(){return schedule;},
     get updater(){return updater;},get backups(){return backups;},get imageMigrationPending(){return migrationPending;}};

@@ -186,6 +186,20 @@ it cannot replay create/start or infer an installation outcome.
 
 ## Rust execution image
 
+Packages may declare a separate `configuration.runtimeOption` with a distinct
+creation key, label, reviewed image/software policies and scoped environment
+overrides. Requests select only that key. The historical adapter runtime option
+keeps its `runtime` key and metadata; a package whose legacy installer already
+uses `runtime` must choose another key. Environment overrides follow the exact
+reviewed image, including pinned references, when controllers are reconstructed.
+The catalogue and creation form render the declared choices without game names.
+
+An option with `controllerPrepared: true` requires a brokered host. Creation
+reserves and creates its game container but starts only its controller, then
+hands off the ordinary start job for preparation. Older hosts refuse before
+resource allocation. Existing options retain the established startup order.
+These contracts alone opt no existing application into provider preparation.
+
 The separate `rust/managed` image consumes controller-prepared software; it has
 no automatic game download or update step. The legacy `rust/server` recipe and
 `steam-lg.2` application default remain unchanged. Application opt-in, execution

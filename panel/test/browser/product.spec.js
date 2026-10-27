@@ -885,6 +885,32 @@ test('fleet creation fields follow the selected game policy', async ({
   await page.locator('#close-create').click();
 });
 
+test('fleet creation submits a named provider choice while keeping the legacy default', async ({page}) => {
+  await page.route(/\/api\/(?:hosts\/[^/]+\/)?catalog$/, async route => {
+    const response = await route.fetch(), data = await response.json();
+    data.games = data.games.map(game => game.id === 'rust' ? {...game, softwareModes: ['runtime', 'managed'], defaultSoftwareMode: 'runtime', runtimeKey: 'managed', runtimeLabel: 'Prepare verified software', runtimeImage: 'ghcr.io/jkenneydaniel/rust-server:managed-lg.1'} : game);
+    await route.fulfill({json: data});
+  });
+  const submitted = [];
+  await page.route(/\/api\/(?:hosts\/[^/]+\/)?servers$/, async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    submitted.push(route.request().postDataJSON());
+    await route.fulfill({status: 202, json: {id: 'new-fixture', state: 'queued'}});
+  });
+  await login(page, 'fleet', 'Preview');
+  await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  const form = page.locator('#create');
+  await expect(page.locator('#create-submit')).toBeEnabled();
+  await form.locator('[name=game]').selectOption('rust');
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
+  await expect(form.locator('[name=softwareMode]')).toBeVisible();
+  await form.locator('[name=softwareMode]').selectOption({label: 'Prepare verified software'});
+  await form.locator('[name=name]').fill('New isolated fixture');
+  await page.locator('#create-submit').click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0]).toMatchObject({game: 'rust', softwareMode: 'managed', name: 'New isolated fixture'});
+});
+
 test('fleet viewers cannot access administrative controls or write endpoints', async ({
   page,
 }) => {
