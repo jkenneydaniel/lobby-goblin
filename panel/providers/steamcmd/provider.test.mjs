@@ -121,6 +121,85 @@ test('new Steam installs validate, publish and reconstruct offline without resol
   );
 });
 
+test('preparation without application access cannot activate until a trusted controller confirms empty and stopped state', async (t) => {
+  const f = await fixture(t),
+    target = await f.provider.resolve({channel: 'public'});
+  f.runtime.empty = false;
+  const staged = await f.provider.prepare(target, {confirm: true});
+  assert.equal((await f.provider.read()).state, 'validating');
+  assert.equal(
+    await fs.stat(path.join(f.control, 'active.json')).catch(() => null),
+    null,
+  );
+  await assert.rejects(
+    f.provider.activate(staged, {confirm: true}),
+    /adoption or recovery/,
+  );
+  assert.equal(
+    await fs.stat(path.join(f.control, 'active.json')).catch(() => null),
+    null,
+  );
+  const isolated = createSteamProvider({
+    ...f.options,
+    isApplicationStopped: async () => false,
+  });
+  f.runtime.empty = true;
+  await assert.rejects(
+    isolated.activate(staged, {confirm: true}),
+    /Stop the application/,
+  );
+  const receipt = await f.provider.activate(staged, {confirm: true});
+  assert.equal(await f.provider.installed(receipt), true);
+});
+
+test('a verified previous release can be explicitly prepared offline after its Steam branch moves', async (t) => {
+  const f = await fixture(t),
+    first = await f.provider.install(
+      await f.provider.resolve({channel: 'public'}),
+    );
+  f.runtime.build = '12346';
+  const next = await f.provider.stage(
+    await f.provider.resolve({channel: 'public'}),
+    {confirm: true},
+  );
+  await f.provider.activate(next, {confirm: true});
+  const offline = createSteamProvider({
+    ...f.options,
+    command: async () =>
+      assert.fail(
+        'A verified cached release cannot depend on Steam availability',
+      ),
+  });
+  const previous = await offline.prepare(first.selection, {confirm: true});
+  assert.deepEqual(previous.receipt, first);
+  assert.deepEqual(await offline.activate(previous, {confirm: true}), first);
+  assert.equal(await offline.installed(first), true);
+  assert.equal(f.installs(), 2);
+});
+
+test('a cancelled cached preparation preserves the installed receipt and active pointer', async (t) => {
+  const f = await fixture(t),
+    receipt = await f.provider.install(
+      await f.provider.resolve({channel: 'public'}),
+    );
+  const before = await fs.readFile(path.join(f.control, 'active.json'), 'utf8');
+  const abort = new AbortController();
+  abort.abort();
+  await assert.rejects(
+    f.provider.prepare(receipt.selection, {
+      confirm: true,
+      signal: abort.signal,
+    }),
+    /cancelled/,
+  );
+  assert.deepEqual((await f.provider.read()).installed, receipt);
+  assert.equal(
+    await fs.readFile(path.join(f.control, 'active.json'), 'utf8'),
+    before,
+  );
+  assert.equal(f.installs(), 1);
+});
+
 test('legacy data without a receipt is never adopted, downloaded over or changed', async (t) => {
   const f = await fixture(t);
   const world = path.join(f.root, 'existing-world');

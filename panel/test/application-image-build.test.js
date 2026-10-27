@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {
   applicationImages,
   imageContext,
@@ -51,11 +51,11 @@ test('shared provider images have a separate catalogue and retain isolated build
   const shared = await sharedImages(project);
   assert.deepEqual(
     shared.map((recipe) => recipe.key),
-    ['shared/steamcmd/runtime'],
+    ['shared/steamcmd/runtime', 'shared/steamcmd/worker'],
   );
   assert.equal((await applicationImages(project)).length, 4);
   const all = await imageCatalogue(project);
-  assert.equal(all.length, 5);
+  assert.equal(all.length, 6);
   assert.equal(all[0].key, 'shared/steamcmd/runtime');
   await imageContext(shared[0], async (directory) => {
     assert.deepEqual(await fs.readdir(directory), ['Dockerfile']);
@@ -65,6 +65,76 @@ test('shared provider images have a separate catalogue and retain isolated build
       ),
     );
   });
+});
+
+test('the software worker imports its complete shared runtime from an isolated public context', async () => {
+  const worker = (await sharedImages(project)).find(
+    (recipe) => recipe.id === 'worker',
+  );
+  await assert.rejects(
+    worker.locateRuntime('panel/private.env'),
+    /Unknown shared/,
+  );
+  await imageContext(worker, async (directory) => {
+    const runtime = path.join(
+      directory,
+      'runtime/panel/providers/steamcmd/worker.js',
+    );
+    const module = await import(pathToFileURL(runtime));
+    assert.equal(typeof module.executeWorkerRequest, 'function');
+    assert.throws(
+      () => module.softwareWorkerRequest({format: 1, action: 'activate'}),
+      /supported/,
+    );
+    const files = await fs.readdir(directory, {recursive: true});
+    assert.ok(files.includes('runtime/panel/core/software-installation.js'));
+    assert.ok(
+      !files.some((file) =>
+        /(^|\/)(node_modules|test|\.env|data)(\/|$)/.test(file),
+      ),
+    );
+  });
+});
+
+test('provider runtime profiles refuse unknown names, shared-module replacement and linked shared sources', async (t) => {
+  const root = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'image-runtime-profile-')),
+  );
+  t.after(() => fs.rm(root, {recursive: true, force: true}));
+  const provider = path.join(root, 'panel/providers/steamcmd');
+  await fs.mkdir(path.dirname(provider), {recursive: true});
+  await fs.cp(path.join(project, 'panel/providers/steamcmd'), provider, {
+    recursive: true,
+  });
+  await fs.writeFile(
+    path.join(root, 'panel/providers/registry.json'),
+    '["steamcmd"]',
+  );
+  const file = path.join(provider, 'images.json'),
+    spec = JSON.parse(await fs.readFile(file, 'utf8'));
+  const worker = spec.images.find((recipe) => recipe.id === 'worker');
+  worker.runtimeProfile = '../../private.env';
+  await fs.writeFile(file, JSON.stringify(spec));
+  await assert.rejects(sharedImages(root), /registered provider/);
+  worker.runtimeProfile = 'software-provider-v1';
+  worker.files.push({source: 'worker.js', target: 'runtime/panel/common.js'});
+  await fs.writeFile(file, JSON.stringify(spec));
+  await assert.rejects(sharedImages(root), /replace shared/);
+  worker.files.pop();
+  await fs.writeFile(file, JSON.stringify(spec));
+  const secret = path.join(root, 'private.env');
+  await fs.writeFile(secret, 'fixture remains outside');
+  await fs.symlink(secret, path.join(root, 'panel/common.js'));
+  const recipe = (await sharedImages(root)).find(
+    (recipe) => recipe.id === 'worker',
+  );
+  await assert.rejects(
+    imageContext(recipe, () =>
+      assert.fail('Linked core source reached Docker'),
+    ),
+    /without links/,
+  );
+  assert.equal(await fs.readFile(secret, 'utf8'), 'fixture remains outside');
 });
 
 test('explicit base dependencies are ordered and targeted builds include their prerequisites', () => {

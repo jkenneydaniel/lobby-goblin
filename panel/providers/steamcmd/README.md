@@ -48,12 +48,14 @@ separate. Existing data without an installation record is not implicitly adopted
 The provider is not wired into existing Factorio/Rust startup by this step.
 
 resolve and inspect do not change application storage. An installation resolves
-the requested branch again before staging and refuses a changed target. It
+the requested branch again before a download and refuses a changed target. It
 reserves disk headroom for staging/temporary data, downloads into an
 operation-owned directory, checks the completed Steam manifest and required
 files, and hashes a bounded regular-file inventory before publishing anything.
 Only the same failed target can reuse its private partial directory. Completed
-local releases can be verified and reused without another payload download.
+local releases can be verified and reused without a Steam query or another
+payload download, even after the upstream branch moves. Resolving an arbitrary
+historical version or downloading a missing old build remains unsupported.
 Reusing a release durably binds its verified receipt to the new operation before
 publishing that operation's state. Separate bounded binding records preserve
 earlier recovery evidence if interruption occurs before the next candidate.
@@ -82,3 +84,42 @@ image acceptance. Deliberate workflow_dispatch acceptance also installs Rust
 software in a fresh named unprivileged container, verifies it, and reconstructs
 the provider with Steam unavailable. It never starts a game, creates a world,
 publishes application images or accesses an existing installation.
+
+## Preparation worker
+
+The shared/steamcmd/worker recipe packages the provider and its registered shared
+module closure into an unprivileged image. Its only commands are resolve,
+prepare and inspect. It cannot activate, adopt, recover, run a shell or launch a
+game. Application/controller integration is a separate step; existing startup
+paths do not select this image.
+
+The container reads at most 64 KiB from /request/request.json and atomically
+writes a bounded response to /result/result.json. Requests use format 1, a UUID
+id, an action, a reviewed source and requiredFiles. resolve also requires an
+initial channel. prepare requires the exact selection and confirm: true; its
+operation ID is the request ID. Unknown fields, paths, executables, environment
+values and lifecycle assertions are refused. Responses echo the request ID and
+contain ok plus result, or a bounded error without raw Steam diagnostics.
+
+Mount only the instance's private software tree at /software and private provider
+state at /control, the request directory read-only at /request, and its result
+directory at /result. Storage must be accessible to UID/GID 1000. Never mount
+worlds, game-writable directories, a daemon socket or controller credentials into
+this worker. Cancellation aborts its private Steam process group.
+
+prepare is an explicit preparation-only provider method. It can stage in empty
+private software storage without access to the application. It does not publish
+an active receipt. The controller must activate through its own provider instance
+with trusted lifecycle inspectors. First activation checks that the application
+is empty, and checks empty/stopped state again after verifying the files.
+Ordinary stage/install retain their existing empty-application guard.
+
+The software-provider-v1 image runtime profile permits a fixed set of five public
+core modules. Recipes cannot supply shared-source paths or replace those modules.
+The isolated context includes a minimal module package and provider-owned source;
+it needs no bundler or runtime package download.
+
+Normal native acceptance imports that isolated runtime with networking disabled
+and rejects lifecycle commands. Deliberate workflow acceptance also runs the
+actual file request protocol for a fresh Rust download, then proves separate
+offline controller activation and restart. It never launches a game or world.

@@ -93,6 +93,9 @@ software, stop a server or reset world/configuration/mod data.
    injection. Keep old image defaults and installations until explicit adoption.
    First move the separately versioned Rust image onto the published shared base
    without changing bootstrap behavior; follow with provider/update integration.
+   Package private preparation in a reusable unprivileged worker before adding
+   controller/fleet wiring. Keep activation and real lifecycle inspection in the
+   controller; a preparation request cannot claim the application is stopped.
 4. Setup experience: capability-driven host/version choices, preflight,
    installation progress, useful retry and session-expiry regression coverage.
 5. Package authoring: generator, validator, documentation and native acceptance
