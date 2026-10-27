@@ -578,3 +578,29 @@ textarea {
 #plugin-config {
   max-width: 780px;
 }
+
+.rust-software .software-facts {
+  display: flex;
+  gap: 3rem;
+  flex-wrap: wrap;
+}
+.rust-software dt {
+  color: var(--muted);
+}
+.rust-software dd {
+  margin: 0.5rem 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+.rust-software pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 22rem;
+  overflow: auto;
+}
+.rust-software .application-actions {
+  flex-wrap: wrap;
+}
+.rust-software [data-recovery] {
+  border-color: var(--amber);
+}

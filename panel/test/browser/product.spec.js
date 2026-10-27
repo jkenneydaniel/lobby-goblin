@@ -24,6 +24,188 @@ const test = base.extend({
   },
 });
 const nav = (page) => page.getByRole('navigation', {name: /navigation/});
+
+async function softwareFixture(page, {phase = 'ready', framework = 'none', expired = false, running = false} = {}) {
+  const selection = build => ({format: 1, provider: 'steamcmd', application: 'rust', softwareVersion: build, channel: 'public', platform: 'linux/amd64', artifacts: [{id: '258551', version: '12345678901234567890'}]});
+  const state = {
+    managed: true, source: 'Valve SteamCMD · public branch · exact recorded build', framework,
+    installation: {version: phase === 'initial' ? null : '123', phase: phase === 'initial' ? 'uninstalled' : 'complete', recoveryRequired: false},
+    change: {pending: phase === 'recovery', kind: 'software', phase: 'activating-software', previousFramework: framework},
+    updates: {available: false, pending: false}, activeJob: null,
+  };
+  const jobs = [], submissions = [];
+  await page.route('**/api/status', async route => {const response = await route.fetch(); await route.fulfill({json: {...await response.json(), running, activeJob: null}});});
+  await page.route('**/api/software-setup', route => route.fulfill({json: state}));
+  await page.route('**/api/software-change', route => route.fulfill({json: {phase: state.change.phase, review: 'a'.repeat(64)}}));
+  await page.route(/\/api\/jobs(?:\?.*)?$/, async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON(); submissions.push(body);
+      if (body.action.startsWith('software-check')) {
+        state.updates = {available: true, phase: 'reviewed', id: '12345678-1234-1234-1234-123456789012', current: selection('123'), target: selection('124'), framework, frameworkVersion: 'reviewed-framework', updateAvailable: true, expires: new Date(Date.now() + (expired ? -60000 : 900000)).toISOString()};
+      } else if (body.action.startsWith('software-recover')) state.change.pending = false;
+      else if (body.action.startsWith('software-update')) {state.installation.version = '124'; state.updates.phase = 'complete'; state.updates.updateAvailable = false;}
+      const job = {id: 'software-fixture-' + jobs.length, action: body.action, state: 'succeeded', message: 'Fixture completed', started: new Date().toISOString(), actor: 'admin'};
+      jobs.unshift(job); return route.fulfill({status: 202, json: job});
+    }
+    return route.fulfill({json: {jobs, active: null, recoveryRequired: !!state.blocked}});
+  });
+  return {state, submissions};
+}
+
+test('Rust software reviews an exact modded build, confirms downtime and applies only its plan', async ({page}, info) => {
+  const fixture = await softwareFixture(page, {framework: 'carbon'});
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await expect(page.getByRole('heading', {name: 'Rust software', exact: true})).toBeVisible();
+  expect(fixture.submissions.map(({action, params}) => ({action, params}))).toEqual([]);
+  await page.getByRole('button', {name: 'Check Steam updates', exact: true}).click();
+  await expect(page.locator('[data-selection]')).toContainText('124');
+  await page.getByRole('button', {name: 'Apply reviewed update', exact: true}).click();
+  await expect(page.getByRole('dialog')).toContainText('earlier world');
+  await expect(page.getByRole('dialog')).toContainText('124');
+  await page.getByRole('dialog').getByRole('button', {name: 'Apply update', exact: true}).click();
+  await expect(page.locator('[data-version]')).toHaveText('124');
+  expect(fixture.submissions.map(({action, params}) => ({action, params}))).toEqual([{action: 'software-check-modded', params: {}}, {action: 'software-update-modded', params: {planId: '12345678-1234-1234-1234-123456789012', confirm: true}}]);
+  await page.evaluate(() => globalThis.scrollTo(0, 0));
+  await page.screenshot({path: info.outputPath('rust-software-updated.png'), fullPage: true});
+});
+
+test('Rust software expires reviews and never replays work after session expiry', async ({page}) => {
+  const fixture = await softwareFixture(page, {expired: true});
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await page.getByRole('button', {name: 'Check Steam updates', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Apply reviewed update', exact: true})).toBeDisabled();
+  await expect(page.locator('[data-expiry]')).toContainText('expired');
+  await page.context().clearCookies();
+  // Metadata fixtures must allow the real auth endpoint to expire the session.
+  await page.unroute('**/api/software-setup');
+  await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Sign in', exact: true})).toBeVisible();
+  expect(fixture.submissions).toHaveLength(1);
+});
+
+test('Rust software recovery requires an inspection and confirms paired world restoration', async ({page}, info) => {
+  const fixture = await softwareFixture(page, {phase: 'recovery', framework: 'oxide'});
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  const recover = page.getByRole('button', {name: 'Recover inspected state', exact: true});
+  await expect(recover).toBeDisabled();
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(recover).toBeEnabled();
+  await page.evaluate(() => globalThis.scrollTo(0, 0));
+  await page.screenshot({path: info.outputPath('rust-software-recovery.png'), fullPage: true});
+  await recover.click();
+  await expect(page.getByRole('dialog')).toContainText('matching earlier world');
+  await page.getByRole('dialog').getByRole('button', {name: 'Recover state', exact: true}).click();
+  await expect(page.locator('[data-recovery]')).toBeHidden();
+  expect(fixture.submissions.map(({action, params}) => ({action, params}))).toEqual([{action: 'software-recover-modded', params: {review: 'a'.repeat(64), confirm: true}}]);
+});
+
+test('Rust legacy software is explained and remains inaccessible to viewers', async ({page}) => {
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-source]')).toContainText('not converted automatically');
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeHidden();
+  await page.context().clearCookies(); await login(page, 'rust', 'viewer');
+  await expect(nav(page).getByRole('link', {name: 'Software', exact: true})).toBeHidden();
+  expect((await page.request.get(origins.rust + '/api/software-setup')).status()).toBe(403);
+});
+
+test('Rust initial setup is explicit and image-only access cannot operate or recover modded servers', async ({page}) => {
+  const fixture = await softwareFixture(page, {phase: 'initial'});
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-version]')).toHaveText('Not installed yet');
+  expect(fixture.submissions).toHaveLength(0);
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
+  await page.getByRole('button', {name: 'Prepare and start Rust', exact: true}).click();
+  await expect.poll(() => fixture.submissions.length).toBe(1);
+  expect(fixture.submissions[0]).toMatchObject({action: 'start', params: {}});
+  fixture.state.installation.version = '123'; fixture.state.framework = 'carbon'; fixture.state.change.pending = true;
+  await page.context().clearCookies(); await login(page, 'rust', 'software'); await page.goto(origins.rust + '/#software');
+  await expect(page.getByRole('heading', {name: 'Rust software', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Start Rust', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Inspect recovery', exact: true})).toBeDisabled();
+});
+
+test('Rust changed recovery observations require another inspection and are never automatically retried', async ({page}) => {
+  const fixture = await softwareFixture(page, {phase: 'recovery'});
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await page.route('**/api/jobs', route => route.request().method() === 'POST' ? route.fulfill({status: 409, json: {error: 'Rust recovery observations changed. Inspect again.'}}) : route.fallback());
+  await page.getByRole('button', {name: 'Recover inspected state', exact: true}).click();
+  await page.getByRole('dialog').getByRole('button', {name: 'Recover state', exact: true}).click();
+  await expect(page.locator('[data-error]')).toContainText('Inspect again');
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+  expect(fixture.submissions).toHaveLength(0);
+});
+
+test('running Rust recovery follows the backend metadata-only decision', async ({page}) => {
+  const fixture = await softwareFixture(page, {phase: 'recovery', running: true});
+  fixture.state.change.phase = 'checking-software'; fixture.state.change.metadataOnlyRecovery = true;
+  await login(page, 'rust'); await page.goto(origins.rust + '/#software');
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeEnabled();
+  await expect(page.locator('[data-recovery-note]')).toContainText('does not stop Rust');
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
+  fixture.state.change.metadataOnlyRecovery = false;
+  await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+  await expect(page.locator('[data-recovery-note]')).not.toContainText('does not stop Rust');
+  fixture.state.change.phase = 'reviewed';
+  await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
+  await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+  expect(fixture.submissions).toHaveLength(0);
+});
+
+test('software metadata access alone loads without fetching forbidden server status or offering unmonitored jobs', async ({page}) => {
+  const fixture = await softwareFixture(page);
+  let statusReads = 0;
+  page.on('request', request => {if (request.url().endsWith('/api/status')) statusReads++;});
+  await login(page, 'rust', 'software-only'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-version]')).toHaveText('123');
+  await expect(page.locator('[data-access-note]')).toContainText('Server status access is required');
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Start Rust', exact: true})).toBeDisabled();
+  expect(statusReads).toBe(0); expect(fixture.submissions).toHaveLength(0);
+  fixture.state.blocked = true; fixture.state.change.pending = true;
+  await page.context().clearCookies(); await login(page, 'rust', 'software'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-operation-access]')).toContainText('An administrator must review');
+  await expect(page.locator('[data-operations]')).toBeHidden();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
+});
+
+test('runtime snapshot creation preserves its disabled installation selector in preflight and submission', async ({page}) => {
+  await page.route('**/api/snapshots', async route => {const response = await route.fetch(), data = await response.json(); data.snapshots = data.snapshots.map(item => ({...item, image: 'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'})); await route.fulfill({json: data});});
+  const checked = [], created = [];
+  await page.route('**/api/creation-preflight', async route => {checked.push(route.request().postDataJSON()); await route.fulfill({json: {ready: true, checks: []}});});
+  await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
+  await login(page, 'fleet', 'Preview'); await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  const form = page.locator('#create'); await form.locator('[name=name]').fill('Runtime copy');
+  await form.locator('[name=snapshotId]').selectOption('f'.repeat(32));
+  await expect(form.locator('[name=softwareMode]')).toBeDisabled();
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
+  await page.locator('#create-submit').click(); await expect.poll(() => created.length).toBe(1);
+  expect(checked[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
+  expect(created[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
+});
+
+test('creation checks block failures and discard a late result after input changes', async ({page}) => {
+  await login(page, 'fleet', 'Preview');
+  await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  const form = page.locator('#create'); await form.locator('[name=name]').fill('Disposable setup');
+  let release, requests = 0, creates = 0;
+  await page.route('**/api/creation-preflight', async route => {requests++; await new Promise(resolve => {release = resolve;}); await route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}});});
+  await page.route('**/api/servers', async route => {if (route.request().method() === 'POST') creates++; await route.continue();});
+  await page.locator('#create-submit').click(); await expect.poll(() => requests).toBe(1);
+  await form.locator('[name=name]').fill('Changed setup'); release();
+  await expect(page.locator('#create-submit')).toBeEnabled();
+  expect(creates).toBe(0); await expect(page.locator('#creation-checks')).toBeEmpty();
+  await page.unroute('**/api/creation-preflight');
+  await page.route('**/api/creation-preflight', route => route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}}));
+  await page.locator('#create-submit').click();
+  await expect(page.locator('#creation-checks')).toContainText('Insufficient host capacity');
+  expect(creates).toBe(0);
+});
 for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'recovery restores the paired backup':'selection reviews an explicit version') ,async({page},testInfo)=>{
   let recoveryState=recovery;
   await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),software:{mode:'runtime',provider:'factorio-headless'},softwareRecovery:recoveryState?{required:true,backup:'before-software-update.zip'}:null,image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});

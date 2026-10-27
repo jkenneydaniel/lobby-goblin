@@ -15,8 +15,57 @@ export function createServerDialog({
 }) {
   const $ = (selector) => document.querySelector(selector);
   let creationGames = [],
-    creationRevision = 0;
+    creationRevision = 0,
+    setupRevision = 0;
+  function invalidateSetup() {
+    setupRevision++;
+    $('#creation-checks').replaceChildren();
+    $('#creation-check-note').textContent = '';
+  }
+  function creationBody(f) {
+    const body = {
+      ...Object.fromEntries(new FormData(f)),
+      autoStart: f.elements.autoStart.checked,
+    };
+    if (f.elements.softwareMode.disabled && f.elements.softwareMode.value)
+      body.softwareMode = f.elements.softwareMode.value;
+    return body;
+  }
+  async function checkSetup(f) {
+    const revision = ++setupRevision,
+      host = f.elements.hostId.value,
+      body = creationBody(f),
+      identity = JSON.stringify(body);
+    $('#creation-check-note').textContent =
+      'Checking host and installation requirements…';
+    let result;
+    try {
+      result = await api(routeFor(host, '/creation-preflight'), body);
+    } catch (error) {
+      if (revision !== setupRevision || !$('#create-dialog').open) return null;
+      throw error;
+    }
+    if (
+      revision !== setupRevision ||
+      !$('#create-dialog').open ||
+      host !== f.elements.hostId.value ||
+      identity !== JSON.stringify(creationBody(f))
+    )
+      return null;
+    const list = $('#creation-checks');
+    list.replaceChildren();
+    for (const check of result.checks) {
+      const item = document.createElement('li');
+      item.textContent = `${check.label}: ${check.status} — ${check.message}`;
+      list.append(item);
+    }
+    $('#creation-check-note').textContent = result.ready
+      ? 'Setup checks passed. Creation rechecks availability before reserving resources.'
+      : 'Resolve the failed checks before creating this application.';
+    return result.ready ? {body, host} : null;
+  }
   function configureCreation(keepSnapshot = '') {
+    invalidateSetup();
     const snapshots = getSnapshots();
     const f = $('#create'),
       game = creationGames.find((game) => game.id === f.elements.game.value);
@@ -76,6 +125,7 @@ export function createServerDialog({
       `${game.name} ${game.version}. Ports are allocated automatically. ${policy.help || ''} Memory reservations include a separate controller.`;
   }
   function cloneChanged() {
+    invalidateSetup();
     const f = $('#create'),
       clone = !!f.elements.snapshotId.value,
       game = creationGames.find((game) => game.id === f.elements.game.value);
@@ -96,6 +146,7 @@ export function createServerDialog({
       f.elements[field.key].disabled = clone && field.lockOnClone === true;
   }
   async function creationHostChanged(snapshotId = '') {
+    invalidateSetup();
     const hosts = getHosts();
     const revision = ++creationRevision,
       f = $('#create'),
@@ -150,7 +201,29 @@ export function createServerDialog({
     }
   }
   $('#new-server').onclick = () => openCreate();
-  $('#close-create').onclick = () => $('#create-dialog').close();
+  $('#close-create').onclick = () => {
+    setupRevision++;
+    creationRevision++;
+    $('#create-dialog').close();
+  };
+  $('#create-dialog').addEventListener('close', () => {
+    setupRevision++;
+    creationRevision++;
+  });
+  $('#create').addEventListener('input', invalidateSetup);
+  $('#create').addEventListener('change', invalidateSetup);
+  $('#check-creation').onclick = async () => {
+    const f = $('#create');
+    if (!f.reportValidity()) return;
+    $('#check-creation').disabled = true;
+    try {
+      await checkSetup(f);
+    } catch (e) {
+      if ($('#create-dialog').open) error(e.message, '#creation-error');
+    } finally {
+      $('#check-creation').disabled = false;
+    }
+  };
   $('#create').elements.hostId.onchange = () => creationHostChanged();
   $('#create').elements.game.onchange = () => configureCreation();
   $('#create').elements.snapshotId.onchange = cloneChanged;
@@ -160,12 +233,15 @@ export function createServerDialog({
   };
   $('#create').onsubmit = async (e) => {
     e.preventDefault();
-    const f = e.currentTarget;
+    const f = e.currentTarget,
+      attempt = creationRevision;
     $('#create-submit').disabled = true;
     try {
-      const body = Object.fromEntries(new FormData(f));
-      body.autoStart = f.elements.autoStart.checked;
-      await api(routeFor(f.elements.hostId.value, '/servers'), body);
+      error('', '#creation-error');
+      const checked = await checkSetup(f);
+      if (!checked) return;
+      await api(routeFor(checked.host, '/servers'), checked.body);
+      if (attempt !== creationRevision) return;
       $('#create-dialog').close();
       notice(
         'Creating your server. Progress appears below; existing servers stay available.',
@@ -173,9 +249,9 @@ export function createServerDialog({
       selectView('servers');
       await onCreated();
     } catch (e) {
-      error(e.message, '#creation-error');
+      if (attempt === creationRevision) error(e.message, '#creation-error');
     } finally {
-      if ($('#create-dialog').open)
+      if (attempt === creationRevision && $('#create-dialog').open)
         $('#create-submit').disabled = hostBusy(f.elements.hostId.value);
     }
   };
@@ -184,6 +260,7 @@ export function createServerDialog({
     open: openCreate,
     cancel() {
       creationRevision++;
+      setupRevision++;
       $('#create-dialog').close();
     },
   };

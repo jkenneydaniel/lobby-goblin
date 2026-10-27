@@ -14,7 +14,7 @@ import {writeJSON,json,requestJSON,assert} from '../common.js';
 import {setupInput} from '../fleet/host-setup.js';
 const root=await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(),'lobby-host-ui-'))),auth=path.join(root,'auth'),tokenFile=path.join(root,'token'),token='f'.repeat(64),fleet='a'.repeat(32);
 await fs.mkdir(auth);await fs.writeFile(tokenFile,token);await writeJSON(path.join(auth,'users.json'),{Preview:{...hashPassword('isolated-panel-preview-password'),role:'admin'},Viewer:{...hashPassword('isolated-panel-preview-password'),role:'viewer'},Assigned:{...hashPassword('isolated-panel-preview-password'),role:'member',grants:{['/servers/'+'b'.repeat(32)]:['server.view','server.operate']},accessRevision:0}});
-const manager=new FleetManager({root:path.join(root,'state'),library:path.join(root,'library'),fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,hostContainer:'fixture',image:'fixture',memoryBudgetGiB:24,docker:async(method,route)=>{assert(method==='GET'&&route==='/info','This preview cannot use Docker.');return {MemTotal:32*1024**3};}});await manager.init();
+const manager=new FleetManager({root:path.join(root,'state'),library:path.join(root,'library'),fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,hostContainer:'fixture',image:'fixture',memoryBudgetGiB:24,docker:async(method,route)=>{assert(method==='GET'&&route==='/info','This preview cannot use Docker.');return {MemTotal:32*1024**3,OSType:'linux',Architecture:'amd64',ServerVersion:'29.1.3',NCPU:8};}});await manager.init();
 manager.state.servers=[{id:'b'.repeat(32),game:'factorio',name:'Friday factory',state:'installed',memoryGiB:3,cpu:2,gamePort:35000},{id:'c'.repeat(32),game:'rust',name:'Island crew',state:'installed',memoryGiB:12,cpu:4,gamePort:35003}];await manager.persist();
 const previewSnapshot='f'.repeat(32),previewBackup=path.join(root,'preview-backup.zip');
 await fs.writeFile(previewBackup,makeZip([{name:'saves/world.zip',data:makeZip([{name:'world/level.dat',data:Buffer.from('Disposable browser fixture')}])},{name:'panel-manifest.json',data:Buffer.from(JSON.stringify({activeSave:'world.zip'}))}]));
@@ -49,6 +49,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
   if(route==='/agent-update-plan')return json(res,200,{id:'f'.repeat(32),current:remote.version,version:previewVersion});
   if(route==='/agent-update'){await requestJSON(req);remote.version=previewVersion;remote.aligned=true;return json(res,202,{state:'running'});}
  }
+ if(route==='/creation-preflight'){const body=await requestJSON(req);return json(res,200,{ready:true,checks:[{label:'Fixture host',status:'pass',message:'Disposable preview only.'}],application:body.game});}
  if(route==='/catalog')return json(res,200,{games:Object.values(catalog)});
  if(route==='/servers'){
   if(req.method==='POST'){const input=await requestJSON(req);return json(res,202,{id:'synthetic-create',state:'succeeded',hostId:input.hostId});}

@@ -1,3 +1,4 @@
+import {creationPreflight} from '../core/creation-preflight.js';
 import {publicSoftwareDelivery} from '../core/software-delivery.js';
 import {brokerSocket,brokerToken} from '../core/broker-client.js';
 import fs from 'node:fs/promises';import path from 'node:path';import crypto from 'node:crypto';
@@ -128,6 +129,7 @@ export class FleetManager{
   try{await this.docker('POST','/containers/create?'+new URLSearchParams({name}),{Image:this.runtimeImage||this.image,User:'0:0',Entrypoint:['node','/app/fleet/worker.js'],Labels:{...labels(this.fleet,item.id,item.game),'io.lobby-goblin.worker':'true'},HostConfig:{NetworkMode:'none',CapDrop:['ALL'],SecurityOpt:['no-new-privileges:true'],Memory:512*1024**2,NanoCpus:1000000000,Mounts:[{Type:'volume',Source:this.stateVolume,Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:item.volume,Target:'/instance',ReadOnly:!write},{Type:'volume',Source:this.libraryVolume,Target:'/library',ReadOnly:config.action!=='snapshot'}]}});created=true;await this.docker('POST',`/containers/${name}/start`);const result=await this.docker('POST',`/containers/${name}/wait?condition=not-running`,undefined,{timeout:1200000});assert(result.StatusCode===0,'The isolated storage operation failed. Check disk space and snapshot compatibility.',409);return await readJSON(path.join(directory,'result.json'),null);
   }finally{if(created){const worker=await this.ownedContainer(name,item.id);if(worker.State?.Running)await this.docker('POST',`/containers/${name}/stop?t=15`);await this.docker('DELETE',`/containers/${name}`);}await fs.rm(directory,{recursive:true,force:true});}
  }
+ preflight(input){return creationPreflight(this,input);}
  async create(input,job){
   const info=await this.docker('GET','/info');assert(info.OSType==='linux'&&['x86_64','amd64'].includes(info.Architecture),'This first host-manager version requires Linux containers on an amd64 host.');assert(Number(String(info.ServerVersion).split('.')[0])>=26,'Docker Engine 26 or newer is required for isolated volume subdirectories.');
   const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,`This server needs ${input.memoryGiB+1} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);

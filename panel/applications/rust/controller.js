@@ -1,3 +1,4 @@
+import {rustSoftwareSummary} from './software-summary.js';
 import {createRustSoftware} from './software.js';
 import {rustSoftwareProtocol} from './software-protocol.js';
 import {validateRustFramework,prepareRustFrameworkValidation} from './framework-validation.js';
@@ -137,6 +138,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     },
     validateSchedule(value){if(value.enabled)assert(value.confirmDowntime===true,'Confirm that scheduled backups briefly stop Rust.');},
     async handle(req,res,url){
+      if(req.method==='GET'&&url.pathname==='/software-setup'){await owned();return json(res,200,await rustSoftwareSummary({software,changes:frameworkChanges,framework:async()=>{const value=await readRecord(path.join(config.state,'mods/installed.json'),{max:65536}).catch(error=>{if(error.code==='ENOENT')return null;throw error;});return value?.framework||'none';},activeJob:ctx.active}));}
       if(req.method==='GET'&&url.pathname==='/software'){await owned();assert(software,'This installation uses the legacy Rust installer.',409);return json(res,200,await software.inspect());}
       if(req.method==='GET'&&url.pathname==='/software-updates'){await owned();assert(frameworkChanges,'This installation uses legacy software delivery.',409);return json(res,200,await frameworkChanges.softwareStatus());}
       if(req.method==='GET'&&url.pathname==='/software-change'){await owned();assert(frameworkChanges,'This installation uses legacy software delivery.',409);return json(res,200,await frameworkChanges.inspect({deep:true}));}

@@ -44,6 +44,17 @@
       }
     },
     {
+      "id": "software",
+      "label": "Software",
+      "adminOnly": true,
+      "permission": "images.change",
+      "component": "extension",
+      "options": {
+        "provider": "rust.software",
+        "version": 1
+      }
+    },
+    {
       "id": "players",
       "label": "Players",
       "permission": "server.view",
