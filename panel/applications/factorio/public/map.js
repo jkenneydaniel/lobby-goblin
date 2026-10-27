@@ -62,6 +62,15 @@ export function mountMap(payload, view = null) {
       y: chunk.y * 32,
     })),
     entities = map.entities,
+    extent = entities.reduce(
+      (largest, item) =>
+        Math.max(
+          largest,
+          Number.isFinite(item.w) ? item.w : 0,
+          Number.isFinite(item.h) ? item.h : 0,
+        ),
+      0,
+    ),
     objectIndex = spatialIndex(entities),
     palette = map.palette?.map((tile) => rgb(tile.color)),
     atlas = chunks.length ? document.createElement('canvas') : null,
@@ -117,7 +126,7 @@ export function mountMap(payload, view = null) {
     context.imageSmoothingEnabled = false;
     const [left, top] = world(0, 0),
       [right, bottom] = world(width, height),
-      margin = 128 + 8 / scale,
+      margin = extent + 8 / scale,
       objects = objectIndex.query(
         left - margin,
         top - margin,
@@ -249,7 +258,7 @@ export function mountMap(payload, view = null) {
   }
   function select(x, y) {
     const [wx, wy] = world(x, y);
-    const margin = 128 + 8 / scale,
+    const margin = extent + 8 / scale,
       nearby = objectIndex.query(
         wx - margin,
         wy - margin,

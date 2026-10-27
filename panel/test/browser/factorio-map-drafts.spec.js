@@ -105,3 +105,18 @@ test('a submitted world operation disables draft cancellation',async({page})=>{
   await page.route(/\/api\/jobs(?:\?.*)?$/,route=>route.fulfill({json:{jobs:[job],active:job}}));
   await open(page,'#worlds/create');await expect(page.getByRole('button',{name:'Cancel draft',exact:true})).toBeDisabled();
 });
+test('oversized modded objects remain visible and selectable when their center is outside the viewport',async({page})=>{
+  await page.route('**/api/map',async route=>{
+    const response=await route.fetch(),value=await response.json();
+    Object.assign(value.snapshot,{players:[],entities:[{name:'oversized-modded-building',category:'buildings',x:800,y:0,w:1600,h:40,color:[100,100,20]}]});
+    await route.fulfill({json:value});
+  });
+  await open(page,'#map');await page.getByRole('button',{name:'Base / spawn',exact:true}).click();
+  const canvas=page.locator('#world-map'),box=await canvas.boundingBox();
+  await canvas.click({position:{x:box.width/2+12,y:box.height/2}});
+  await expect(page.locator('#map-selection-title')).toHaveText('oversized modded building');
+  await expect.poll(()=>canvas.evaluate(element=>{
+    const ratio=element.width/element.getBoundingClientRect().width;
+    return [...element.getContext('2d').getImageData(Math.floor(element.width/2+30*ratio),Math.floor(element.height/2),1,1).data];
+  })).toEqual([229,201,133,255]);
+});

@@ -10,6 +10,8 @@ server, existing save, Docker daemon or deployed panel was used.
   order is preserved, including enemy priority and equal-distance selection.
   Broad and sparse overviews fall back to a bounded scan rather than walking
   empty cells across arbitrary map coordinates.
+  Query padding follows the snapshot's largest finite object extent so oversized
+  modded/older objects remain visible and selectable across viewport edges.
 - Terrain is decoded on first visibility into one atlas instead of one canvas
   per chunk. Run-length terrain is painted in row spans. A uniform chunk takes
   16 fill calls instead of 256; a 2,048-chunk map uses one atlas instead of 2,048
