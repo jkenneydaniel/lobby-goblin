@@ -14,6 +14,10 @@ on:
         description: Verify private Steam preparation on a fresh disposable engine
         default: false
         type: boolean
+      rust_software:
+        description: Verify managed Rust install, save and exact-build clone on a fresh engine
+        default: false
+        type: boolean
   workflow_call:
     inputs:
       publish:
@@ -22,6 +26,26 @@ on:
 permissions:
   contents: read
 jobs:
+  rust-software:
+    if: github.event_name == 'workflow_dispatch' && inputs.rust_software
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.0'
+      - run: npm ci --prefix panel --ignore-scripts --no-audit --no-fund
+      - name: Build the current management sources without publishing
+        run: docker build -t local/lobby-software-acceptance:amd64 panel
+      - name: Verify controller-owned Rust preparation and a new copied world
+        env:
+          SOFTWARE_ACCEPTANCE_RUNTIME: local/lobby-software-acceptance:amd64
+        run: node panel/test/rust-software-acceptance.mjs
   private-preparation:
     if: github.event_name == 'workflow_dispatch' && inputs.software_worker
     runs-on: ubuntu-latest

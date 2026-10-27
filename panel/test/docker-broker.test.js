@@ -330,7 +330,9 @@ function engine() {
   };
 }
 async function fixture(t, {softwareWorker = false} = {}) {
-  const selectedModules = softwareWorker
+  const selectedModules = softwareWorker === 'legacy'
+    ? modules.map(module => {if (module.id !== 'rust') return module;const managed = {...module.managed};delete managed.softwareWorker;return {...module, managed};})
+    : softwareWorker
     ? modules.map((module) =>
         module.id === 'rust'
           ? {
@@ -626,7 +628,7 @@ unix(
     );
     await f.host.docker('POST', '/containers/' + f.item.container + '/start');
     await f.client.docker('DELETE', '/containers/' + Id);
-    const legacy = await fixture(t),
+    const legacy = await fixture(t, {softwareWorker: 'legacy'}),
       item = legacy.seed(one, 'rust'),
       client = await legacy.instance(one, 'rust');
     assert.equal(item.container, f.item.container);

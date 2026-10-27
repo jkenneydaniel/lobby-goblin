@@ -72,7 +72,23 @@
         ],
         "helpers": {
           "archiveReadPaths": [],
-          "execCommands": []
+          "execCommands": [],
+          "softwareWorker": {
+            "version": 1,
+            "provider": "steamcmd",
+            "source": {
+              "application": "rust",
+              "appId": "258550",
+              "platform": "linux/amd64",
+              "branches": ["public"]
+            },
+            "requiredFiles": [
+              {
+                "path": "RustDedicated",
+                "executable": true
+              }
+            ]
+          }
         },
         "environment": {
           "server": {
@@ -182,9 +198,51 @@
         "snapshots": {
           "includesPlayerData": true
         },
-        "secrets": [
-          "rconPassword"
-        ]
+        "secrets": ["rconPassword"],
+        "runtimeOption": {
+          "key": "managed",
+          "label": "Verified vanilla installation",
+          "controllerPrepared": true,
+          "imagePolicy": {
+            "version": 1,
+            "defaultImage": "ghcr.io/jkenneydaniel/rust-server:managed-lg.1@sha256:1560a7df90a04cc7700730cbec57e4b7b37df88854588c99af026c1d9843dc24",
+            "referencePattern": "^ghcr\\.io/jkenneydaniel/rust-server:managed-lg\\.(?<revision>[1-9]\\d*)$",
+            "architecture": "amd64",
+            "labels": {
+              "io.lobby-goblin.compatibility": "1",
+              "io.lobby-goblin.game": "rust",
+              "io.lobby-goblin.software-delivery": "runtime",
+              "io.lobby-goblin.software-provider": "steamcmd"
+            },
+            "captureLabels": {
+              "io.lobby-goblin.image-revision": "revision"
+            }
+          },
+          "software": {
+            "version": 1,
+            "mode": "runtime",
+            "provider": "steamcmd",
+            "initial": {
+              "channel": "public"
+            },
+            "storage": "application-volume",
+            "updates": "manual"
+          },
+          "environment": {
+            "controller": {
+              "RUST_INSTALL_ROOT": [
+                {
+                  "literal": "/instance/data/engine"
+                }
+              ],
+              "RUST_SOFTWARE_MODE": [
+                {
+                  "literal": "managed"
+                }
+              ]
+            }
+          }
+        }
       },
       "software": {
         "version": 1,

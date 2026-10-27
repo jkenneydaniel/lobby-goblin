@@ -121,7 +121,7 @@ accessing existing worlds or changing running servers.
 A managed application may declare `helpers.softwareWorker` with version 1,
 provider `steamcmd`, its reviewed source and required executable files. This is
 trusted package data, never a Docker specification supplied by the panel user.
-No existing application opts in as part of the broker contract change.
+Rust invokes this helper only when the explicit managed installation option is selected. Existing installations keep their current software and startup behavior.
 
 The broker pins both the published worker manifest and image configuration
 identity. It permits only the fixed executable, no added environment values,
@@ -198,12 +198,11 @@ An option with `controllerPrepared: true` requires a brokered host. Creation
 reserves and creates its game container but starts only its controller, then
 hands off the ordinary start job for preparation. Older hosts refuse before
 resource allocation. Existing options retain the established startup order.
-These contracts alone opt no existing application into provider preparation.
+A helper declaration does not trigger preparation during controller initialization.
 
 The separate `rust/managed` image consumes controller-prepared software; it has
 no automatic game download or update step. The legacy `rust/server` recipe and
-`steam-lg.2` application default remain unchanged. Application opt-in, execution
-publication and paired update/recovery integration follow image validation.
+`steam-lg.2` application default remain unchanged. The separate managed option prepares and publishes software before the game starts; existing defaults remain unchanged. Paired update/recovery integration is separate from initial setup.
 Its Valve client SDK is initialized while building the immutable image, without
 downloading game software, so startup does not need a Steam bootstrap update.
 
@@ -223,3 +222,44 @@ minimal environment, so user-writable SDK paths never receive privileged writes.
 Publisher guidance: [Valheim dedicated servers](https://www.valheimgame.com/support/a-guide-to-dedicated-servers/),
 [Rust dedicated servers](https://wiki.facepunch.com/rust/Creating-a-server) and
 [Steam dedicated-server distribution](https://partner.steamgames.com/doc/sdk/uploading/distributing_gs).
+
+## Managed Rust initial setup and copied worlds
+
+The optional verified vanilla installation uses the published immutable managed
+image and the private Steam worker. The default `runtime` creation value keeps
+its legacy meaning; `managed` explicitly selects this path. Creation leaves the
+game stopped, brings up its controller and hands off the start job. Preparation
+never mounts game data or management credentials.
+
+The first resolved Steam build and depot manifests are retained before download.
+The controller verifies an independent copy of the pristine software, temporarily
+holds only its freshly provisioned bootstrap directory outside application data,
+checks that the game is stopped and application data is actually empty, activates
+the private receipt, publishes the nested execution directory, restores bootstrap
+data and publishes the execution receipt last. The data mount's root remains in
+place. An interrupted step fences ordinary start; read-only inspection binds the
+recovery to the observed journal, provider state, requests and coordination.
+Recovery requires confirmation and a stopped application/worker. It may replace
+only a bounded partial execution copy in its own private transaction directory.
+It never resolves a newer build for a retained target or starts Rust on completion.
+
+Completed setup verifies its existing private receipt and execution binary on
+subsequent starts. Missing or changed software cannot trigger an upstream install.
+Retained coordination after a completed publication also requires explicit review.
+Controllers can restart into recovery while bootstrap data is held privately.
+
+Rust backups may add an exact Steam software receipt without changing historical
+archive versions. Managed snapshots require that receipt, strip credentials and
+configuration as before, and bind independent copied world/player files to the
+same build/depot selection. New clone credentials/configuration are generated
+before its bootstrap inventory is recorded. A historical build unavailable from
+Steam and absent from that instance's verified cache fails before moving copied
+data. Each installation verifies its own inventory; two downloads of the same
+build can have different inventory digests because Steam metadata contains times.
+
+The managed choice currently supports vanilla Rust. Existing Carbon/Oxide
+installations keep their current path. Framework changes and updates need the
+paired software, mod and data workflow before they are enabled on this choice.
+Native acceptance is an explicit workflow using a fresh engine, the published
+worker and game images, actual broker credentials, and two newly created worlds
+and volumes. No test selects an existing Docker engine, server or world.

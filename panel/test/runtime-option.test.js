@@ -119,6 +119,7 @@ test('existing built-in choices and environments keep their prior contract', () 
   assert.deepEqual(gameCatalog(factorio).softwareModes, ['image', 'runtime']);
   assert.equal(gameCatalog(factorio).runtimeKey, undefined);
   const rust = modules.find((value) => value.id === 'rust');
-  assert.equal(gameCatalog(rust).softwareModes, undefined);
+  assert.deepEqual(gameCatalog(rust).softwareModes, ['runtime', 'managed']);
+  assert.equal(gameCatalog(rust).defaultSoftwareMode, 'runtime');
   assert.equal(selectedRuntime(rust.managed, {softwareMode: 'runtime'}), null);
 });

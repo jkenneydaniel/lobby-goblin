@@ -5,7 +5,8 @@ import {createGunzip} from 'node:zlib';
 import {pipeline} from 'node:stream/promises';
 import {assert, inside, writeJSON} from '../../common.js';
 import {safeSnapshotPath as safe} from '../../core/snapshot-files.js';
-import {verifyArchive} from './archive.js';
+import {verifyArchive, rustSoftwareReceipt} from './archive.js';
+import {readRecord} from '../../providers/steamcmd/files.js';
 
 // Verify the complete archive before extracting its regular-file-only TAR.
 export async function extractRust(file, target) {
@@ -66,8 +67,14 @@ export async function extractRust(file, target) {
 }
 
 export async function collectSnapshot({backup, content, temporary, record}) {
+  const verified = await verifyArchive(backup);
   assert(
-    !(await verifyArchive(backup)).modded,
+    !/:managed-lg\./.test(record.image || '') || verified.software,
+    'Managed Rust snapshots require their exact software identity.',
+    409,
+  );
+  assert(
+    !verified.modded,
     'Modded Rust backups must be recovered as a complete installation; world-only snapshot cloning would omit framework and plugin state.',
     409,
   );
@@ -92,25 +99,42 @@ export async function collectSnapshot({backup, content, temporary, record}) {
     );
   }
   await fs.rm(path.join(temporary, 'extracted'), {recursive: true});
+  if (verified.software) {
+    await writeJSON(path.join(content, 'software.json'), verified.software);
+    return {software: verified.software};
+  }
 }
 export async function restoreSnapshot({root, data, manifest, id}) {
   assert(
     manifest.files.every(
       (file) =>
-        file.name.startsWith('identity/') &&
-        !file.name.startsWith('identity/cfg/'),
+        (file.name === 'software.json' && manifest.software) ||
+        (file.name.startsWith('identity/') &&
+          !file.name.startsWith('identity/cfg/')),
     ),
     'Unexpected Rust snapshot file.',
   );
+  if (manifest.software) {
+    const expected = rustSoftwareReceipt(manifest.software),
+      stored = rustSoftwareReceipt(
+        await readRecord(path.join(root, 'software.json'), {max: 65536}),
+      );
+    assert(
+      JSON.stringify(expected) === JSON.stringify(stored),
+      'Copied Rust software identity changed.',
+      409,
+    );
+  }
   await fs.cp(
     path.join(root, 'identity'),
     path.join(data, 'server/lobby-goblin-rust'),
     {recursive: true},
   );
   // Only a new independent copy may authorize Steam installation.
-  await writeJSON(path.join(data, '.lobby-goblin-clone.json'), {
-    game: 'rust',
-    identity: 'lobby-goblin-rust',
-    snapshot: id,
-  });
+  if (!manifest.software)
+    await writeJSON(path.join(data, '.lobby-goblin-clone.json'), {
+      game: 'rust',
+      identity: 'lobby-goblin-rust',
+      snapshot: id,
+    });
 }

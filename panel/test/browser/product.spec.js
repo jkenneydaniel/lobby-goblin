@@ -875,8 +875,9 @@ test('fleet creation fields follow the selected game policy', async ({
   await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
   await form.locator('[name=game]').selectOption('rust');
   await expect(form.locator('[name=memoryGiB]')).toHaveValue('12');
-  await expect(form.locator('[name=softwareMode]')).toBeDisabled();
-  await expect(form.locator('[name=softwareMode]')).toBeHidden();
+  await expect(form.locator('[name=softwareMode]')).toBeEnabled();
+  await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
+  await form.locator('[name=softwareMode]').selectOption('managed');
   await expect(form.locator('[name=worldSize]')).toHaveValue('2000');
   await expect(form.locator('[name=worldSize]')).toHaveAttribute(
     'type',

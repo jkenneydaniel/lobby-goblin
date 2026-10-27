@@ -10,6 +10,8 @@ import {assert, HttpError} from '../../common.js';
 import {Accounts} from '../../core/accounts.js';
 import {createRust} from './controller.js';
 import {managed} from './managed.js';
+import {imageMatch} from '../../core/image-policy.js';
+import {readRecord} from '../../providers/steamcmd/files.js';
 
 export function rustConfiguration(env, {migrationBootstrap = false} = {}) {
   const instance = env.RUST_INSTANCE_ID;
@@ -33,6 +35,25 @@ export function rustConfiguration(env, {migrationBootstrap = false} = {}) {
   const data = path.resolve(env.RUST_DATA || '/rust-server'),
     state = path.resolve(env.RUST_STATE_DIR || '/rust-state'),
     backups = path.resolve(env.RUST_BACKUPS_DIR || '/rust-backups');
+  const softwareManaged = !!imageMatch(
+    managed.runtime?.imagePolicy,
+    env.RUST_IMAGE,
+  );
+  assert(
+    softwareManaged === (env.RUST_SOFTWARE_MODE === 'managed'),
+    'Rust image and software delivery mode must agree.',
+    409,
+  );
+  if (softwareManaged)
+    assert(
+      env.FLEET_ID &&
+        env.FLEET_VOLUME &&
+        env.RUST_DATA === '/instance/data/server' &&
+        env.RUST_INSTALL_ROOT === '/instance/data/engine' &&
+        env.RUST_STATE_DIR === '/instance/state',
+      'Managed Rust requires its dedicated fleet storage.',
+      409,
+    );
   const roots = [data, state, backups];
   assert(
     roots.every(
@@ -54,6 +75,7 @@ export function rustConfiguration(env, {migrationBootstrap = false} = {}) {
     instance,
     container: env.RUST_CONTAINER,
     image: env.RUST_IMAGE,
+    softwareManaged,
     hostData: path.resolve(env.RUST_HOST_DATA),
     installRoot: env.RUST_INSTALL_ROOT
       ? path.resolve(env.RUST_INSTALL_ROOT)
@@ -70,7 +92,11 @@ export function rustConfiguration(env, {migrationBootstrap = false} = {}) {
   };
 }
 export async function validateInstallation(config) {
-  for (const root of [config.data, config.state, config.backups]) {
+  for (const root of [
+    ...(config.softwareManaged ? [] : [config.data]),
+    config.state,
+    config.backups,
+  ]) {
     assert(
       (await fs.realpath(root)) === root,
       'Rust storage cannot use symbolic links.',
@@ -83,6 +109,50 @@ export async function validateInstallation(config) {
       'Rust storage belongs to a different installation.',
       409,
     );
+  }
+  if (config.softwareManaged) {
+    const instance = path.dirname(path.dirname(config.data)),
+      data = path.dirname(config.data);
+    assert(
+      (await fs.realpath(data)) === data,
+      'Managed Rust data root cannot be linked.',
+      409,
+    );
+    const owner = await readRecord(path.join(instance, '.fleet-owner.json'), {
+      max: 4096,
+    });
+    assert(
+      owner.fleet === config.fleet &&
+        owner.id === config.instance &&
+        owner.game === 'rust',
+      'Managed Rust volume belongs to another instance.',
+      409,
+    );
+    const world = await fs.lstat(config.data).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (world)
+      assert(
+        world.isDirectory() &&
+          !world.isSymbolicLink() &&
+          (await fs.realpath(config.data)) === config.data,
+        'Rust world storage cannot be linked.',
+        409,
+      );
+    else {
+      const pending = await readRecord(
+        path.join(config.state, 'software/rust/installation.json'),
+        {max: 65536},
+      );
+      assert(
+        pending.instance === config.instance &&
+          pending.phase !== 'complete' &&
+          /^[a-f0-9-]{36}$/.test(pending.id || ''),
+        'Missing Rust world storage requires installation recovery.',
+        409,
+      );
+    }
   }
 }
 function updater({current}) {
