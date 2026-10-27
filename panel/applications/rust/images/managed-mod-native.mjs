@@ -129,6 +129,30 @@ if (mode === 'base') {
       ? engine + '/carbon/managed/Carbon.Preloader.dll'
       : engine + '/RustDedicated_Data/Managed/Oxide.Rust.dll';
   assert.equal((await fs.stat(code)).uid, 0);
+  if (framework === 'carbon') {
+    const log = await fs.lstat(mutable + '/logs/Carbon.Harmony.bootstrap.log');
+    assert.ok(log.isFile() && !log.isSymbolicLink() && log.nlink === 1);
+    assert.equal(log.uid, 1000);
+    assert.ok(log.size > 0);
+    assert.equal(
+      await fs.lstat(engine + '/harmony_log.txt').catch(() => null),
+      null,
+    );
+  }
+  if (framework === 'oxide') {
+    const compiler = engine + '/Oxide.Compiler',
+      stat = await fs.lstat(compiler);
+    assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1);
+    assert.equal(stat.uid, 0);
+    assert.equal(stat.mode & 0o022, 0);
+    assert.equal(
+      createHash('sha256')
+        .update(await fs.readFile(compiler))
+        .digest('hex'),
+      oxideCompiler.sha256,
+      'Framework startup must retain the reviewed compiler bytes',
+    );
+  }
   assert.equal((await fs.stat(mutable)).uid, 1000);
   assert.equal(
     await fs.readFile(world + '/copied-world.txt', 'utf8'),

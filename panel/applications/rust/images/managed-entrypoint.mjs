@@ -236,6 +236,12 @@ async function framework(engine, worldRoot, identity) {
     ...layout,
     env: {
       TERM: 'xterm',
+      // Carbon constructs Harmony before setting its own log destination.
+      // Bind that first write to game-owned data before any framework executes.
+      HARMONY_LOG_FILE: path.join(
+        layout.mutable,
+        'logs/Carbon.Harmony.bootstrap.log',
+      ),
       LD_PRELOAD: path.join(engine, 'libdoorstop.so'),
       DOORSTOP_ENABLED: '1',
       DOORSTOP_TARGET_ASSEMBLY: path.join(

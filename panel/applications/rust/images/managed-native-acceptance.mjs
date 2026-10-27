@@ -28,6 +28,11 @@ const modFixture = fileURLToPath(
   new URL('./managed-mod-native.mjs', import.meta.url),
 );
 let packagesRoot = null;
+let phase = 'initializing';
+const progress = (next, detail = {}) => {
+  phase = next;
+  console.log(JSON.stringify({phase, ...detail}));
+};
 const password =
   randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
 const run = async (args, timeout = 120000) =>
@@ -237,14 +242,18 @@ async function modRun(mode, framework, directory) {
   );
 }
 async function frameworkAcceptance() {
+  progress('reviewing-framework-packages');
   const selected = await packages(),
     reports = [];
   await modRun('base');
   for (const framework of ['carbon', 'oxide']) {
     const release = selected.get(framework);
+    progress('staging-' + framework, {version: release.version});
     await modRun('stage', framework, release.directory);
+    progress('starting-' + framework);
     await run(['start', game]);
     await ready();
+    progress('compiling-' + framework + '-plugin');
     assert.match(
       await rcon(framework === 'carbon' ? 'c.version' : 'oxide.version'),
       framework === 'carbon' ? /carbon/i : /oxide/i,
@@ -265,6 +274,7 @@ async function frameworkAcceptance() {
     );
     await cleanStop();
     const report = JSON.parse(await modRun('inspect', framework));
+    progress('verified-' + framework, report);
     reports.push({
       ...report,
       version: release.version,
@@ -281,6 +291,7 @@ async function cleanStop() {
   assert.equal(state.ExitCode, 0, 'Managed Rust must prove its save and quit.');
 }
 try {
+  progress('preparing-exact-rust-software');
   await run(['pull', '--platform', 'linux/amd64', deployment.image], 1200000);
   for (const volume of volumes)
     await run(['volume', 'create', '--label', owner, volume]);
@@ -289,6 +300,7 @@ try {
   const prepared = JSON.parse(
     await fixtureRun('publish', ['software', 'control', 'game']),
   );
+  progress('starting-vanilla', {buildId: prepared.buildId});
   await run([
     'run',
     '-d',
@@ -322,6 +334,7 @@ try {
     image,
   ]);
   await ready();
+  progress('verifying-vanilla-save');
   assert.equal((await info()).Image, imageId);
   const first = JSON.parse(await rcon('serverinfo'));
   assert.equal(first.MaxPlayers, 1);
@@ -340,6 +353,7 @@ try {
   await cleanStop();
   const before = JSON.parse(await fixtureRun('inspect', ['game']));
   const oldLogs = await run(['logs', game]);
+  progress('reloading-vanilla-world');
   await run(['start', game]);
   await ready();
   assert.equal(JSON.parse(await rcon('serverinfo')).MaxPlayers, 1);
@@ -378,6 +392,7 @@ try {
     }),
   );
 } catch (error) {
+  console.error(JSON.stringify({failedPhase: phase, message: error.message}));
   const logs = await execute('docker', ['logs', '--tail', '150', game], {
     encoding: 'utf8',
     timeout: 30000,

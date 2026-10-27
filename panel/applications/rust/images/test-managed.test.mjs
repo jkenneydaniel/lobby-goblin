@@ -229,3 +229,35 @@ test('unrecorded framework loaders and an unprepared compiler cannot start or re
     null,
   );
 });
+
+test('Carbon initial Harmony logging uses world data before its first framework constructor', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(path.join(f.engine, 'carbon/managed'), {recursive: true});
+  for (const name of ['libdoorstop.so', 'carbon/managed/Carbon.Preloader.dll'])
+    await fs.writeFile(path.join(f.engine, name), 'synthetic loader', {
+      mode: 0o644,
+    });
+  await fs.writeFile(
+    path.join(f.engine, '.lobby-goblin-mods.json'),
+    JSON.stringify({format: 1, status: 'complete', framework: 'carbon'}),
+    {mode: 0o644},
+  );
+  const config = await managedStartup(
+    {...f.env, HARMONY_LOG_FILE: '/unreviewed'},
+    f.root,
+  );
+  const expected = path.join(
+    f.root,
+    'server/lobby-goblin-rust/mods/carbon/logs/Carbon.Harmony.bootstrap.log',
+  );
+  assert.equal(config.modEnv.HARMONY_LOG_FILE, expected);
+  assert.equal(
+    await fs.realpath(path.dirname(expected)),
+    path.dirname(expected),
+  );
+  assert.equal(
+    await fs.lstat(path.join(f.engine, 'harmony_log.txt')).catch(() => null),
+    null,
+  );
+  assert.equal((await fs.stat(f.engine)).mode & 0o022, 0);
+});
