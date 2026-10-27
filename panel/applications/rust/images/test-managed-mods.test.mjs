@@ -80,7 +80,7 @@ test('game-user Carbon configuration preserves values and disables both automati
   );
   const automatic = path.join(layout.mutable, 'config.auto.json'),
     web = path.join(layout.mutable, 'config.webpanel.json');
-  await fs.writeFile(automatic, '{"preserved":true}\n', {mode: 0o640});
+  await fs.writeFile(automatic, 'c.showstatusbar "false"\n', {mode: 0o640});
   await prepareCarbonConfig(layout.mutable);
   const value = JSON.parse(await fs.readFile(layout.carbonConfig, 'utf8'));
   assert.deepEqual(value, {
@@ -88,7 +88,10 @@ test('game-user Carbon configuration preserves values and disables both automati
     SelfUpdating: {Enabled: false, HookUpdates: false, Other: 'preserve'},
   });
   assert.equal((await fs.stat(layout.carbonConfig)).mode & 0o777, 0o600);
-  assert.equal(await fs.readFile(automatic, 'utf8'), '{"preserved":true}\n');
+  assert.equal(
+    await fs.readFile(automatic, 'utf8'),
+    'c.showstatusbar "false"\n',
+  );
   assert.equal((await fs.stat(automatic)).mode & 0o777, 0o640);
   assert.deepEqual(JSON.parse(await fs.readFile(web, 'utf8')), {
     Enabled: false,
@@ -116,6 +119,10 @@ test('missing Carbon configuration initialization refuses redirected existing ta
   await assert.rejects(
     prepareCarbonConfig(layout.mutable),
     /Invalid mutable Carbon configuration/,
+  );
+  assert.equal(
+    await fs.readFile(path.join(layout.mutable, 'config.auto.json'), 'utf8'),
+    '',
   );
   assert.equal(await fs.readFile(outside, 'utf8'), '{"untouched":true}');
   await fs.unlink(target);

@@ -306,17 +306,18 @@ export async function prepareCarbonConfig(root) {
     await fs.rm(temporary, {force: true});
   }
   // Mono can report a dangling configuration link as existing, then fail its
-  // first read. Initialize managed JSON targets as the game user without
+  // first read. Initialize managed configuration targets as the game user without
   // replacing an existing configuration. Native profiler defaults remain owned
   // by Carbon's native initializer.
   for (const [name, initial] of [
-    ['config.auto.json', {}],
-    ['config.webpanel.json', {Enabled: false}],
-    ['oxide.config.json', {}],
+    // Despite its suffix, Carbon Auto stores one console variable per line.
+    ['config.auto.json', ''],
+    ['config.webpanel.json', '{"Enabled":false}'],
+    ['oxide.config.json', '{}'],
   ]) {
     const file = path.join(root, name);
     try {
-      await fs.writeFile(file, JSON.stringify(initial), {
+      await fs.writeFile(file, initial, {
         flag: 'wx',
         mode: 0o600,
       });
