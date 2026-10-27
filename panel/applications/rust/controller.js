@@ -1,7 +1,7 @@
 import {createRustSoftware} from './software.js';
 import {rustSoftwareProtocol} from './software-protocol.js';
 import {validateRustFramework,prepareRustFrameworkValidation} from './framework-validation.js';
-import {atomicRecord} from '../../providers/steamcmd/files.js';
+import {atomicRecord,readRecord} from '../../providers/steamcmd/files.js';
 import {createRustFrameworkChanges,pairedFrameworkMissing} from './framework-changes.js';
 import {createRustModStores} from './mod-stores.js';
 import {createRustModLibrary} from './mod-library.js';
@@ -76,7 +76,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
   }
   const frameworkChanges=createRustFrameworkChanges(ctx,{software,mods,fetcher:modFetcher,fault:frameworkFault,protocol:async()=>{
     const receipt=(await software.maintenance.execution()).receipt;return (await rustSoftwareProtocol({...software.maintenance.workers.paths,receipt})).protocol;
-  },prepareValidation:(framework,id)=>prepareRustFrameworkValidation({framework,id,store:framework==='none'?null:mods.store(framework)}),validate:async(framework,id)=>{
+  },validateSoftware:async evidence=>{const reported=await readRecord(path.join(config.state,'software/rust/protocol.json'),{max:4096});assert(reported.buildId===evidence.buildId&&reported.protocol===evidence.protocol,'Rust reported a different protocol from the verified software candidate. Recover its previous software and world.',409);},prepareValidation:(framework,id)=>prepareRustFrameworkValidation({framework,id,store:framework==='none'?null:mods.store(framework)}),validate:async(framework,id)=>{
     const before=await owned();
     return validateRustFramework({framework,id,store:framework==='none'?null:mods.store(framework),command,running:async()=>{const current=await owned();return current.State?.Running&&!current.State.Restarting&&!current.State.OOMKilled&&current.State.StartedAt===before.State.StartedAt&&current.RestartCount===before.RestartCount;},timeout:Math.min(readyTimeout,300000),interval:pollInterval,progress:async(message,phase)=>{if(ctx.active)await ctx.stageMessage(ctx.active,message,phase);}});
   }});
@@ -119,7 +119,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
   }
   return {
     operationSources:[...(software?[software.operationSource,frameworkChanges.operationSource]:[]),modLibrary.operationSource,mods.operationSource],
-    actions:{...modLibrary.actions,'software-recover':async(params,job)=>{assert(software,'This installation uses the legacy Rust installer.',409);await software.recover(params,job);return 'Initial Rust software recovered. Start Rust when ready.';},'software-cancel':async params=>{assert(software,'This installation uses the legacy Rust installer.',409);return software.cancel(params);},start,stop,restart:async()=>{await stop();await start();return 'Rust restarted and is ready.';},
+    actions:{...modLibrary.actions,'software-check':(_params,job)=>{assert(frameworkChanges,'Choose a new managed Rust installation for Steam updates.',409);return frameworkChanges.checkSoftware(job);},'software-check-modded':(_params,job)=>{assert(frameworkChanges,'Choose a managed Rust installation for Steam updates.',409);return frameworkChanges.checkSoftware(job,{modded:true});},'software-update':(params,job)=>{assert(frameworkChanges,'This installation uses the legacy Rust installer.',409);return frameworkChanges.updateSoftware(params,job,{stop,run:()=>startGame(job)});},'software-update-modded':(params,job)=>{assert(frameworkChanges,'This installation uses the legacy Rust installer.',409);return frameworkChanges.updateSoftware(params,job,{modded:true,stop,run:()=>startGame(job)});},'software-recover':async(params,job)=>{assert(software,'This installation uses the legacy Rust installer.',409);if((await frameworkChanges.inspect()).kind==='software')return frameworkChanges.recoverSoftware(params);await software.recover(params,job);return 'Initial Rust software recovered. Start Rust when ready.';},'software-recover-modded':params=>{assert(frameworkChanges,'This installation uses the legacy Rust installer.',409);return frameworkChanges.recoverSoftware(params,{modded:true});},'software-cancel':async params=>{assert(software,'This installation uses the legacy Rust installer.',409);if((await frameworkChanges.inspect()).kind==='software')return frameworkChanges.cancelSoftware();return software.cancel(params);},start,stop,restart:async()=>{await stop();await start();return 'Rust restarted and is ready.';},
       'install-framework':async (params,job)=>{const image=await docker('GET','/images/'+encodeURIComponent((await owned()).Image)+'/json');assert(image.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1','Framework management requires the mod-capable Rust image (steam-lg.2 or newer). Upgrade that game image before installation.',409);if(frameworkChanges){assert(image.Config?.Labels?.['io.lobby-goblin.mod-data']==='1','Managed frameworks require the reviewed mod-data image. Existing installations are not changed automatically.',409);return frameworkChanges.prepare(params.planId,job);}return mods.install(params.planId,job);},'recover-framework':params=>frameworkChanges?frameworkChanges.recover(params):mods.recover(),plugin:params=>mods.plugin(params),'plugin-config':params=>mods.configuration(params.name,params),
       'save-settings':async params=>{await owned();assert(await softwareReadyForSettings(),'Finish or recover initial software setup before editing Rust settings.',409);assert(!(await owned()).State?.Running,'Stop Rust before saving settings.',409);await saveSettings(settingsFile,params.values,params.revision);return 'Settings saved. They take effect when Rust starts.';}},
     status,recentStatus:()=>recent,locations:[{id:'rust-identity',title:'Rust identity',path:identityRoot}],
@@ -127,9 +127,10 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     backupVerified:result=>`Rust archive verified: ${result.files} files, including a world save. Archive integrity checked; game-load recovery is a separate test.`,
     validateAction(body){
       validateLibraryAction(body.action,body.params);
-      if(['software-recover','software-cancel'].includes(body.action))assert(software&&body.params?.confirm===true,'Inspect and confirm this managed Rust software change.',409);
+      if(['software-recover','software-recover-modded','software-cancel'].includes(body.action))assert(software&&body.params?.confirm===true,'Inspect and confirm this managed Rust software change.',409);
       if(body.action==='recover-framework'&&frameworkChanges)assert(/^[a-f0-9]{64}$/.test(body.params?.review||''),'Inspect the paired framework recovery first.',409);
-      if(body.action==='software-recover')assert(/^[a-f0-9]{64}$/.test(body.params.review||''),'Inspect the installation before recovery.',409);
+      if(['software-recover','software-recover-modded'].includes(body.action))assert(/^[a-f0-9]{64}$/.test(body.params.review||''),'Inspect the installation before recovery.',409);
+      if(['software-update','software-update-modded'].includes(body.action))assert(software&&body.params?.confirm===true&&/^[a-f0-9-]{36}$/.test(body.params?.planId||''),'Review and confirm the exact Steam build and downtime.',409);
       if(['install-framework','recover-framework','plugin','plugin-config'].includes(body.action))validateModAction(body.action,body.params);
       if(['stop','restart','backup'].includes(body.action))assert(body.params?.confirm===true,'Confirm the Rust server interruption first.');
       if(body.action==='save-settings'){validateSettings(body.params?.values);assert(typeof body.params?.revision==='string','Reload settings first.');}
@@ -137,12 +138,14 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
     validateSchedule(value){if(value.enabled)assert(value.confirmDowntime===true,'Confirm that scheduled backups briefly stop Rust.');},
     async handle(req,res,url){
       if(req.method==='GET'&&url.pathname==='/software'){await owned();assert(software,'This installation uses the legacy Rust installer.',409);return json(res,200,await software.inspect());}
+      if(req.method==='GET'&&url.pathname==='/software-updates'){await owned();assert(frameworkChanges,'This installation uses legacy software delivery.',409);return json(res,200,await frameworkChanges.softwareStatus());}
+      if(req.method==='GET'&&url.pathname==='/software-change'){await owned();assert(frameworkChanges,'This installation uses legacy software delivery.',409);return json(res,200,await frameworkChanges.inspect({deep:true}));}
       if(req.method==='GET'&&url.pathname==='/framework-change'){await owned();assert(frameworkChanges,'This installation uses legacy framework recovery.',409);return json(res,200,await frameworkChanges.inspect());}
       if(modLibraryRoutes.includes(url.pathname)){if(req.method==='POST'&&frameworkChanges)await frameworkChanges.guard('mod-library-plan');return modLibrary.handle(req,res,url);}
       if(url.pathname==='/mods-plan'){assert(req.method==='POST','Not found.',404);await owned();assert(!ctx.active,'Wait for the current operation.',409);if(frameworkChanges)await frameworkChanges.guard('mods-plan');return json(res,200,await (frameworkChanges||mods).plan((await requestJSON(req)).framework));}
       if(req.method==='GET'&&url.pathname==='/mods'){
         const info=await owned(),image=config.installRoot?await docker('GET','/images/'+encodeURIComponent(info.Image)+'/json'):null,capable=image?.Config?.Labels?.['io.lobby-goblin.rust-mods']==='1'&&(!software||image.Config.Labels['io.lobby-goblin.mod-data']==='1'),change=frameworkChanges?await frameworkChanges.inspect():null,value=change?.pending?{available:true,framework:change.framework,version:null,sha256:null,plugins:[],configs:[],recoveryId:change.observation.record.id}:await mods.status();
-        return json(res,200,{...value,imageCapable:capable,editable:!info.State?.Running&&!ctx.active&&!change?.pending,pairedRecovery:!!frameworkChanges,pairedPending:!!change?.pending,recoveryRequired:value.recoveryRequired||!!change?.pending,message:change?.pending?'A paired framework change is pending. Start Rust to validate prepared files, or recover the previous software and world.':capable?value.message:'Framework installation requires a compatible mod-capable Rust image and controller storage. Existing game containers are not restarted automatically.'});
+        return json(res,200,{...value,imageCapable:capable,editable:!info.State?.Running&&!ctx.active&&!change?.pending,pairedRecovery:!!frameworkChanges,pairedSoftware:change?.kind==='software',pairedPending:!!change?.pending,recoveryRequired:value.recoveryRequired||!!change?.pending,message:change?.pending?'A paired framework change is pending. Start Rust to validate prepared files, or recover the previous software and world.':capable?value.message:'Framework installation requires a compatible mod-capable Rust image and controller storage. Existing game containers are not restarted automatically.'});
       }
       if(req.method==='GET'&&url.pathname==='/plugin-config'){await owned();return json(res,200,await mods.configuration(url.searchParams.get('name')));}
       assert(req.method==='GET','Not found.',404);
@@ -162,6 +165,6 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       assert(false,'Not found.',404);
     },
     async init(){password=(await fs.readFile(config.passwordFile,'utf8')).trim();assert(/^[A-Za-z0-9_-]{32,128}$/.test(password),'Rust requires a 32–128 character generated WebRCON secret.');},
-    async start(){},async beforeJob(job){await owned();if(frameworkChanges)await frameworkChanges.guard(job?.action);if(!['stop','mod-library-recover','software-recover','software-cancel'].includes(job?.action))await modLibrary.assertReady();},async afterJob(){},async waitIdle(){},invalidate(){recent=null;},
+    async start(){},async beforeJob(job){await owned();if(frameworkChanges)await frameworkChanges.guard(job?.action);if(!['stop','mod-library-recover','software-recover','software-recover-modded','software-cancel'].includes(job?.action))await modLibrary.assertReady();},async afterJob(){},async waitIdle(){},invalidate(){recent=null;},
   };
 }

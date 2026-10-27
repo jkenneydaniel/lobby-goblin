@@ -21,6 +21,31 @@ const permits = (module, permissions, method, route, action) =>
   });
 const denied = (work) => assert.throws(work, (error) => error.status === 403);
 
+test('Rust Steam updates require image and lifecycle authority and modded updates additionally require executable framework authority', () => {
+  const module = selectedApplication('rust'),
+    vanilla = ['images.change', 'server.operate'],
+    modded = [...vanilla, 'mods.manage', 'application.rust.framework.manage'];
+  permits(module, ['images.change'], 'POST', '/jobs', 'software-check');
+  permits(module, ['images.change'], 'POST', '/jobs', 'software-recover');
+  permits(module, vanilla, 'POST', '/jobs', 'software-update');
+  for (const grants of [[], ['images.change'], ['server.operate']])
+    denied(() => permits(module, grants, 'POST', '/jobs', 'software-update'));
+  for (const action of [
+    'software-check-modded',
+    'software-update-modded',
+    'software-recover-modded',
+  ]) {
+    permits(module, modded, 'POST', '/jobs', action);
+    for (const grants of [
+      vanilla,
+      ['mods.manage', 'application.rust.framework.manage'],
+      [...vanilla, 'mods.manage'],
+      [...vanilla, 'application.rust.framework.manage'],
+    ])
+      denied(() => permits(module, grants, 'POST', '/jobs', action));
+  }
+});
+
 test('Factorio map permissions are independent of world management, each other and other instances', () => {
   const module = selectedApplication('factorio');
   for (const permission of Object.keys(module.contract.policy.permissions)) {

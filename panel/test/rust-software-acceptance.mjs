@@ -132,7 +132,17 @@ async function wait(id, timeout = 120000) {
     const info = await docker('GET', '/containers/' + id + '/json');
     if (!info.State.Running) {
       const logs = redact(run(['logs', id]));
-      assert.equal(info.State.ExitCode, 0, logs.slice(-10000));
+      assert.equal(
+        info.State.ExitCode,
+        0,
+        JSON.stringify({
+          exitCode: info.State.ExitCode,
+          oomKilled: info.State.OOMKilled,
+          error: info.State.Error,
+          memoryLimit: info.HostConfig.Memory,
+          logs: logs.slice(-10000),
+        }),
+      );
       return logs;
     }
     assert.ok(Date.now() < deadline, 'Disposable Rust acceptance timed out.');
