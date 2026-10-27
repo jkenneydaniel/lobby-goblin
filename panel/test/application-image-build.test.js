@@ -8,6 +8,10 @@ import {
   applicationImages,
   imageContext,
   buildApplicationImage,
+  sharedImages,
+  imageCatalogue,
+  imageBuildOrder,
+  selectImageRecipes,
 } from '../core/application-image-build.js';
 const project = fileURLToPath(new URL('../../', import.meta.url));
 test('all registered package images build from isolated declarations and clean up after failures', async () => {
@@ -41,6 +45,66 @@ test('all registered package images build from isolated declarations and clean u
     );
     assert.equal(await fs.stat(context).catch(() => null), null);
   }
+});
+
+test('shared provider images have a separate catalogue and retain isolated build contexts', async () => {
+  const shared = await sharedImages(project);
+  assert.deepEqual(
+    shared.map((recipe) => recipe.key),
+    ['shared/steamcmd/runtime'],
+  );
+  assert.equal((await applicationImages(project)).length, 4);
+  const all = await imageCatalogue(project);
+  assert.equal(all.length, 5);
+  assert.equal(all[0].key, 'shared/steamcmd/runtime');
+  await imageContext(shared[0], async (directory) => {
+    assert.deepEqual(await fs.readdir(directory), ['Dockerfile']);
+    assert.ok(
+      (await fs.readFile(path.join(directory, 'Dockerfile'), 'utf8')).includes(
+        'USER 1000:1000',
+      ),
+    );
+  });
+});
+
+test('explicit base dependencies are ordered and targeted builds include their prerequisites', () => {
+  const recipes = [
+    {key: 'rust/server', dependencies: ['shared/steamcmd/runtime']},
+    {key: 'shared/steamcmd/runtime', dependencies: []},
+    {key: 'factorio/server', dependencies: []},
+  ];
+  assert.deepEqual(
+    imageBuildOrder(recipes).map((item) => item.key),
+    ['shared/steamcmd/runtime', 'rust/server', 'factorio/server'],
+  );
+  assert.deepEqual(
+    selectImageRecipes(recipes, 'rust/server').map((item) => item.key),
+    ['shared/steamcmd/runtime', 'rust/server'],
+  );
+  assert.deepEqual(
+    selectImageRecipes(recipes, 'factorio/server').map((item) => item.key),
+    ['factorio/server'],
+  );
+  assert.throws(() => selectImageRecipes(recipes, 'unknown/server'));
+  assert.throws(
+    () =>
+      imageBuildOrder([
+        {key: 'rust/server', dependencies: ['missing/runtime']},
+      ]),
+    /Unknown image dependency/,
+  );
+  assert.throws(
+    () =>
+      imageBuildOrder([
+        {key: 'a/runtime', dependencies: ['b/runtime']},
+        {key: 'b/runtime', dependencies: ['a/runtime']},
+      ]),
+    /cycle/,
+  );
+  assert.throws(
+    () => imageBuildOrder([{key: 'a/runtime'}, {key: 'a/runtime'}]),
+    /Duplicate/,
+  );
 });
 test('a new package recipe is discovered without editing tooling; traversal and symlinks are rejected', async (t) => {
   const root = await fs.realpath(

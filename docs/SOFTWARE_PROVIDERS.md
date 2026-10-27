@@ -83,7 +83,8 @@ software, stop a server or reset world/configuration/mod data.
    bounded receipts and guarded state/recovery/adoption transitions.
 2. SteamCMD base and provider: private staging, durable publication, verified
    completion, progress and safe restart/retry. Start with anonymous Linux
-   dedicated-server downloads.
+   dedicated-server downloads. Deliver this step as two PRs: shared image and
+   exact metadata discovery, then the staged installer.
 3. Rust integration and managed software updates: real server build discovery,
    mod-aware staging, save barriers, paired software/data recovery and failure
    injection. Keep old image defaults and installations until explicit adoption.

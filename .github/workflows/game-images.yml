@@ -1,9 +1,9 @@
 name: Lobby Goblin application images
 on:
   push:
-    paths: ['panel/applications/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
+    paths: ['panel/applications/**', 'panel/providers/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
   pull_request:
-    paths: ['panel/applications/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
+    paths: ['panel/applications/**', 'panel/providers/**', 'panel/core/**', 'panel/source-layout.js', 'tools/application-images.mjs', 'tools/factorio-image.mjs', '.github/workflows/game-images.yml', 'panel/update-worker.js', 'panel/test/image-acceptance*', 'panel/test/package-image-acceptance.mjs', 'panel/test/container-runtime-acceptance.mjs']
   workflow_dispatch:
     inputs:
       image:
