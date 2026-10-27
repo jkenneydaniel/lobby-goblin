@@ -141,7 +141,8 @@ together and recreate only this installation's affected containers.
 ## Managed software setup and recovery
 
 New managed fleet installations expose **Software** to users with image-change
-permission. It shows the recorded Steam build and current setup operation.
+permission. Without server-status access this screen shows metadata only;
+status access is needed to run and monitor operations. It shows the recorded Steam build and current setup operation.
 **Prepare and start Rust** installs once and then starts; opening the screen
 never downloads or updates software. Existing installer-based servers keep their
 current delivery method and are not converted automatically.

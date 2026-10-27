@@ -2,7 +2,15 @@ import {serverPath} from '../scope.js';
 
 export const rustSoftware = {
   version: 1,
-  create({getStatus, getOperation, recoveryRequired, canAction, job}) {
+  create({
+    getStatus,
+    getSession,
+    getOperation,
+    recoveryRequired,
+    can,
+    canAction,
+    job,
+  }) {
     let value = null,
       inspection = null,
       working = false,
@@ -30,19 +38,45 @@ export const rustSoftware = {
       recoveryKind() === 'software' &&
       value.change.metadataOnlyRecovery === true;
     const allowed = (name) =>
-      !working && !hostBusy() && !recoveryRequired() && canAction(name);
+      !working &&
+      !hostBusy() &&
+      !recoveryRequired() &&
+      can('server.view') &&
+      !!getStatus() &&
+      canAction(name);
     function controls() {
       if (!root || !value) return;
-      if (getStatus()?.activeJob?.message)
-        $('progress').textContent = getStatus().activeJob.message;
+
       const running = !!getStatus()?.running,
         managed = value.managed;
+      $('progress').textContent =
+        getStatus()?.activeJob?.message ||
+        value.activeJob?.message ||
+        (pending()
+          ? 'Retained phase: ' +
+            (value.change?.pending
+              ? value.change.phase
+              : value.installation.phase
+            ).replaceAll('-', ' ')
+          : !getStatus()
+            ? 'Software metadata loaded.'
+            : getStatus().running
+              ? 'Rust is running.'
+              : 'Rust is stopped.');
+      $('progress').setAttribute(
+        'aria-busy',
+        String(!!(getStatus()?.activeJob || value.activeJob)),
+      );
       const prepared =
         value.change?.pending &&
         value.change.kind === 'framework' &&
         value.change.phase === 'prepared';
       $('refresh').disabled = working;
-      $('operations').hidden = !recoveryRequired();
+      $('operations').hidden =
+        !recoveryRequired() || getSession()?.role !== 'admin';
+      $('operation-access').hidden =
+        !recoveryRequired() || getSession()?.role === 'admin';
+      $('access-note').hidden = can('server.view');
       $('start').hidden = $('stop').hidden = $('check').hidden = !managed;
       $('start').textContent = prepared
         ? 'Start and validate prepared framework'
@@ -56,7 +90,7 @@ export const rustSoftware = {
         !managed ||
         !allowed(action('check')) ||
         !value.installation?.version ||
-        (pending() && !metadataOnly());
+        pending();
       const expires = Date.parse(value.updates?.expires),
         expired = !Number.isFinite(expires) || Date.now() >= expires;
       $('apply').disabled =
@@ -90,18 +124,6 @@ export const rustSoftware = {
           value.framework ||
           'Vanilla';
       $('setup-note').hidden = !value.managed;
-      $('progress').textContent =
-        value.activeJob?.message ||
-        (pending()
-          ? 'Retained phase: ' +
-            (value.change?.pending
-              ? value.change.phase
-              : value.installation.phase
-            ).replaceAll('-', ' ')
-          : getStatus()?.running
-            ? 'Rust is running.'
-            : 'Rust is stopped.');
-      $('progress').setAttribute('aria-busy', String(!!value.activeJob));
       $('update').hidden =
         !value.updates?.available ||
         (!value.updates.pending && value.updates.phase !== 'reviewed');
@@ -145,7 +167,7 @@ export const rustSoftware = {
         recoveryKind() === 'initial'
           ? 'Initial software preparation was interrupted. Inspect it before retrying.'
           : metadataOnly()
-            ? 'A retained update check can be closed without stopping Rust. You can also check again for a fresh review.'
+            ? 'Recover this retained update check before checking again. This metadata-only recovery does not stop Rust or change its world.'
             : recoveryKind() === 'framework' &&
                 value.change.phase === 'prepared'
               ? 'A framework is prepared. Start to validate it, or recover the previous software and world.'

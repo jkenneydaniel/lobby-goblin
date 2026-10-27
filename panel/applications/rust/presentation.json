@@ -51,8 +51,7 @@
       "component": "extension",
       "options": {
         "provider": "rust.software",
-        "version": 1,
-        "requiresStatus": true
+        "version": 1
       }
     },
     {

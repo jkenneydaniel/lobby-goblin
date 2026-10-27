@@ -47,7 +47,7 @@ async function softwareFixture(page, {phase = 'ready', framework = 'none', expir
       const job = {id: 'software-fixture-' + jobs.length, action: body.action, state: 'succeeded', message: 'Fixture completed', started: new Date().toISOString(), actor: 'admin'};
       jobs.unshift(job); return route.fulfill({status: 202, json: job});
     }
-    return route.fulfill({json: {jobs, active: null, recoveryRequired: false}});
+    return route.fulfill({json: {jobs, active: null, recoveryRequired: !!state.blocked}});
   });
   return {state, submissions};
 }
@@ -143,17 +143,35 @@ test('running Rust recovery follows the backend metadata-only decision', async (
   await login(page, 'rust'); await page.goto(origins.rust + '/#software');
   await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeEnabled();
-  await expect(page.locator('[data-recovery-note]')).toContainText('without stopping');
+  await expect(page.locator('[data-recovery-note]')).toContainText('does not stop Rust');
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
   fixture.state.change.metadataOnlyRecovery = false;
   await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
   await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
-  await expect(page.locator('[data-recovery-note]')).not.toContainText('without stopping');
+  await expect(page.locator('[data-recovery-note]')).not.toContainText('does not stop Rust');
   fixture.state.change.phase = 'reviewed';
   await page.getByRole('button', {name: 'Refresh status', exact: true}).click();
   await page.getByRole('button', {name: 'Inspect recovery', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
   expect(fixture.submissions).toHaveLength(0);
+});
+
+test('software metadata access alone loads without fetching forbidden server status or offering unmonitored jobs', async ({page}) => {
+  const fixture = await softwareFixture(page);
+  let statusReads = 0;
+  page.on('request', request => {if (request.url().endsWith('/api/status')) statusReads++;});
+  await login(page, 'rust', 'software-only'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-version]')).toHaveText('123');
+  await expect(page.locator('[data-access-note]')).toContainText('Server status access is required');
+  await expect(page.getByRole('button', {name: 'Check Steam updates', exact: true})).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Start Rust', exact: true})).toBeDisabled();
+  expect(statusReads).toBe(0); expect(fixture.submissions).toHaveLength(0);
+  fixture.state.blocked = true; fixture.state.change.pending = true;
+  await page.context().clearCookies(); await login(page, 'rust', 'software'); await page.goto(origins.rust + '/#software');
+  await expect(page.locator('[data-operation-access]')).toContainText('An administrator must review');
+  await expect(page.locator('[data-operations]')).toBeHidden();
+  await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
 });
 
 test('runtime snapshot creation preserves its disabled installation selector in preflight and submission', async ({page}) => {
