@@ -179,7 +179,9 @@ test('runtime snapshot creation preserves its disabled installation selector in 
   const checked = [], created = [];
   await page.route('**/api/creation-preflight', async route => {checked.push(route.request().postDataJSON()); await route.fulfill({json: {ready: true, checks: []}});});
   await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
-  await login(page, 'fleet', 'Preview'); await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  await login(page, 'fleet', 'Preview');
+  await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
+  await page.getByRole('button', {name: 'Create server', exact: true}).click();
   const form = page.locator('#create'); await form.locator('[name=name]').fill('Runtime copy');
   await form.locator('[name=snapshotId]').selectOption('f'.repeat(32));
   await expect(form.locator('[name=softwareMode]')).toBeDisabled();
@@ -191,6 +193,7 @@ test('runtime snapshot creation preserves its disabled installation selector in 
 
 test('creation checks block failures and discard a late result after input changes', async ({page}) => {
   await login(page, 'fleet', 'Preview');
+  await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Create server', exact: true}).click();
   const form = page.locator('#create'); await form.locator('[name=name]').fill('Disposable setup');
   let release, requests = 0, creates = 0;

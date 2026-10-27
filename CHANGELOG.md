@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.3.11-alpha — 2026-10-27
+
+- Add exact software-provider contracts, receipts and recovery records, with a
+  shared digest-pinned SteamCMD base and isolated preparation workers.
+- Offer new managed Rust installations with verified, pinned Steam builds and
+  separate software/world storage. Preserve existing installation defaults;
+  existing servers are not adopted or converted automatically.
+- Support reviewed Rust software updates independently of game images, including
+  Carbon/Oxide compilation validation and matching software/world/mod-data
+  recovery. Preserve prior exact software caches and retain newer data privately.
+- Protect managed plugin/configuration storage and keep executable-mod, framework,
+  software and lifecycle permissions separate. Read protocol metadata from
+  verified pristine files before startup without executing game code.
+- Add a focused Rust Software screen for initial preparation, exact-build review,
+  progress and inspected recovery. Handle expired reviews, interrupted checks,
+  limited account permissions and session expiry without replaying operations.
+- Check host/resources and snapshot installation compatibility before creation.
+  Preserve disabled installation selections and discard stale check results.
+- Include a minimal copyable application package and guide using the existing
+  container provider, without custom panel code or a new generator framework.
+- Preserve historical updater/archive formats, Factorio's official headless
+  installer and existing game image defaults. Valheim and new ARM64 game support
+  remain deferred. Publishing does not deploy or modify servers or worlds.
+
 ## 0.3.10-alpha — 2026-10-26
 
 - Fix sign-in after session expiry inside a local or remote server view. Authenticate centrally, refresh server permissions and resume the current screen.
