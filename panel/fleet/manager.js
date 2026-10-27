@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';import path from 'node:path';import crypto fro
 import {assert,readJSON,writeJSON,sleep} from '../common.js';import {validId,labels,resources,validateCreation} from './catalog.js';
 import {registeredApplications} from '../applications/index.js';
 import {gameCatalog,validateManagedGame} from '../core/managed-game.js';
+import {selectedRuntime} from '../core/runtime-option.js';
 import {verifySnapshot} from './snapshots.js';
 import {AuditLog} from '../core/audit.js';
 import {Operations} from '../core/operations.js';
@@ -132,9 +133,10 @@ export class FleetManager{
   const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,`This server needs ${input.memoryGiB+1} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
   const module=this.module(input.game),managed=module.managed,defaults=this.catalog[input.game];let snapshot=null;
   if(input.snapshotId){snapshot=this.snapshot(input.snapshotId);const manifest=await verifySnapshot(this.library,snapshot.id,snapshot.manifestSha256);assert(snapshot.game===input.game,'This snapshot belongs to a different application.',409);input=managed.creationFromSnapshot(input,manifest);}
-  const game={...defaults,...(input.softwareMode==='runtime'&&managed.runtime?{image:managed.runtime.imagePolicy.defaultImage}:{})};
+  const runtime=selectedRuntime(managed,input);assert(!runtime?.controllerPrepared||this.broker,'Managed software preparation requires an updated brokered host.',409);
+  const game={...defaults,...(runtime?{image:runtime.imagePolicy.defaultImage}:{})};
   if(snapshot)assert(managed.snapshots.compatible(snapshot.image,game.image),'This snapshot requires a different game image.',409);
-  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,software:structuredClone(input.softwareMode==='runtime'&&managed.runtime?managed.runtime.software:managed.software||{version:1,mode:'image'}),...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
+  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,software:structuredClone(runtime?runtime.software:managed.software||{version:1,mode:'image'}),...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
   try{
    await this.stage(job,'Downloading the reviewed game image…');const resolved=await this.ensureImage(game.image,input.game);item.image=resolved.reference;await this.persist();
    if(this.broker)await this.broker.grant({id,game:item.game});
@@ -149,7 +151,7 @@ export class FleetManager{
    if(this.broker)Object.assign(env,{DOCKER_BROKER_SOCKET:brokerSocket,DOCKER_BROKER_TOKEN_FILE:brokerToken});
    await this.docker('POST','/containers/create?'+new URLSearchParams({name:item.controller}),{Image:this.runtimeImage||this.image,User:'0:0',Env:Object.entries(env).map(([k,v])=>k+'='+v),Labels:{...commonLabels,'io.lobby-goblin.role':'instance-controller'},HostConfig:{RestartPolicy:{Name:'unless-stopped'},Memory:1024**3,NanoCpus:1e9,CapDrop:['ALL'],CapAdd:['DAC_OVERRIDE'],SecurityOpt:['no-new-privileges:true'],Mounts:[{Type:'volume',Source:item.volume,Target:'/instance'},...(this.broker?[{Type:'volume',Source:this.brokerVolume,Target:'/broker/socket',ReadOnly:true,VolumeOptions:{Subpath:'socket',NoCopy:true}},{Type:'volume',Source:this.brokerVolume,Target:'/broker/credential',ReadOnly:true,VolumeOptions:{Subpath:'instances/'+id,NoCopy:true}}]:[{Type:'bind',Source:'/var/run/docker.sock',Target:'/var/run/docker.sock'}])],NetworkMode:item.network,LogConfig:{Type:'json-file',Config:{'max-size':'5m','max-file':'2'}}},NetworkingConfig:{EndpointsConfig:{[item.network]:{Aliases:[item.controller]}}}});
    await this.docker('POST',`/networks/${item.network}/connect`,{Container:this.hostContainer,EndpointConfig:{Aliases:[]}});
-   await this.stage(job,'Starting the new server. Open it for installation progress…');await this.docker('POST',`/containers/${item.container}/start`);await this.docker('POST',`/containers/${item.controller}/start`);item.state='starting';await this.persist();
+   await this.stage(job,'Starting the new server. Open it for installation progress…');if(!runtime?.controllerPrepared)await this.docker('POST',`/containers/${item.container}/start`);await this.docker('POST',`/containers/${item.controller}/start`);item.state='starting';await this.persist();
    for(let n=0;n<60;n++){try{const child=await this.request(item,'/jobs',{action:'start',params:{},actor:job.actor,requestId:job.id+'-start'});item.state='installed';await this.stage(job,'The controller accepted server startup.','handoff',{childJobId:child.id});return {serverId:id,message:'Server created. Open it for installation progress and game controls.'};}catch(error){if(n===59)throw error;await sleep(1000);}}
   }catch(error){item.state='attention';await this.persist();throw error;}
  }

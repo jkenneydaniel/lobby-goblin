@@ -3,6 +3,7 @@ import {validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
 import {validateManagedBinding} from './managed-bindings.js';
 import {softwareWorkerDeclaration} from './software-worker-policy.js';
+import {runtimeOption} from './runtime-option.js';
 
 // Versioned, trusted built-in adapters. No module path or image comes from a request.
 export function validateManagedGame(module) {
@@ -120,6 +121,7 @@ export function validateManagedGame(module) {
     'Duplicate game creation fields.',
   );
   const catalog = managed.catalog;
+  if (managed.runtime) runtimeOption(managed.runtime, {application: module.id, baseSoftware: managed.software});
   if (managed.softwareWorker !== undefined) {
     softwareWorkerDeclaration(managed.softwareWorker, module.id);
     assert(creation.minMemoryGiB >= 2, 'Steam preparation requires an application allocation of at least 2 GiB.');
@@ -178,7 +180,7 @@ export function gameCatalog(module) {
     id: module.id,
     name: module.name,
     kind: module.definition?.kind || 'game',
-    ...(module.managed.runtime?{softwareModes:['image','runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage}:{}),
+    ...(module.managed.runtime?{softwareModes:[module.managed.software?.mode || 'image',module.managed.runtime.key || 'runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage,...(module.managed.runtime.key?{runtimeKey:module.managed.runtime.key,runtimeLabel:module.managed.runtime.label || 'Managed installation',defaultSoftwareMode:module.managed.software?.mode || 'image'}:{})}:{}),
     ...structuredClone(module.managed.catalog),
   };
 }
@@ -233,7 +235,7 @@ export function validateManagedCreation(input, module) {
     input.autoStart === undefined || typeof input.autoStart === 'boolean',
     'Invalid startup preference.',
   );
-  assert(input.softwareMode === undefined || input.softwareMode === (module.managed.software?.mode || 'image') || input.softwareMode === 'runtime' && module.managed.runtime, 'This application does not support that software delivery mode.');
+  assert(input.softwareMode === undefined || input.softwareMode === (module.managed.software?.mode || 'image') || module.managed.runtime && input.softwareMode === (module.managed.runtime.key || 'runtime'), 'This application does not support that software delivery mode.');
   const fields = {...policy.defaults};
   for (const field of policy.fields) {
     const value = Number(input[field.key] ?? field.default);

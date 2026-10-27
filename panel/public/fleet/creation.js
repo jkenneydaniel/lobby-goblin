@@ -31,9 +31,16 @@ export function createServerDialog({
     f.elements.seed.closest('label').hidden = !isGame;
     if (!policy)
       throw Error('Update this host to provide its game creation options.');
-    $('#software-mode-field').hidden = !game.softwareModes?.includes('runtime');
-    f.elements.softwareMode.disabled = !game.softwareModes?.includes('runtime');
-    f.elements.softwareMode.value = 'image';
+    const choices = game.softwareModes || [];
+    $('#software-mode-field').hidden = choices.length < 2;
+    f.elements.softwareMode.disabled = choices.length < 2;
+    f.elements.softwareMode.innerHTML = choices
+      .map(
+        (key) =>
+          `<option value="${esc(key)}">${esc(key === (game.runtimeKey || 'runtime') ? game.runtimeLabel || 'Install latest stable once, then select versions independently' : key === 'image' ? 'Bundled with the image (compatible default)' : 'Existing installation method (compatible default)')}</option>`,
+      )
+      .join('');
+    f.elements.softwareMode.value = game.defaultSoftwareMode || 'image';
     f.elements.cpu.value = game.cpu;
     f.elements.memoryGiB.value = game.memoryGiB;
     f.elements.memoryGiB.min = policy.minMemoryGiB;
@@ -79,11 +86,11 @@ export function createServerDialog({
       );
       f.elements.softwareMode.value =
         snapshot && sameImageReference(snapshot.image, game.runtimeImage)
-          ? 'runtime'
-          : 'image';
+          ? game.runtimeKey || 'runtime'
+          : game.defaultSoftwareMode || 'image';
     }
     f.elements.softwareMode.disabled =
-      clone || !game?.softwareModes?.includes('runtime');
+      clone || (game?.softwareModes?.length || 0) < 2;
     f.elements.seed.disabled = clone || (!!game?.kind && game.kind !== 'game');
     for (const field of game?.creation?.fields || [])
       f.elements[field.key].disabled = clone && field.lockOnClone === true;
