@@ -14,6 +14,7 @@ export function mountWorldPreview(
   let timer = null,
     poll = null,
     stopped = false,
+    suspended = false,
     version = 0,
     controller = null,
     lastId = null;
@@ -119,7 +120,7 @@ export function mountWorldPreview(
     );
   }
   async function request() {
-    if (stopped || !visible() || document.hidden) return;
+    if (stopped || suspended || !visible() || document.hidden) return;
     if (!valid()) {
       stale();
       text(
@@ -149,6 +150,7 @@ export function mountWorldPreview(
   }
   function schedule(force = false) {
     cancel();
+    if (suspended || stopped) return;
     stale();
     if (!visible()) return;
     if (!automatic.checked && !force) {
@@ -215,5 +217,14 @@ export function mountWorldPreview(
   };
   // Render the initial draft immediately; debounce subsequent slider edits.
   schedule(true);
-  return () => schedule();
+  const changed = () => schedule();
+  changed.pause = () => {
+    suspended = true;
+    cancel();
+  };
+  changed.resume = () => {
+    suspended = false;
+    schedule();
+  };
+  return changed;
 }

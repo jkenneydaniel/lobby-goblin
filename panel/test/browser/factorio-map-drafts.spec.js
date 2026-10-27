@@ -13,13 +13,15 @@ async function open(page,hash,role='admin'){
   });
   await page.goto(origins.factorio+scope+'/'+hash);
 }
-async function drafts(page,{conflict=false,delay=0}={}){
+async function drafts(page,{conflict=false,delay=0,discardDelay=0,discardError=false}={}){
   let setups=emptySetups();const submissions=[];
   await page.route('**/api/world-setups',async route=>{
     try{
       if(route.request().method()==='POST'){
         const body=route.request().postDataJSON();submissions.push(body);
         if(body.operation==='draft'&&delay)await new Promise(resolve=>setTimeout(resolve,delay));
+        if(body.operation==='discard'&&discardDelay)await new Promise(resolve=>setTimeout(resolve,discardDelay));
+        if(body.operation==='discard'&&discardError)throw Object.assign(Error('Draft storage temporarily unavailable.'),{status:503});
         if(body.operation==='discard'&&conflict)throw Object.assign(Error('Your saved setups changed in another tab. Reload before editing.'),{status:409});
         setups=changeSetups(setups,body);
       }
@@ -119,4 +121,30 @@ test('oversized modded objects remain visible and selectable when their center i
     const ratio=element.width/element.getBoundingClientRect().width;
     return [...element.getContext('2d').getImageData(Math.floor(element.width/2+30*ratio),Math.floor(element.height/2),1,1).data];
   })).toEqual([229,201,133,255]);
+});
+test('a pending rerolled preview cannot recreate the draft behind a slow successful discard',async({page})=>{
+  const store=await drafts(page,{discardDelay:2000});await open(page,'#worlds/create');
+  await page.getByRole('textbox',{name:/^World name/}).fill('Do not recreate');
+  await expect(page.locator('#draft-save-state')).toContainText('Draft saved to your account');
+  await page.locator('#roll-world-seed').click();await expect(page.locator('[name=seed]')).toHaveValue('');
+  await page.getByRole('button',{name:'Cancel draft',exact:true}).click();
+  await page.getByRole('dialog',{name:'Cancel this world draft?'}).getByRole('button',{name:'Cancel draft',exact:true}).click();
+  await expect(page).toHaveURL(/#worlds$/);expect(store.setups.draft).toBeNull();
+  const discard=store.submissions.findIndex(body=>body.operation==='discard');expect(discard).toBeGreaterThanOrEqual(0);
+  expect(store.submissions.slice(discard+1)).toEqual([]);
+  await page.waitForTimeout(900);await page.reload();await expect(page.getByRole('link',{name:'Resume world draft',exact:true})).toHaveCount(0);
+});
+test('failed cancellation restores pending autosaves and rerolled preview controls',async({page})=>{
+  const store=await drafts(page,{discardDelay:1200,discardError:true});await open(page,'#worlds/create');
+  await page.getByRole('textbox',{name:/^World name/}).fill('Keep pending edits');
+  await expect(page.locator('#draft-save-state')).toContainText('Draft saved to your account');
+  await page.locator('#roll-world-seed').click();await page.getByRole('button',{name:'Cancel draft',exact:true}).click();
+  await page.getByRole('dialog',{name:'Cancel this world draft?'}).getByRole('button',{name:'Cancel draft',exact:true}).click();
+  await expect(page.locator('#world-form-error')).toContainText('Draft storage temporarily unavailable.');
+  await expect(page.locator('[name=seed]')).not.toHaveValue('');
+  await expect.poll(()=>store.setups.draft?.seed).toBe(await page.locator('[name=seed]').inputValue());
+  await page.getByRole('textbox',{name:/^World name/}).fill('Autosave resumed');
+  await expect.poll(()=>store.setups.draft?.name).toBe('Autosave resumed');
+  await page.locator('#roll-world-seed').click();await expect(page.locator('#draft-preview-state')).toContainText('Up to date');
+  await expect.poll(()=>store.setups.draft?.seed).toBe(await page.locator('[name=seed]').inputValue());
 });

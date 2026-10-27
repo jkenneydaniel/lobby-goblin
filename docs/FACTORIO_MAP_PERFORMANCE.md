@@ -27,18 +27,22 @@ server, existing save, Docker daemon or deployed panel was used.
   stale discard retains the editor. Cancellation is unavailable while a world
   operation is active. It discards draft settings only: requested terrain previews
   can finish, and submitted world creation is not cancellable through this control.
+  Preview seed callbacks and new autosaves pause before the discard, preventing a
+  delayed preview from recreating the draft. Refused discards resume those controls.
 
 ## Reproduce the query measurement
 
 Run `node panel/test/map-benchmark.mjs` with Node 24. It generates deterministic
-object coordinates in memory and compares 120 matching viewport queries. A local
-run on October 27, 2026 produced:
+object coordinates in memory and compares 120 matching viewport queries per pass.
+Both paths receive three warm-up passes, followed by seven measured passes with
+alternating order; the table reports median query times. A local run on October
+27, 2026 produced:
 
-| Synthetic objects | Index build | Full scans | Indexed queries | Average candidates |
+| Synthetic objects | Index build | Full scans median | Indexed queries median | Average candidates |
 | ---: | ---: | ---: | ---: | ---: |
-| 80,000 | 8.71 ms | 68.35 ms | 7.67 ms | 1,925 |
-| 160,000 | 18.62 ms | 132.65 ms | 7.87 ms | 1,925 |
-| 320,000 | 20.07 ms | 262.88 ms | 8.25 ms | 1,925 |
+| 80,000 | 6.85 ms | 65.35 ms | 7.34 ms | 1,925 |
+| 160,000 | 16.41 ms | 129.88 ms | 12.33 ms | 1,925 |
+| 320,000 | 19.23 ms | 258.62 ms | 12.39 ms | 1,925 |
 
 These timings vary with hardware and load. They measure lookup work for zoomed
 views, not GPU frame time, Factorio tick rate, gameplay or end-to-end exports.
