@@ -325,3 +325,36 @@ test('requested snapshot failure blocks removal and preserves source storage and
  assert.equal(f.containers.get(neighbor.container).State.Running,true);
  assert.ok(!f.calls.slice(before).some(call=>call.method==='DELETE'));
 });
+
+test('Rust creation enforces its signed seed range while Factorio retains uint32 seeds',()=>{
+ assert.equal(validateCreation({game:'rust',name:'Boundary',seed:2147483647}).seed,2147483647);
+ for(const seed of [2147483648,3532793187,4294967295])assert.throws(()=>validateCreation({game:'rust',name:'Overflow',seed}),/2147483647/);
+ assert.equal(validateCreation({game:'factorio',name:'Unsigned',seed:3532793187}).seed,3532793187);
+ assert.equal(validateCreation({game:'factorio',name:'Unsigned maximum',seed:4294967295}).seed,4294967295);
+});
+test('random server seeds use the application creation range including its upper boundary',async t=>{
+ const {default:crypto}=await import('node:crypto');
+ const ranges=[];t.mock.method(crypto,'randomInt',(min,max)=>{ranges.push([min,max]);return max-1;});
+ const f=await fakeManager(t),rust=await f.submit({game:'rust',name:'Random Rust'});
+ assert.equal(rust.seed,2147483647);assert.deepEqual(ranges.at(-1),[1,2147483648]);
+ f.manager.memoryBudgetGiB=32;
+ const factorio=await f.submit({game:'factorio',name:'Random Factorio'});
+ assert.equal(factorio.seed,4294967295);assert.deepEqual(ranges.at(-1),[1,4294967296]);
+});
+test('legacy Rust overflow registration snapshots keep the verified clamped world identity and clone it independently',async t=>{
+ const f=await fixture(t),identity=await directory(f.root,'legacy-rust'),destination=await directory(f.root,'rust-clone');
+ const name='proceduralmap.2000.2147483647.289.sav',bytes=Buffer.from('synthetic Rust clamped world');
+ await fs.mkdir(path.join(identity,'cfg'));await fs.writeFile(path.join(identity,'cfg/server.cfg'),'rcon.password private-never-copy');await fs.writeFile(path.join(identity,name),bytes);
+ const backup=path.join(f.root,'legacy-overflow.tar.gz');await writeArchive(backup,identity,{identity:'lobby-goblin-rust',instance:one,label:'before-removal'});
+ const before=await fs.readFile(backup),record={id:snap,sourceId:one,title:'Legacy overflow world',game:'rust',image:catalog.rust.image,seed:3532793187,worldSize:2000};
+ const result=await publishSnapshot({library:f.library,backup,record}),manifest=await verifySnapshot(f.library,snap,result.manifestSha256);
+ assert.equal(manifest.seed,2147483647);assert.equal(manifest.worldSize,2000);assert.equal(record.seed,3532793187);
+ assert.ok(!manifest.files.some(file=>file.name.includes('/cfg/')));assert.deepEqual(await fs.readFile(backup),before);assert.deepEqual(await fs.readFile(path.join(identity,name)),bytes);
+ const module=selectedApplication('rust'),input=module.managed.creationFromSnapshot({game:'rust',name:'Independent copy'},manifest);assert.equal(input.seed,2147483647);
+ await runWorker(provision(two,'rust',{...input,snapshotId:snap,snapshotHash:result.manifestSha256}),{instance:destination,library:f.library});
+ assert.deepEqual(await fs.readFile(path.join(destination,'data/server/lobby-goblin-rust',name)),bytes);
+ for(const [seed,worldSize] of [[1234,2000],[3532793187,3000],[4294967296,2000]]){
+  await assert.rejects(publishSnapshot({library:f.library,backup,record:{...record,id:'e'.repeat(32),seed,worldSize}}),/source server seed and size|invalid registered seed/);
+  assert.equal(await fs.stat(path.join(f.library,'e'.repeat(32))).catch(()=>null),null);
+ }
+});

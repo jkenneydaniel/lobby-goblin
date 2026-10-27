@@ -1,3 +1,4 @@
+import {creationSeedRange} from '../core/managed-game.js';
 import {storageWorkerCapabilities,storageWorkerMessage} from './storage-worker.js';
 import {regularFile,parseStorageJSON} from '../core/storage/files.js';
 import {creationPreflight} from '../core/creation-preflight.js';
@@ -144,7 +145,8 @@ export class FleetManager{
   const runtime=selectedRuntime(managed,input);assert(!runtime?.controllerPrepared||this.broker,'Managed software preparation requires an updated brokered host.',409);
   const game={...defaults,...(runtime?{image:runtime.imagePolicy.defaultImage}:{})};
   if(snapshot)assert(managed.snapshots.compatible(snapshot.image,game.image),'This snapshot requires a different game image.',409);
-  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(1,0x100000000),image:game.image,software:structuredClone(runtime?runtime.software:managed.software||{version:1,mode:'image'}),...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
+  const seedRange=creationSeedRange(managed.catalog.creation);
+  const id=crypto.randomBytes(16).toString('hex'),ports=await this.allocatePorts(input.game),item={...input,id,...resources(this.fleet,id,input.game),...ports,seed:input.seed??crypto.randomInt(seedRange.min,seedRange.max+1),image:game.image,software:structuredClone(runtime?runtime.software:managed.software||{version:1,mode:'image'}),...(this.broker?{isolationVersion:1}:{}),created:new Date().toISOString(),state:'creating',controllerToken:crypto.randomBytes(48).toString('hex'),rconPassword:crypto.randomBytes(48).toString('base64url')};this.state.servers.push(item);await this.stage(job,'Server storage and ports reserved.','allocated',{serverId:id});
   try{
    await this.stage(job,'Downloading the reviewed game image…');const resolved=await this.ensureImage(game.image,input.game);item.image=resolved.reference;await this.persist();
    if(this.broker)await this.broker.grant({id,game:item.game});

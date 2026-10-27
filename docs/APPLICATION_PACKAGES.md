@@ -128,3 +128,12 @@ package declarations, not Docker recipes or application binaries.
 
 See the [verification record](verification/application-packages.md) for source,
 updater, browser and disposable-container evidence and remaining boundaries.
+
+
+Managed game creation policies may declare `creation.seed: {min, max}` within
+the existing uint32 envelope; omitted policies retain 1–4294967295. The host uses
+that range for explicit validation and random generation, and the panel uses the
+same catalogue bounds. Snapshot collectors may return a validated `seed` override
+alongside optional `software` metadata when an application verifies a legacy
+runtime-adjusted identity against the backed-up save. Other manifest identities
+and ownership fields cannot be overridden.

@@ -44,3 +44,22 @@ test('administrator can enable release checks, choose a channel, and recover fro
   await expect(page.getByRole('combobox',{name:'Release channel',exact:true})).toHaveValue('stable');
   expect(errors).toEqual([]);expect(external).toEqual([]);
 });
+
+test('server creation follows package seed bounds without narrowing Factorio',async({page})=>{
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.context().route('**/*',route=>new URL(route.request().url()).origin===origins.fleet?route.continue():route.abort());
+  await page.goto(origins.fleet);await page.getByLabel('Username',{exact:true}).fill('Preview');
+  await page.getByLabel('Password',{exact:true}).fill('isolated-panel-preview-password');
+  await page.getByRole('button',{name:'Sign in',exact:true}).click();
+  await page.getByRole('button',{name:'Create server',exact:true}).click();
+  const form=page.locator('#create'),seed=form.locator('[name=seed]');
+  await expect(seed).toHaveAttribute('max','4294967295');await seed.fill('3532793187');
+  expect(await seed.evaluate(input=>input.validity.rangeOverflow)).toBe(false);
+  await form.locator('[name=game]').selectOption('rust');
+  await expect(seed).toHaveAttribute('max','2147483647');
+  expect(await seed.evaluate(input=>input.validity.rangeOverflow)).toBe(true);
+  await seed.fill('2147483647');expect(await seed.evaluate(input=>input.checkValidity())).toBe(true);
+  await form.locator('[name=game]').selectOption('factorio');
+  await expect(seed).toHaveAttribute('max','4294967295');await seed.fill('4294967295');
+  expect(await seed.evaluate(input=>input.checkValidity())).toBe(true);expect(errors).toEqual([]);
+});

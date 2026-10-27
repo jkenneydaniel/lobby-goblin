@@ -5,6 +5,17 @@ import {validateManagedBinding} from './managed-bindings.js';
 import {softwareWorkerDeclaration} from './software-worker-policy.js';
 import {runtimeOption} from './runtime-option.js';
 
+export function creationSeedRange(creation) {
+  const range = creation.seed === undefined ? {min: 1, max: 0xffffffff} : creation.seed;
+  assert(
+    range && typeof range === 'object' && !Array.isArray(range) &&
+      Object.keys(range).every(key => ['min', 'max'].includes(key)) &&
+      Number.isInteger(range.min) && Number.isInteger(range.max) &&
+      range.min >= 1 && range.max >= range.min && range.max <= 0xffffffff,
+    'Invalid game seed policy.',
+  );
+  return range;
+}
 // Versioned, trusted built-in adapters. No module path or image comes from a request.
 export function validateManagedGame(module) {
   assert(
@@ -90,6 +101,7 @@ export function validateManagedGame(module) {
       Array.isArray(creation.fields),
     'Invalid game creation policy.',
   );
+  creationSeedRange(creation);
   for (const field of creation.fields)
     assert(
       /^[a-z][A-Za-z0-9]*$/.test(field.key) &&
@@ -211,12 +223,13 @@ export function validateManagedCreation(input, module) {
       memoryGiB <= policy.maxMemoryGiB,
     `Choose ${policy.minMemoryGiB}–${policy.maxMemoryGiB} GiB for ${module.name}.`,
   );
+  const seedRange=creationSeedRange(policy);
   const seed =
     input.seed === '' || input.seed == null ? null : Number(input.seed);
   assert(
     seed === null ||
-      (Number.isInteger(seed) && seed >= 1 && seed <= 0xffffffff),
-    'Seed must be 1–4294967295, or blank for a new random seed.',
+      (Number.isInteger(seed) && seed >= seedRange.min && seed <= seedRange.max),
+    `Seed must be ${seedRange.min}–${seedRange.max}, or blank for a new random seed.`,
   );
   const maxPlayers = Number(input.maxPlayers ?? policy.defaultPlayers);
   assert(

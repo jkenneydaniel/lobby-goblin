@@ -5,7 +5,7 @@ import {
   hashFile,
   snapshotInventory as inventory,
 } from '../core/snapshot-files.js';
-import {validateManagedGame} from '../core/managed-game.js';
+import {validateManagedGame,creationSeedRange} from '../core/managed-game.js';
 import {validId} from '../core/instance.js';
 import {selectedApplication} from '../applications/index.js';
 export {hashFile} from '../core/snapshot-files.js';
@@ -30,7 +30,13 @@ export async function publishSnapshot({
   await fs.mkdir(content);
   try {
     const metadata=await adapter.collect({backup, content, temporary, record})||{};
-    assert(metadata&&Object.keys(metadata).every(key=>key==='software'),'Invalid snapshot software metadata.');
+    const seedRange=creationSeedRange(module.managed.catalog.creation);
+    assert(
+      metadata && Object.keys(metadata).every(key => ['software', 'seed'].includes(key)) &&
+        (metadata.seed === undefined || Number.isInteger(metadata.seed) &&
+          metadata.seed >= seedRange.min && metadata.seed <= seedRange.max),
+      'Invalid snapshot metadata.',
+    );
     const files = await inventory(content);
     assert(
       files.length > 0 && files.length <= 20000,

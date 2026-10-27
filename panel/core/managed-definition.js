@@ -89,6 +89,7 @@ function declaration(definition) {
         'maxMemoryGiB',
         'maxPlayers',
         'defaultPlayers',
+        'seed',
         'defaults',
         'fields',
         'help',

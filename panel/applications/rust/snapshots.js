@@ -1,3 +1,4 @@
+import {rustSnapshotSeed} from './seed.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createReadStream} from 'node:fs';
@@ -67,7 +68,8 @@ export async function extractRust(file, target) {
 }
 
 export async function collectSnapshot({backup, content, temporary, record}) {
-  const verified = await verifyArchive(backup);
+  const seed = rustSnapshotSeed(record.seed),
+    verified = await verifyArchive(backup);
   assert(
     !/:managed-lg\./.test(record.image || '') || verified.software,
     'Managed Rust snapshots require their exact software identity.',
@@ -84,7 +86,7 @@ export async function collectSnapshot({backup, content, temporary, record}) {
   assert(
     (await fs.readdir(identity)).some(
       (name) =>
-        name.startsWith(`proceduralmap.${record.worldSize}.${record.seed}.`) &&
+        name.startsWith(`proceduralmap.${record.worldSize}.${seed}.`) &&
         name.endsWith('.sav'),
     ),
     'Rust save does not match the source server seed and size.',
@@ -101,8 +103,9 @@ export async function collectSnapshot({backup, content, temporary, record}) {
   await fs.rm(path.join(temporary, 'extracted'), {recursive: true});
   if (verified.software) {
     await writeJSON(path.join(content, 'software.json'), verified.software);
-    return {software: verified.software};
+    return {seed, software: verified.software};
   }
+  return {seed};
 }
 export async function restoreSnapshot({root, data, manifest, id}) {
   assert(
