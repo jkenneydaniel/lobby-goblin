@@ -1,3 +1,4 @@
+import {createRustModLibrary} from '../applications/rust/mod-library.js';
 import crypto from 'node:crypto';
 import {executionProjection} from '../core/software-execution.js';
 import {softwareInventory} from '../providers/steamcmd/files.js';
@@ -535,4 +536,60 @@ test('an interrupted recovery destination cannot be treated as a completed sourc
     result.recovery.reason,
     /earlier recovery copy did not complete/,
   );
+});
+
+test('Rust retained recovery shares the live plugin-library interruption gate at its nested journal path', async (t) => {
+  const f = await fixture(t, 'rust');
+  await put(
+    f.source,
+    'data/server/lobby-goblin-rust/proceduralmap.2000.456.289.sav',
+    'world',
+  );
+  const plugins = createRustModLibrary(
+    {
+      config: {
+        state: path.join(f.source, 'state'),
+        installRoot: path.join(f.source, 'data'),
+      },
+      updater: {busy: false},
+    },
+    {mods: {}, owned: async () => ({State: {Running: false}})},
+  );
+  const journal = path.join(
+    f.source,
+    'state/mods/mod-library/transaction.json',
+  );
+  for (const phase of ['applying', 'recovering', 'complete', 'recovered']) {
+    await writeJSON(journal, {phase});
+    const inspection = await runRetainedWorker(f.request, f.options),
+      safe = ['complete', 'recovered'].includes(phase);
+    assert.equal(inspection.recovery.ready, safe, phase);
+    if (safe) await plugins.assertReady();
+    else {
+      await assert.rejects(plugins.assertReady(), /interrupted mod change/);
+      await assert.rejects(
+        runRetainedWorker(
+          {
+            ...f.request,
+            ...f.next,
+            sourceId,
+            action: 'copy',
+            nonce,
+            fingerprint: inspection.fingerprint,
+          },
+          f.options,
+        ),
+        /interrupted application change/,
+      );
+      await assert.rejects(
+        fs.stat(
+          path.join(
+            f.instance,
+            'data/server/lobby-goblin-rust/proceduralmap.2000.456.289.sav',
+          ),
+        ),
+        {code: 'ENOENT'},
+      );
+    }
+  }
 });

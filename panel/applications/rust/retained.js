@@ -29,6 +29,7 @@ export const retained = {
   async inspect({source, config, read}) {
     await retainedGates(read, [
       'state/mods/transaction.json',
+      'state/mods/mod-library/transaction.json',
       'state/mod-library/transaction.json',
       'state/software/rust/installation.json',
       'state/image-migration.json',
