@@ -272,6 +272,11 @@ are prepared only by a game-user helper with a minimal environment. No privilege
 write follows mutable configuration paths. The game child's Harmony log path is
 set to the mutable Carbon logs directory before its first constructor runs;
 Carbon's own later logging setup must not require a write into the sealed engine.
+The controller must prepare Carbon's required compiler-library removals in a private
+candidate, retaining pristine software and recovery copies. Startup refuses
+those conflicts instead of letting the game rewrite code. Its two packaged hook
+components carry hashes bound to the exact Rust build, protocol and verified
+framework archive; startup checks those hashes without downloading replacements.
 Startup rejects links, hardlinks and special files in the bounded world inventory
 before its ownership handoff, preserving unexpected files for operator review.
 Existing nonempty data in an execution

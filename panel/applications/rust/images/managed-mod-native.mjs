@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
-import {prepareFrameworkLayout, oxideCompiler} from '/app/mod-layout.js';
+import {
+  prepareFrameworkLayout,
+  oxideCompiler,
+  carbonConflicts,
+  carbonHooksReceipt,
+} from '/app/mod-layout.js';
 assert.equal(process.env.LOBBY_MANAGED_MOD_ACCEPTANCE, 'disposable');
 assert.equal(process.getuid(), 0);
 const engine = '/game/engine',
@@ -47,6 +52,32 @@ if (mode === 'base') {
   );
   assert.equal(manifest.framework, framework);
   assert.ok(manifest.files.length > 0 && manifest.files.length < 10000);
+  if (framework === 'carbon') {
+    const receipt = carbonHooksReceipt(manifest.carbonHooks),
+      current = JSON.parse(
+        await fs.readFile('/game/.lobby-goblin-runtime.json', 'utf8'),
+      );
+    assert.equal(receipt.buildId, current.buildId);
+    for (const name of carbonConflicts) {
+      const target = path.join(engine, name),
+        stat = await fs.lstat(target).catch((error) => {
+          if (error.code !== 'ENOENT') throw error;
+          return null;
+        });
+      if (stat) {
+        assert.ok(
+          stat.isFile() &&
+            !stat.isSymbolicLink() &&
+            stat.nlink === 1 &&
+            stat.uid === 0 &&
+            !(stat.mode & 0o022),
+        );
+        assert.equal(await fs.realpath(target), target);
+        // The complete pristine baseline remains in this run's private scratch.
+        await fs.unlink(target);
+      }
+    }
+  }
   let total = 0;
   for (const file of manifest.files) {
     assert.ok(
@@ -91,7 +122,12 @@ if (mode === 'base') {
   });
   await fs.writeFile(
     engine + '/.lobby-goblin-mods.json',
-    JSON.stringify({format: 1, status: 'complete', framework}),
+    JSON.stringify({
+      format: 1,
+      status: 'complete',
+      framework,
+      ...(manifest.carbonHooks ? {hooks: manifest.carbonHooks} : {}),
+    }),
     {mode: 0o644},
   );
   assert.deepEqual(

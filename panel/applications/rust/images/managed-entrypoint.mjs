@@ -8,7 +8,11 @@ import {spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {shutdownEvidence, startupEvidence} from './entrypoint.mjs';
 import {createWebRcon} from './transport.js';
-import {prepareFrameworkLayout, oxideCompiler} from './mod-layout.js';
+import {
+  prepareFrameworkLayout,
+  oxideCompiler,
+  carbonHooksReceipt,
+} from './mod-layout.js';
 
 const check = (value, message) => {
   if (!value) throw Error(message);
@@ -153,7 +157,7 @@ export function executionReceipt(value) {
   );
   return value;
 }
-async function verifyBinary(binary, expected) {
+async function verifyBinary(binary, expected, executable = true) {
   const handle = await fs.open(
     binary,
     constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
@@ -165,7 +169,7 @@ async function verifyBinary(binary, expected) {
         before.nlink === 1 &&
         before.uid === process.getuid() &&
         !(before.mode & 0o022) &&
-        !!(before.mode & 0o111) &&
+        (!executable || !!(before.mode & 0o111)) &&
         before.size > 0 &&
         before.size <= 256 * 1024 ** 2,
       'Managed Rust executable ownership or mode changed',
@@ -199,7 +203,7 @@ async function verifyBinary(binary, expected) {
     await handle.close();
   }
 }
-async function framework(engine, worldRoot, identity) {
+async function framework(engine, worldRoot, identity, buildId) {
   const file = path.join(engine, '.lobby-goblin-mods.json'),
     stat = await fs.lstat(file).catch((error) => {
       if (error.code === 'ENOENT') return null;
@@ -247,6 +251,21 @@ async function framework(engine, worldRoot, identity) {
       path.join(engine, 'Oxide.Compiler'),
       oxideCompiler.sha256,
     );
+  if (marker.framework === 'carbon') {
+    const hooks = carbonHooksReceipt(marker.hooks);
+    check(
+      hooks.buildId === buildId,
+      'Carbon hooks belong to a different Rust build',
+    );
+    for (const file of hooks.files) {
+      const target = path.join(engine, file.name);
+      check(
+        (await fs.lstat(target)).size === file.size,
+        'Carbon hook size changed',
+      );
+      await verifyBinary(target, file.sha256, false);
+    }
+  }
   const layout = await prepareFrameworkLayout({
     engine,
     worldRoot,
@@ -405,7 +424,12 @@ export async function managedStartup(
     '-logfile',
     '-',
   ];
-  const mods = await framework(engine, worldRoot, env.RUST_SERVER_IDENTITY);
+  const mods = await framework(
+    engine,
+    worldRoot,
+    env.RUST_SERVER_IDENTITY,
+    receipt.buildId,
+  );
   return {
     root,
     engine,

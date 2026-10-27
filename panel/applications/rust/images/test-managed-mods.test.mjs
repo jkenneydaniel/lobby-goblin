@@ -10,6 +10,7 @@ import {
   carbonDataFiles,
   oxideNativeConfigPath,
   oxideNativeConfig,
+  carbonConflicts,
 } from './mod-layout.js';
 
 async function fixture(t) {
@@ -124,6 +125,19 @@ test('existing framework data in code directories is preserved for explicit migr
   assert.equal(
     await fs.readFile(path.join(original, 'owned.json'), 'utf8'),
     'do not discard',
+  );
+});
+test('Carbon compiler conflicts are retained until the controller prepares a private execution candidate', async (t) => {
+  const f = await fixture(t),
+    target = path.join(f.engine, carbonConflicts[0]);
+  await fs.writeFile(target, 'pristine vanilla compiler library');
+  await assert.rejects(
+    prepareFrameworkLayout({...f, framework: 'carbon'}),
+    /compiler libraries privately/,
+  );
+  assert.equal(
+    await fs.readFile(target, 'utf8'),
+    'pristine vanilla compiler library',
   );
 });
 test('world and configuration escape links or hardlinks cannot redirect setup writes', async (t) => {

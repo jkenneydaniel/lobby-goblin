@@ -11,6 +11,7 @@ import {
 } from './managed-entrypoint.mjs';
 import {prepareSdk} from './managed-helper.mjs';
 import {liveProcess} from './managed-health.mjs';
+import {carbonHookPaths} from './mod-layout.js';
 
 async function fixture(t) {
   const root = await fs.realpath(
@@ -252,9 +253,37 @@ test('Carbon initial Harmony logging uses world data before its first framework 
     await fs.writeFile(path.join(f.engine, name), 'synthetic loader', {
       mode: 0o644,
     });
+  const hooks = {
+    format: 1,
+    buildId: f.receipt.buildId,
+    protocol: '2635.289.1',
+    packageSha256: 'b'.repeat(64),
+    files: [],
+  };
+  for (const name of carbonHookPaths) {
+    const data = Buffer.from('synthetic hook: ' + name);
+    await fs.mkdir(path.dirname(path.join(f.engine, name)), {recursive: true});
+    await fs.writeFile(path.join(f.engine, name), data, {mode: 0o644});
+    hooks.files.push({
+      name,
+      size: data.length,
+      sha256: crypto.createHash('sha256').update(data).digest('hex'),
+    });
+  }
+  const marker = path.join(f.engine, '.lobby-goblin-mods.json');
   await fs.writeFile(
-    path.join(f.engine, '.lobby-goblin-mods.json'),
-    JSON.stringify({format: 1, status: 'complete', framework: 'carbon'}),
+    marker,
+    JSON.stringify({
+      format: 1,
+      status: 'complete',
+      framework: 'carbon',
+      hooks: {...hooks, buildId: '999'},
+    }),
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /different Rust build/);
+  await fs.writeFile(
+    marker,
+    JSON.stringify({format: 1, status: 'complete', framework: 'carbon', hooks}),
     {mode: 0o644},
   );
   const config = await managedStartup(
@@ -275,4 +304,6 @@ test('Carbon initial Harmony logging uses world data before its first framework 
     null,
   );
   assert.equal((await fs.stat(f.engine)).mode & 0o022, 0);
+  await fs.appendFile(path.join(f.engine, carbonHookPaths[0]), 'changed');
+  await assert.rejects(managedStartup(f.env, f.root), /hook size changed/);
 });

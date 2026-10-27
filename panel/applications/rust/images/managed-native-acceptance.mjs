@@ -10,6 +10,7 @@ import {
 } from './mod-packages.js';
 import {oxideCompiler} from './mod-layout.js';
 import {createWebRcon} from './transport.js';
+import {packagedCarbonHooks} from '../mod-components.js';
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -103,6 +104,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const info = async () => JSON.parse(await run(['inspect', game]))[0];
 async function ready() {
   const deadline = Date.now() + 900000;
+  let nextDiagnostics = 0;
   for (;;) {
     const state = await info();
     assert.ok(
@@ -110,6 +112,14 @@ async function ready() {
       'New fixture game stopped before readiness.',
     );
     if (state.State.Health?.Status === 'healthy') return;
+    if (Date.now() >= nextDiagnostics) {
+      const logs = await run(['logs', '--tail', '150', game]);
+      assert.ok(
+        !/^Unable to initialize\. \(/m.test(logs),
+        'Framework core initialization failed. Inspect its retained native diagnostics.',
+      );
+      nextDiagnostics = Date.now() + 20000;
+    }
     assert.ok(Date.now() < deadline, 'New fixture game readiness timed out.');
     await sleep(2000);
   }
@@ -134,7 +144,7 @@ async function worldTime() {
   assert.ok(match, 'The fixture must report its saved world time.');
   return Number(match[1]);
 }
-async function packages() {
+async function packages(buildId, protocol) {
   packagesRoot = await fs.mkdtemp(
     path.join(os.tmpdir(), 'lobby-managed-mod-packages-'),
   );
@@ -144,7 +154,14 @@ async function packages() {
       archive = await boundedDownload(release.url, 64 * 1024 ** 2);
     assert.equal(archive.length, release.size);
     assert.equal(sha256(archive), release.sha256);
-    const files = frameworkFiles(framework, archive);
+    let files = frameworkFiles(framework, archive),
+      carbonHooks = null;
+    if (framework === 'carbon') {
+      carbonHooks = packagedCarbonHooks(
+        {buildId, protocol, packageSha256: release.sha256},
+        files,
+      );
+    }
     if (framework === 'oxide') {
       const response = await fetch(oxideCompiler.url, {
         redirect: 'error',
@@ -169,6 +186,7 @@ async function packages() {
       framework,
       version: release.version,
       archiveSha256: release.sha256,
+      ...(carbonHooks ? {carbonHooks} : {}),
       files: [],
     };
     for (const file of files) {
@@ -246,9 +264,9 @@ async function modRun(mode, framework, directory) {
     1200000,
   );
 }
-async function frameworkAcceptance() {
+async function frameworkAcceptance(buildId, protocol) {
   progress('reviewing-framework-packages');
-  const selected = await packages(),
+  const selected = await packages(buildId, protocol),
     reports = [];
   await modRun('base');
   for (const framework of ['carbon', 'oxide']) {
@@ -377,7 +395,19 @@ try {
     /Spawning [1-9]\d* entities from save/.test(newLogs),
     'Restart must report loading entities from its saved world.',
   );
-  const frameworks = await frameworkAcceptance();
+  const protocols = [
+    ...new Set(
+      [...newLogs.matchAll(/^Protocol:\s*(\d+\.\d+\.\d+)\s*$/gm)].map(
+        (match) => match[1],
+      ),
+    ),
+  ];
+  assert.equal(
+    protocols.length,
+    1,
+    'Vanilla must identify its actual protocol before component review.',
+  );
+  const frameworks = await frameworkAcceptance(prepared.buildId, protocols[0]);
   console.log(
     JSON.stringify({
       passed: true,
@@ -398,14 +428,14 @@ try {
   );
 } catch (error) {
   console.error(JSON.stringify({failedPhase: phase, message: error.message}));
-  const logs = await execute('docker', ['logs', '--tail', '150', game], {
+  const logs = await execute('docker', ['logs', '--tail', '400', game], {
     encoding: 'utf8',
     timeout: 30000,
     maxBuffer: 4 * 1024 ** 2,
   })
     .then((value) => value.stdout + '\n' + value.stderr)
     .catch(() => 'New fixture logs unavailable');
-  console.error(logs.replaceAll(password, '[redacted]').slice(-12000));
+  console.error(logs.replaceAll(password, '[redacted]').slice(-32000));
   throw error;
 } finally {
   consoleClient.close();

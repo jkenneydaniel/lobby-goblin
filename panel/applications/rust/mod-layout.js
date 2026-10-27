@@ -18,6 +18,46 @@ const optional = async (location) => {
   }
 };
 export const oxideCompiler = Object.freeze(tools.oxideCompiler);
+export const carbonHookPaths = Object.freeze([
+  'carbon/managed/hooks/Carbon.Hooks.Community.dll',
+  'carbon/managed/hooks/Carbon.Hooks.Oxide.dll',
+]);
+export const carbonConflicts = Object.freeze([
+  'RustDedicated_Data/Managed/Microsoft.CodeAnalysis.CSharp.dll',
+  'RustDedicated_Data/Managed/Microsoft.CodeAnalysis.dll',
+  'RustDedicated_Data/Managed/System.Collections.Immutable.dll',
+]);
+export function carbonHooksReceipt(value) {
+  check(
+    value &&
+      Object.keys(value).every((key) =>
+        ['format', 'buildId', 'protocol', 'packageSha256', 'files'].includes(
+          key,
+        ),
+      ) &&
+      value.format === 1 &&
+      /^[a-f0-9]{64}$/.test(value.packageSha256 || '') &&
+      /^[1-9]\d{0,19}$/.test(value.buildId || '') &&
+      /^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(value.protocol || '') &&
+      value.protocol.split('.').every((part) => Number(part) <= 65535) &&
+      Array.isArray(value.files) &&
+      value.files.length === carbonHookPaths.length &&
+      value.files.every(
+        (file, index) =>
+          file &&
+          Object.keys(file).every((key) =>
+            ['name', 'size', 'sha256'].includes(key),
+          ) &&
+          file.name === carbonHookPaths[index] &&
+          Number.isSafeInteger(file.size) &&
+          file.size > 0 &&
+          file.size <= 16 * 1024 ** 2 &&
+          /^[a-f0-9]{64}$/.test(file.sha256 || ''),
+      ),
+    'Prepared Carbon hooks need an exact build and bounded component hashes',
+  );
+  return JSON.parse(JSON.stringify(value));
+}
 export const carbonDataDirectories = Object.freeze([
   'plugins',
   'configs',
@@ -176,6 +216,11 @@ export async function prepareFrameworkLayout({
   }
   const carbon = path.join(engine, 'carbon');
   await modDirectory(carbon, {sealed: true});
+  for (const name of carbonConflicts)
+    check(
+      !(await optional(path.join(engine, name))),
+      'Prepare Carbon compiler libraries privately before starting',
+    );
   for (const name of [
     'managed',
     'managed/lib',
