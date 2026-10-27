@@ -104,6 +104,12 @@ const rcon = async (command) =>
     "import {createWebRcon} from '/app/transport.js';const r=createWebRcon();try{console.log(await r({host:'127.0.0.1',port:28016,password:process.env.RUST_RCON_PASSWORD,command:process.argv[1]}));}finally{r.close();}",
     command,
   ]);
+async function worldTime() {
+  const value = await rcon('env.time'),
+    match = value.match(/env\.time:\s*"?([0-9]+(?:\.[0-9]+)?)/);
+  assert.ok(match, 'The fixture must report its saved world time.');
+  return Number(match[1]);
+}
 async function cleanStop() {
   await run(['stop', '--time', '-1', game], 180000);
   const state = (await info()).State;
@@ -156,6 +162,8 @@ try {
   assert.equal((await info()).Image, imageId);
   const first = JSON.parse(await rcon('serverinfo'));
   assert.equal(first.MaxPlayers, 1);
+  const savedTime = ((await worldTime()) + 9) % 24;
+  await rcon('env.time ' + savedTime.toFixed(2));
   await rcon('server.save');
   const uid = await run([
     'exec',
@@ -172,14 +180,20 @@ try {
   await run(['start', game]);
   await ready();
   assert.equal(JSON.parse(await rcon('serverinfo')).MaxPlayers, 1);
+  const reloadedTime = await worldTime(),
+    difference = Math.abs(reloadedTime - savedTime);
+  assert.ok(
+    Math.min(difference, 24 - difference) < 0.75,
+    'Restart must restore the deliberately changed world time.',
+  );
   await cleanStop();
   const after = JSON.parse(await fixtureRun('inspect', ['game']));
   assert.equal(after.save, before.save);
   assert.equal(after.buildId, before.buildId);
   const newLogs = (await run(['logs', game])).slice(oldLogs.length);
   assert.ok(
-    /Loading.*(?:save|\.sav)/i.test(newLogs),
-    'Restart must load the existing fixture world.',
+    /Spawning [1-9]\d* entities from save/.test(newLogs),
+    'Restart must report loading entities from its saved world.',
   );
   console.log(
     JSON.stringify({
@@ -190,6 +204,9 @@ try {
       gameUid: 1000,
       saveAndQuitVerified: true,
       existingWorldLoaded: true,
+      worldStateRestored: true,
+      savedTime,
+      reloadedTime,
       privatePristineStoreNotMounted: true,
       existingServicesTouched: false,
       existingWorldsTouched: false,
