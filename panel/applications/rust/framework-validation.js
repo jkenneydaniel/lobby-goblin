@@ -7,7 +7,7 @@ function validationPlugin(framework, id) {
     'Invalid framework validation identity.',
   );
   const token = id.replaceAll('-', ''),
-    name = 'LobbyGoblinValidation_' + token,
+    name = 'LobbyGoblinValidation' + token,
     file = name + '.cs';
   const source = Buffer.from(
     'using Oxide.Core; namespace Oxide.Plugins { [Info("' +

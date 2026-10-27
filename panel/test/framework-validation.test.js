@@ -24,6 +24,14 @@ for (const framework of ['carbon', 'oxide']) {
         },
       };
       await prepareRustFrameworkValidation({framework, id, store});
+      const [filename] = files.keys();
+      assert.match(filename, /^[A-Za-z][A-Za-z0-9]*\.cs$/);
+      assert.ok(
+        files
+          .get(filename)
+          .toString()
+          .includes('public class ' + filename.slice(0, -3) + ' : RustPlugin'),
+      );
       await validateRustFramework({
         store,
         framework,
@@ -48,7 +56,7 @@ for (const framework of ['carbon', 'oxide']) {
         1,
       );
       assert.equal(files.size, 0);
-      assert.match(calls.at(-1), /\.unload LobbyGoblinValidation_/);
+      assert.match(calls.at(-1), /\.unload LobbyGoblinValidation/);
     },
   );
 }
