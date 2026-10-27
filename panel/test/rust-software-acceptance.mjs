@@ -207,7 +207,9 @@ try {
     await docker('POST', '/volumes/create', {
       Name: name,
       Labels: {
-        'io.lobby-goblin.fleet': fleet,
+        ...(name === scopes[0].volume
+          ? labels(fleet, first, 'rust')
+          : {'io.lobby-goblin.fleet': fleet}),
         'io.lobby-goblin.acceptance': 'rust-software',
       },
     });
@@ -261,7 +263,7 @@ try {
   await docker('POST', '/volumes/create', {
     Name: scopes[1].volume,
     Labels: {
-      'io.lobby-goblin.fleet': fleet,
+      ...labels(fleet, second, 'rust'),
       'io.lobby-goblin.acceptance': 'rust-software',
     },
   });
