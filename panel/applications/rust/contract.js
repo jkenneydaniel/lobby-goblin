@@ -12,6 +12,11 @@ const frameworkPermission = [
   'mods.manage',
   'application.rust.framework.manage',
 ];
+const softwarePermission = ['images.change', 'server.operate'];
+const moddedSoftwarePermission = [
+  ...softwarePermission,
+  ...frameworkPermission,
+];
 const pluginPermission = ['mods.manage', 'application.rust.plugins.manage'];
 const configurationPermission = [
   'mods.manage',
@@ -39,6 +44,8 @@ export const contract = {
       '/logs': {GET: 'logs.read'},
       '/settings': {GET: 'settings.read'},
       '/software': {GET: 'images.change'},
+      '/software-updates': {GET: 'images.change'},
+      '/software-change': {GET: 'images.change'},
       '/mods': {GET: 'mods.manage'},
       '/mods-plan': {POST: frameworkPermission},
       '/framework-change': {GET: frameworkPermission},
@@ -69,8 +76,38 @@ export const contract = {
         {...policy, permission: pluginPermission},
       ]),
     ),
+    'software-check': action(
+      'Check exact Steam build',
+      false,
+      'manual',
+      'images.change',
+    ),
+    'software-check-modded': action(
+      'Review Steam and framework updates',
+      false,
+      'manual',
+      ['images.change', ...frameworkPermission],
+    ),
+    'software-update': action(
+      'Install reviewed Steam build',
+      true,
+      'manual',
+      softwarePermission,
+    ),
+    'software-update-modded': action(
+      'Install reviewed modded Steam build',
+      true,
+      'manual',
+      moddedSoftwarePermission,
+    ),
+    'software-recover-modded': action(
+      'Recover modded software and world',
+      true,
+      'manual',
+      ['images.change', ...frameworkPermission],
+    ),
     'software-recover': action(
-      'Recover initial software installation',
+      'Recover software installation and paired world',
       false,
       'manual',
       'images.change',
@@ -116,6 +153,8 @@ export const contract = {
     '/logs': {GET: 'admin'},
     '/settings': {GET: 'admin'},
     '/software': {GET: 'admin'},
+    '/software-updates': {GET: 'admin'},
+    '/software-change': {GET: 'admin'},
     '/mods': {GET: 'admin'},
     '/mods-plan': {POST: 'admin'},
     '/framework-change': {GET: 'admin'},

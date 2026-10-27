@@ -253,6 +253,30 @@ if (mode === 'broker') {
           mode: 0o600,
         });
         assert.deepEqual(preparationActions, ['resolve', 'prepare']);
+        active = {id: 'native-software-check', action: 'software-check'};
+        await game.beforeJob(active);
+        const checked = await game.actions['software-check']({}, active);
+        active = null;
+        assert.equal(checked.current.softwareVersion, status.software.version);
+        assert.equal(checked.target.source.appId, '258550');
+        assert.equal(checked.target.source.branch, 'public');
+        assert.equal((await ctx.host.info()).State.Running, true);
+        if (!checked.updateAvailable)
+          await assert.rejects(
+            game.actions['software-update']({
+              planId: checked.id,
+              confirm: true,
+            }),
+            /already installed/,
+          );
+        console.log(
+          JSON.stringify({
+            event: 'native-software-check',
+            buildId: checked.target.softwareVersion,
+            noDowntime: true,
+            sameBuildRefused: !checked.updateAvailable,
+          }),
+        );
       }
       active = {id: 'native-stop'};
       await game.actions.stop({confirm: true});

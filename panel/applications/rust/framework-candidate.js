@@ -127,7 +127,7 @@ export async function prepareFrameworkCandidate({
   if (review.framework === 'carbon') {
     assert(
       /^\d{1,5}\.\d{1,5}\.\d{1,5}$/.test(protocol || ''),
-      'Start and cleanly stop vanilla Rust once so its exact protocol can be reviewed.',
+      'Review the verified protocol metadata for this exact Rust build before installing Carbon.',
       409,
     );
     for (const name of carbonConflicts) await derived(name, null);

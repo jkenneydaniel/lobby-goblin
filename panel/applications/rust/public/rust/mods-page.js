@@ -33,7 +33,12 @@ export function createRustMods({
     $('#load-plugin-config').disabled = busy() || !canAction('plugin-config');
     $('#plugin-config-name').disabled = !canAction('plugin-config');
     $('#recover-framework').disabled =
-      stopped || !canAction('recover-framework');
+      stopped ||
+      !canAction(
+        modStatus?.pairedSoftware
+          ? 'software-recover-modded'
+          : 'recover-framework',
+      );
     $('#framework select').disabled = !canAction('install-framework');
     $('#framework button[type=submit]').disabled =
       busy() ||
@@ -131,7 +136,11 @@ export function createRustMods({
     () =>
       guarded(async () => {
         const review = modStatus.pairedRecovery
-          ? await api('framework-change')
+          ? await api(
+              modStatus?.pairedSoftware
+                ? 'software-change'
+                : 'framework-change',
+            )
           : null;
         if (
           await confirm(
@@ -141,10 +150,15 @@ export function createRustMods({
               : 'Restore the framework files from the interrupted installation. Rust stays stopped. Worlds and plugin data are preserved.',
           )
         )
-          await job('recover-framework', {
-            confirm: true,
-            ...(review ? {review: review.review} : {}),
-          });
+          await job(
+            modStatus?.pairedSoftware
+              ? 'software-recover-modded'
+              : 'recover-framework',
+            {
+              confirm: true,
+              ...(review ? {review: review.review} : {}),
+            },
+          );
       }),
     {signal: events.signal},
   );

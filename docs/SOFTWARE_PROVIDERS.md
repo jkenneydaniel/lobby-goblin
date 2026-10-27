@@ -319,3 +319,48 @@ image 2.
 Native acceptance is an explicit workflow using a fresh engine, the published
 worker and game images, actual broker credentials, and two newly created worlds
 and volumes. No test selects an existing Docker engine, server or world.
+
+## Exact Rust Steam updates
+
+Managed Rust has explicit `software-check` and `software-update` operations.
+`software-check-modded` and `software-update-modded` additionally require executable
+framework authority. Legacy installations keep their existing installer and
+cannot opt into this path through a request. Reading `/software-updates` returns
+retained metadata only; it never creates a worker or resolves an upstream branch.
+
+A check may run while Rust continues serving players. Its metadata worker intent
+and exact result are retained before acknowledgement. The review binds the current
+software, complete target build/depot selection, current framework, and reviewed
+official framework package. It expires after 15 minutes. Modded reviews require
+operator review of plugin compatibility; the native temporary-plugin test proves
+framework loading/compilation, not that every third-party plugin supports a new
+Rust API. A same-build review cannot reinstall or interrupt the server. If the
+Steam branch moves before preparation, the selected different build is refused.
+
+Updating requires confirmation and image plus server-operation authority. Rust
+saves and cleanly stops if running. A complete stopped world, previous execution
+tree and private mod records are retained before preparation. The candidate uses
+verified pristine target software, its own pre-boot protocol, the reviewed
+framework package and pinned compiler. The controller alone activates it, then
+validates game readiness, the actual protocol and framework compilation. A server
+that began stopped returns stopped after validation; a server that was running
+resumes as part of the confirmed downtime operation.
+
+Interrupted preparation, activation or validation fences ordinary mutations.
+`GET /software-change` provides a fresh recovery review. Software recovery cannot
+be performed through the framework-only recovery action. Modded recovery requires
+image and executable-framework authority, while initial vanilla recovery retains
+its existing image permission. Recovery requires stopped Rust, closes only known
+observed stopped workers, verifies the previous exact private cache before any
+rollback worker, restores provider identity, and reuses the existing paired
+world/code/mod-state restore. It never substitutes another build or downloads
+historical software. Newer data remains quarantined privately. Interrupted
+rollback results and rename progress survive reconstruction without worker replay.
+A failed metadata-only check can be closed without stopping a running game.
+
+Fixture acceptance uses distinct synthetic Steam builds for update/rollback and
+failure injection. Native disposable acceptance separately verifies real Valve
+metadata while Rust remains running, same-build refusal, actual framework
+compilation, copied-world loading and paired world recovery. It does not claim
+historical Steam availability or a real cross-version world migration when Valve
+serves only the currently installed public build.

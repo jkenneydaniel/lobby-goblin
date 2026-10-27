@@ -25,13 +25,15 @@ import {
   oxideCompiler,
 } from './mod-layout.js';
 import {sha256} from './mod-packages.js';
+import {rustUpdateProvider} from './update-provider.js';
+import {rustSoftwareProtocol} from './software-protocol.js';
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const uuid = (value) =>
   typeof value === 'string' &&
   /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 const settled = (value) =>
-  !value || ['complete', 'recovered'].includes(value.phase);
+  !value || ['complete', 'recovered', 'reviewed'].includes(value.phase);
 const exists = async (location) =>
   fs.lstat(location).catch((error) => {
     if (error.code !== 'ENOENT') throw error;
@@ -39,6 +41,11 @@ const exists = async (location) =>
   });
 const phases = [
   'reserved',
+  'checking-software',
+  'reviewed',
+  'preparing-software',
+  'software-prepared',
+  'activating-software',
   'snapshotting',
   'staging',
   'publishing',
@@ -106,6 +113,7 @@ export function createRustFrameworkChanges(
     protocol,
     prepareValidation = async () => {},
     validate,
+    validateSoftware,
     fault = async () => {},
     fetcher = fetch,
   },
@@ -123,7 +131,37 @@ export function createRustFrameworkChanges(
     label: 'Paired framework changes',
     action: 'install-framework',
     getActive: () => ctx.active,
+    describe: (record, parent) => ({
+      source: 'paired-frameworks',
+      action: record.action || 'install-framework',
+      kind: record.kind === 'software' ? 'update' : 'mods',
+      state: ['complete', 'reviewed'].includes(record.phase)
+        ? 'succeeded'
+        : record.phase === 'recovered'
+          ? 'failed'
+          : (parent?.id || record.operationRecord?.parentId) ===
+                ctx.active?.id && !!ctx.active
+            ? 'running'
+            : 'interrupted',
+      phase: record.phase,
+      message:
+        record.phase === 'reviewed'
+          ? 'Exact Steam build reviewed. No application files changed.'
+          : record.phase === 'complete'
+            ? 'Paired transaction completed.'
+            : record.phase === 'recovered'
+              ? 'Previous software and world retained or restored together.'
+              : 'A paired change needs validation or explicit recovery.',
+      recovery: {
+        required: !settled(record) && !ctx.active,
+        actions: [
+          {id: 'inspect', label: 'Inspect paired change'},
+          {id: 'open', label: 'Open recovery tools', href: '#mods'},
+        ],
+      },
+    }),
   });
+  const updates = rustUpdateProvider(maintenance);
   let busy = false;
   async function read() {
     if (!(await exists(root))) return null;
@@ -135,6 +173,7 @@ export function createRustFrameworkChanges(
         uuid(value.id) &&
         value.instance === config.instance &&
         phases.includes(value.phase) &&
+        (value.kind === undefined || value.kind === 'software') &&
         ['none', 'carbon', 'oxide'].includes(value.previousFramework) &&
         ['none', 'carbon', 'oxide'].includes(value.review?.framework),
       'Invalid paired framework journal. Preserve it for inspection.',
@@ -173,6 +212,32 @@ export function createRustFrameworkChanges(
           409,
         );
     maintenance.target(softwareReceipt(value.previous?.receipt).selection);
+    if (value.kind === 'software') {
+      for (const key of ['resolveId', 'prepareId', 'rollbackId'])
+        assert(
+          value[key] === undefined || uuid(value[key]),
+          'Invalid retained update worker.',
+          409,
+        );
+      if (value.target) maintenance.target(value.target);
+      for (const [key, id, selection] of [
+        ['prepared', 'prepareId', value.target],
+        ['rollback', 'rollbackId', value.previous.receipt.selection],
+      ])
+        if (value[key])
+          assert(
+            value[key].operationId === value[id] &&
+              Number.isSafeInteger(value[key].revision) &&
+              same(
+                maintenance.target(
+                  softwareReceipt(value[key].receipt).selection,
+                ),
+                selection,
+              ),
+            'Invalid retained update preparation.',
+            409,
+          );
+    }
     assert(
       value.previous.binary.name === 'RustDedicated' &&
         /^[a-f0-9]{64}$/.test(value.previous.binary.sha256) &&
@@ -193,7 +258,13 @@ export function createRustFrameworkChanges(
     const current = await read();
     assert(
       settled(current) ||
-        ['stop', 'recover-framework'].includes(action) ||
+        [
+          'stop',
+          'recover-framework',
+          'software-recover',
+          'software-recover-modded',
+          'software-cancel',
+        ].includes(action) ||
         (action === 'start' && current.phase === 'prepared'),
       'A paired framework change needs validation or recovery before other changes.',
       409,
@@ -215,7 +286,7 @@ export function createRustFrameworkChanges(
     );
     return value;
   }
-  async function prepare(planId, job) {
+  async function prepare(planId, job, update = null) {
     assert(!busy && uuid(planId), 'Choose one reviewed framework change.', 409);
     busy = true;
     try {
@@ -253,7 +324,18 @@ export function createRustFrameworkChanges(
         409,
       );
       const currentProtocol =
-        review.framework === 'carbon' ? await protocol() : null;
+        !update && review.framework === 'carbon' ? await protocol() : null;
+      if (update)
+        assert(
+          update.kind === 'software' &&
+            update.phase === 'reviewed' &&
+            same(update.previous, previous) &&
+            update.previousFramework === installed.framework &&
+            review.framework === installed.framework &&
+            update.review.id === planId,
+          'The reviewed software or framework changed. Check updates again.',
+          409,
+        );
       await directory(root, {create: true});
       let value = {
         format: 1,
@@ -265,6 +347,18 @@ export function createRustFrameworkChanges(
         previousFramework: installed.framework,
         review,
         moves: {},
+        ...(update
+          ? {
+              kind: 'software',
+              action:
+                update.action === 'software-check-modded'
+                  ? 'software-update-modded'
+                  : 'software-update',
+              target: update.target,
+              resolveId: update.resolveId,
+              wasRunning: update.wasRunning,
+            }
+          : {}),
       };
       value = await checkpoint(value, 'reserved', {}, job);
       const transaction = location(value, '');
@@ -300,10 +394,20 @@ export function createRustFrameworkChanges(
           'Preparing a private framework candidate from verified Rust software…',
           'preparing-framework',
         );
-      await stageExecution({
+      if (update) value = await updates.prepare(value, checkpoint);
+      const candidateReceipt = update
+        ? value.prepared.receipt
+        : previous.receipt;
+      const candidateProtocol = update
+        ? await rustSoftwareProtocol({
+            ...workers.paths,
+            receipt: candidateReceipt,
+          })
+        : null;
+      const candidateBinary = await stageExecution({
         software: workers.paths.software,
         staging: location(value, 'candidate'),
-        receipt: previous.receipt,
+        receipt: candidateReceipt,
         executable: 'RustDedicated',
         fault,
       });
@@ -312,8 +416,8 @@ export function createRustFrameworkChanges(
         engine: location(value, 'candidate'),
         state: location(value, 'new-state'),
         review,
-        buildId: previous.receipt.selection.softwareVersion,
-        protocol: currentProtocol,
+        buildId: candidateReceipt.selection.softwareVersion,
+        protocol: candidateProtocol?.protocol || currentProtocol,
         assertStopped: stopped,
         fetcher,
       });
@@ -353,6 +457,14 @@ export function createRustFrameworkChanges(
         409,
       );
       await verifyStoppedData(config.data, world, stopped);
+      if (update) {
+        value = await checkpoint(value, value.phase, {
+          candidateBinary,
+          candidateProtocol,
+        });
+        value = await updates.activate(value, checkpoint);
+        await fault('software-activated');
+      }
       value = await checkpoint(value, 'publishing');
       await fs.rename(engine, location(value, 'previous-engine'));
       await syncDirectory(path.dirname(engine));
@@ -384,8 +496,8 @@ export function createRustFrameworkChanges(
           initializeNative: false,
         });
       await maintenance.publishCurrent(
-        previous.receipt,
-        previous.binary,
+        candidateReceipt,
+        candidateBinary,
         value.id,
       );
       value = await checkpoint(value, 'prepared');
@@ -394,7 +506,7 @@ export function createRustFrameworkChanges(
       busy = false;
     }
   }
-  async function start(run) {
+  async function start(run, beforeCommit = async () => {}) {
     let value = await read();
     if (settled(value)) return run();
     await guard('start');
@@ -410,8 +522,11 @@ export function createRustFrameworkChanges(
           'Checking framework loading and C# compilation…',
           'validating-framework',
         );
+      if (value.kind === 'software')
+        await validateSoftware(value.candidateProtocol);
       await validate(value.review.framework, value.id);
       await fault('before-framework-commit');
+      await beforeCommit();
       await checkpoint(value, 'complete');
       return result;
     } catch (error) {
@@ -422,13 +537,16 @@ export function createRustFrameworkChanges(
       throw error;
     }
   }
-  async function inspect() {
+  async function inspect({deep = false} = {}) {
     const value = await read();
     if (!value) return {pending: false, review: null};
     const observation = {
       record: value,
       running: !!(await ctx.host.info()).State?.Running,
       paths: {},
+      ...(deep && value.kind === 'software'
+        ? {software: await updates.inspect()}
+        : {}),
     };
     for (const name of [
       'previous-engine',
@@ -451,6 +569,7 @@ export function createRustFrameworkChanges(
     }
     return {
       pending: !settled(value),
+      kind: value.kind || 'framework',
       phase: value.phase,
       framework: value.review.framework,
       previousFramework: value.previousFramework,
@@ -470,14 +589,39 @@ export function createRustFrameworkChanges(
     );
     busy = true;
     try {
-      const inspected = await inspect();
+      const inspected = await inspect({
+        deep: (await read())?.kind === 'software',
+      });
       assert(
         inspected.pending && inspected.review === params.review,
         'Paired recovery observations changed. Inspect again.',
         409,
       );
-      await stopped();
       let value = inspected.observation.record;
+      if (value.kind === 'software') {
+        const info = await ctx.host.info();
+        const metadataOnly =
+          value.phase === 'checking-software' &&
+          !value.prepareId &&
+          !value.world;
+        assert(
+          metadataOnly ||
+            (info.State?.Running === false && !info.State.Restarting),
+          'Stop Rust before paired software recovery.',
+          409,
+        );
+        value = await updates.restore(
+          value,
+          checkpoint,
+          inspected.observation.software,
+          {metadataOnly},
+        );
+        if (metadataOnly) {
+          await checkpoint(value, 'recovered');
+          return 'Metadata discovery closed. Application software and world were never changed.';
+        }
+      }
+      await stopped();
       // No engine was changed before publication. Retain staged/partial data
       // and close the transaction without replacing any current world bytes.
       if (
@@ -485,9 +629,17 @@ export function createRustFrameworkChanges(
         !value.moves?.['restore-engine']
       ) {
         assert(
-          ['reserved', 'snapshotting', 'staging', 'publishing'].includes(
-            value.phase,
-          ),
+          [
+            'reserved',
+            'checking-software',
+            'preparing-software',
+            'software-prepared',
+            'activating-software',
+            'snapshotting',
+            'staging',
+            'publishing',
+            'recovering',
+          ].includes(value.phase),
           'Previous execution is missing. Preserve recovery evidence.',
           409,
         );
@@ -661,11 +813,156 @@ export function createRustFrameworkChanges(
       busy = false;
     }
   }
+  async function softwareStatus() {
+    const value = await read();
+    if (value?.kind !== 'software') return {available: false, pending: false};
+    return {
+      available: true,
+      pending: !settled(value),
+      phase: value.phase,
+      id: value.id,
+      current: value.previous.receipt.selection,
+      target: value.target || null,
+      framework: value.review.framework,
+      frameworkVersion: value.review.version,
+      frameworkSha256: value.review.sha256 || null,
+      compilerSha256: value.review.compiler?.sha256 || null,
+      compatibility: {
+        framework:
+          value.review.framework === 'none'
+            ? 'vanilla'
+            : 'runtime-compilation-required',
+        plugins:
+          value.review.framework === 'none'
+            ? 'none'
+            : 'operator-review-required',
+      },
+      updateAvailable:
+        !!value.target && !same(value.target, value.previous.receipt.selection),
+      expires: new Date(Date.parse(value.started) + 15 * 60000).toISOString(),
+      message:
+        'Updates require a clean save and downtime. The whole pre-update world and software are retained together; recovery restores that earlier world and retains newer data privately.',
+    };
+  }
+  async function checkSoftware(job, {modded = false} = {}) {
+    assert(!busy, 'A paired change is already active.', 409);
+    busy = true;
+    try {
+      await guard('software-check');
+      await software.ensure();
+      const installed = await mods.verifyInstalled();
+      assert(
+        modded || installed.framework === 'none',
+        'Use the executable-mod update review for this framework.',
+        409,
+      );
+      const review = await plan(installed.framework);
+      await directory(root, {create: true});
+      let value = {
+        format: 1,
+        id: randomUUID(),
+        instance: config.instance,
+        kind: 'software',
+        action: modded ? 'software-check-modded' : 'software-check',
+        phase: 'checking-software',
+        started: new Date().toISOString(),
+        previous: await maintenance.execution(),
+        previousFramework: installed.framework,
+        review,
+        moves: {},
+      };
+      value = await checkpoint(value, 'checking-software', {}, job);
+      await updates.check(value, checkpoint);
+      return softwareStatus();
+    } finally {
+      busy = false;
+    }
+  }
+  async function updateSoftware(params, job, {modded = false, stop, run} = {}) {
+    assert(
+      !busy && params?.confirm === true && uuid(params.planId),
+      'Review and confirm this exact Steam update.',
+      409,
+    );
+    const value = await read();
+    assert(
+      value?.kind === 'software' &&
+        value.phase === 'reviewed' &&
+        value.id === params.planId &&
+        Date.now() - Date.parse(value.started) < 15 * 60000,
+      'Software review expired or changed. Check updates again.',
+      409,
+    );
+    assert(
+      modded || value.review.framework === 'none',
+      'This update requires executable-mod authority.',
+      409,
+    );
+    assert(
+      value.target && !same(value.target, value.previous.receipt.selection),
+      'This exact Steam build is already installed.',
+      409,
+    );
+    assert(
+      typeof validateSoftware === 'function',
+      'Software updates require protocol validation.',
+      409,
+    );
+    const current = await software.ensure(),
+      installed = await mods.verifyInstalled();
+    assert(
+      same(current, value.previous.receipt) &&
+        same(await maintenance.execution(), value.previous) &&
+        value.review.current === sha256(Buffer.from(JSON.stringify(installed))),
+      'The reviewed software or framework changed. Check updates again.',
+      409,
+    );
+    const info = await ctx.host.info(),
+      wasRunning = !!info.State?.Running;
+    if (wasRunning) await stop();
+    await prepare(value.review.id, job, {...value, wasRunning});
+    await start(run, wasRunning ? undefined : stop);
+    return wasRunning
+      ? 'Rust software updated, validated and running.'
+      : 'Rust software updated and validated. Rust remains stopped.';
+  }
+  async function recoverSoftware(params, {modded = false} = {}) {
+    const value = await read();
+    assert(
+      value?.kind === 'software' &&
+        (modded || value.previousFramework === 'none'),
+      'Use the matching software recovery authority for this transaction.',
+      409,
+    );
+    return recover(params);
+  }
+  async function recoverFramework(params) {
+    assert(
+      (await read())?.kind !== 'software',
+      'Use paired software recovery for this Steam update.',
+      409,
+    );
+    return recover(params);
+  }
+  async function cancelSoftware() {
+    const value = await read();
+    assert(
+      value?.kind === 'software' && !settled(value),
+      'No pending software update owns preparation.',
+      409,
+    );
+    return updates.cancel(value);
+  }
   return {
     plan,
     prepare,
+    checkSoftware,
+    updateSoftware,
+    recoverSoftware,
+    cancelSoftware,
+    softwareStatus,
     start,
-    recover,
+    recover: recoverFramework,
     inspect,
     guard,
     operationSource: journal.operationSource,

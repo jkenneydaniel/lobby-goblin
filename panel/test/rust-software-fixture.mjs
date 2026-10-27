@@ -80,7 +80,7 @@ export async function fixture(t, {module} = {}) {
       });
       await fs.writeFile(
         path.join(target, 'RustDedicated_Data/Managed/Rust.Global.dll'),
-        module,
+        typeof module === 'function' ? module(runtime.build) : module,
       );
     }
     await fs.writeFile(
@@ -129,6 +129,10 @@ export async function fixture(t, {module} = {}) {
         worker: null,
         lease: null,
       });
+      if (runtime.workerFault === action) {
+        runtime.workerFault = null;
+        throw Error('Lost worker response after ' + action);
+      }
       return result;
     },
     acknowledge: async (id) => retained.delete(id),
@@ -202,5 +206,6 @@ export async function fixture(t, {module} = {}) {
     software: create(),
     paths,
     privateProvider,
+    retained,
   };
 }
