@@ -43,11 +43,14 @@ async function readRecordOnce(file, {optional = false, max = 1024 ** 2} = {}) {
   assert(
     stat.isFile() &&
       !stat.isSymbolicLink() &&
-      stat.nlink === 1 &&
+      stat.nlink <= 1 &&
       stat.size <= max,
     'Software records must be bounded files without links.',
     409,
   );
+  // An atomic replacement can unlink this inode while lstat is completing.
+  // Retry that stale observation; multiple links still fail the guard above.
+  assert(stat.nlink === 1, 'Software record changed while opening it.', 409);
   const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
   let bytes;
   try {

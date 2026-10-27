@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {createSteamProvider} from './provider.js';
 import {runSteamCommand} from './command.js';
-import {softwareInventory, directory} from './files.js';
+import {
+  softwareInventory,
+  directory,
+  atomicRecord,
+  readRecord,
+} from './files.js';
 
 const source = {
   application: 'rust',
@@ -361,6 +366,48 @@ test('concurrent writers and recovery cannot bypass an active worker lease', asy
     release();
     await running;
   }
+});
+
+test('concurrent progress publication reads complete records and rejects persistent linked or oversized records', async (t) => {
+  const f = await fixture(t),
+    file = path.join(f.root, 'progress.json');
+  const value = (revision) => ({
+    revision,
+    proof: String(revision).repeat(1000),
+  });
+  await atomicRecord(file, value(0));
+  await Promise.all([
+    (async () => {
+      for (let revision = 1; revision <= 40; revision++)
+        await atomicRecord(file, value(revision));
+    })(),
+    (async () => {
+      for (let i = 0; i < 100; i++) {
+        try {
+          const record = await readRecord(file);
+          assert.deepEqual(record, value(record.revision));
+        } catch (error) {
+          // A continuously replaced file may exhaust the bounded read retry.
+          assert.equal(error.status, 409);
+          assert.match(
+            error.message,
+            /^Software record changed while (opening|reading) it\.$/,
+          );
+        }
+      }
+    })(),
+  ]);
+  assert.deepEqual(await readRecord(file), value(40));
+  const linked = path.join(f.root, 'linked.json');
+  await fs.link(file, linked);
+  await assert.rejects(readRecord(file), /bounded files without links/);
+  await fs.unlink(linked);
+  await assert.rejects(
+    readRecord(file, {max: 10}),
+    /bounded files without links/,
+  );
+  await fs.symlink(file, linked);
+  await assert.rejects(readRecord(linked), /bounded files without links/);
 });
 
 test('linked roots, payloads and oversized files cannot escape software storage or become verified', async (t) => {

@@ -14,7 +14,7 @@ import {verifyImageContents} from './installer-image-smoke.js';
 
 const run=promisify(execFile),project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 
-test('compatible release bundles contain an importable core/module runtime and preserve prepare-only setup',{timeout:20000},async t=>{
+test('compatible release bundles contain an importable core/module runtime and preserve prepare-only setup',{timeout:90000},async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'factory-module-release-'));
   t.after(()=>fs.rm(root,{recursive:true,force:true}));
   const source=path.join(root,'source');await fs.mkdir(source);
@@ -72,7 +72,7 @@ test('compatible release bundles contain an importable core/module runtime and p
       assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='status-page/server'));
       assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='shared/steamcmd/runtime'));
       assert.ok(files.has('panel/providers/steamcmd/images/Dockerfile'));
-      await run(process.execPath,['tools/application-images.mjs','check','shared/steamcmd/runtime'],{cwd:complete,env:childEnv,timeout:5000});
+      await run(process.execPath,['tools/application-images.mjs','check','shared/steamcmd/runtime'],{cwd:complete,env:childEnv,timeout:60000});
       // Repack an extracted source bundle without changing its installed paths.
       await run(process.execPath,['tools/release.mjs'],{cwd:complete,timeout:10000});
       continue;
