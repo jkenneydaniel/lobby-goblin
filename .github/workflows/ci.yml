@@ -107,13 +107,15 @@ jobs:
           trap 'docker volume rm "$fixture_prefix-source" "$fixture_prefix-target" "$fixture_prefix-setup"' EXIT
           for mode in prepare inspect copy; do
             source_mode=readonly
+            target_mount=()
+            if [ "$mode" != inspect ]; then target_mount=(--mount "type=volume,source=$fixture_prefix-target,target=/instance"); fi
             capabilities="--cap-add DAC_OVERRIDE"
             if [ "$mode" = prepare ]; then source_mode=volume-nocopy; fi
             if [ "$mode" != inspect ]; then capabilities="$capabilities --cap-add CHOWN --cap-add FOWNER"; fi
             docker run --rm --network none --user 0:0 --read-only --cap-drop ALL $capabilities \
-              --security-opt no-new-privileges:true --memory 512m \
+              --security-opt no-new-privileges:true --memory 512m --cpus 1 \
               --mount "type=volume,source=$fixture_prefix-source,target=/source,$source_mode" \
-              --mount "type=volume,source=$fixture_prefix-target,target=/instance" \
+              "${target_mount[@]}" \
               --mount "type=volume,source=$fixture_prefix-setup,target=/setup" \
               --mount "type=bind,source=$PWD/panel/test/retained-storage-native.mjs,target=/smoke.mjs,readonly" \
               --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.12-alpha /smoke.mjs "$mode"

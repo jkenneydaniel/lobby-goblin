@@ -3,6 +3,7 @@ import {origins} from './playwright.config.js';
 const test=base.extend({page:async({page},use)=>{
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.context().route('**/*',route=>new URL(route.request().url()).origin===origins.fleet?route.continue():route.abort());
+ await page.route('**/api/hosts',route=>route.fulfill({json:{hosts:[{id:'a'.repeat(32),name:'This host',local:true,connected:true}]}}));
  await use(page);expect(errors).toEqual([]);
 }});
 const id='9'.repeat(32),removed=()=>({id,name:'Retired island',game:'rust',volume:'synthetic-retained-volume',removedAt:'2026-10-27T12:00:00Z'});
@@ -41,4 +42,18 @@ test('expired inspections disable recovery and deletion; unsupported recovery ex
 test('viewers never see storage navigation or fetch retained volume details',async({page})=>{
  const reads=[];page.on('request',request=>{if(request.url().includes('/removed-servers'))reads.push(request.url());});await open(page,'Viewer');await expect(page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Storage',exact:true})).toHaveCount(0);
  await page.goto(origins.fleet+'/#storage');await expect(page.getByRole('heading',{name:/servers/i}).first()).toBeVisible();expect(reads).toEqual([]);
+});
+
+test('storage recovery remains scoped to the selected remote host when server IDs overlap',async({page})=>{
+ const remote='d'.repeat(32),local=removed(),other={...removed(),name:'Remote island'},requests=[];
+ for(const [resource,data] of [['servers',{servers:[]}],['snapshots',{snapshots:[]}],['jobs**',{jobs:[],active:null}]])await page.route('**/api/hosts/'+remote+'/'+resource,route=>route.fulfill({json:data}));
+ await page.route('**/api/hosts',route=>route.fulfill({json:{hosts:[{id:'a'.repeat(32),name:'This host',local:true,connected:true},{id:remote,name:'Remote host',local:false,connected:true}]}}));
+ await page.route('**/api/removed-servers',route=>route.fulfill({json:{servers:[local]}}));
+ await page.route('**/api/hosts/'+remote+'/removed-servers**',route=>{
+  const request=route.request();if(request.method()==='GET')return route.fulfill({json:{servers:[other]}});
+  const path=new URL(request.url()).pathname;requests.push({path,body:request.postDataJSON()});if(path.endsWith('/inspect'))other.storageReview=review();
+  return route.fulfill({status:202,json:{id:'remote-job',state:'running'}});
+ });
+ await open(page);const card=page.getByRole('article').filter({has:page.getByRole('heading',{name:'Remote island',exact:true})});await card.getByRole('button',{name:'Inspect storage',exact:true}).click();await card.getByText('Recover into a new server',{exact:true}).click();const form=card.locator('[data-recover-storage]');await form.getByLabel('New server name').fill('Remote recovered');await form.getByRole('textbox',{name:/confirm the source/}).fill('Remote island');await form.getByRole('checkbox').check();await form.getByRole('button',{name:'Recover stopped server'}).click();
+ await expect.poll(()=>requests.length).toBe(2);expect(requests[1]).toMatchObject({path:'/api/hosts/'+remote+'/removed-servers/'+id+'/recover',body:{newName:'Remote recovered',name:'Remote island'}});expect(local.storageReview).toBeUndefined();
 });

@@ -6,6 +6,29 @@ import {assert} from '../common.js';
 import {regularFile, parseStorageJSON} from '../core/storage/files.js';
 
 export async function retainedRecord(root, name, {optional = true} = {}) {
+  assert(
+    typeof name === 'string' &&
+      /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(name) &&
+      !name.split('/').some((part) => ['.', '..'].includes(part)),
+    'Invalid application recovery metadata path.',
+  );
+  const parents = name.split('/').slice(0, -1);
+  let current = root;
+  for (const part of parents) {
+    current = path.join(current, part);
+    let stat;
+    try {
+      stat = await fs.lstat(current);
+    } catch (error) {
+      if (optional && error.code === 'ENOENT') return null;
+      throw error;
+    }
+    assert(
+      stat.isDirectory() && !stat.isSymbolicLink(),
+      'Application recovery metadata cannot traverse links or special files.',
+      409,
+    );
+  }
   const bytes = await regularFile(path.join(root, name), {
     optional,
     max: 4 * 1024 ** 2,

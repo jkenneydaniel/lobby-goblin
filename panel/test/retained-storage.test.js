@@ -503,3 +503,21 @@ unix(
     );
   },
 );
+
+unix(
+  'recovery metadata refuses linked parent directories before reading outside the retained volume',
+  async (t) => {
+    const f = await fixture(t);
+    await fs.mkdir(path.join(f.root, 'outside'));
+    await writeJSON(path.join(f.root, 'outside/transaction.json'), {
+      phase: 'complete',
+    });
+    await fs.symlink(
+      path.join(f.root, 'outside'),
+      path.join(f.source, 'state/mod-library'),
+    );
+    const result = await runRetainedWorker(f.request, f.options);
+    assert.equal(result.recovery.ready, false);
+    assert.match(result.recovery.reason, /cannot traverse/);
+  },
+);

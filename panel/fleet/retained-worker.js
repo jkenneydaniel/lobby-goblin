@@ -40,6 +40,14 @@ export async function runRetainedWorker(
   const managed = resolveGame(config.game).managed;
   let recovery;
   try {
+    for (const name of ['data', 'state', 'backups', 'software', 'library']) {
+      const entry = inventory.entries.find((value) => value.name === name);
+      assert(
+        (name !== 'data' || entry) && (!entry || entry.type === 'directory'),
+        'Application storage roots must be ordinary directories before recovery.',
+        409,
+      );
+    }
     assert(
       !inventory.entries.some(
         (e) =>
