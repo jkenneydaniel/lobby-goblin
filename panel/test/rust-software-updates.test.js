@@ -154,6 +154,9 @@ test('exact Steam review does not stop or alter a running world; update validate
   assert.equal(f.stops(), 1);
   assert.equal(f.probes(), 1);
   assert.equal((await f.changes.inspect()).phase, 'complete');
+  const installed = await f.changes.softwareStatus();
+  assert.equal(installed.current.softwareVersion, '124');
+  assert.equal(installed.updateAvailable, false);
 });
 
 test('an originally stopped update returns stopped after a real validation start', async (t) => {
@@ -188,6 +191,11 @@ test('failure to return a stopped installation to its stopped state keeps paired
   });
   assert.equal((await f.software.receipt()).selection.softwareVersion, '123');
   assert.equal(await fs.readFile(f.world, 'utf8'), 'BEFORE BUILD 123');
+  assert.equal(
+    (await f.changes.softwareStatus()).current.softwareVersion,
+    '123',
+  );
+  assert.equal((await f.changes.softwareStatus()).updateAvailable, false);
 });
 
 test('changed software or framework is rejected before stopping a running installation', async (t) => {

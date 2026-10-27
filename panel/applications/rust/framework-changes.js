@@ -821,7 +821,10 @@ export function createRustFrameworkChanges(
       pending: !settled(value),
       phase: value.phase,
       id: value.id,
-      current: value.previous.receipt.selection,
+      current:
+        value.phase === 'complete'
+          ? value.prepared.receipt.selection
+          : value.previous.receipt.selection,
       target: value.target || null,
       framework: value.review.framework,
       frameworkVersion: value.review.version,
@@ -838,7 +841,9 @@ export function createRustFrameworkChanges(
             : 'operator-review-required',
       },
       updateAvailable:
-        !!value.target && !same(value.target, value.previous.receipt.selection),
+        value.phase === 'reviewed' &&
+        !!value.target &&
+        !same(value.target, value.previous.receipt.selection),
       expires: new Date(Date.parse(value.started) + 15 * 60000).toISOString(),
       message:
         'Updates require a clean save and downtime. The whole pre-update world and software are retained together; recovery restores that earlier world and retains newer data privately.',
