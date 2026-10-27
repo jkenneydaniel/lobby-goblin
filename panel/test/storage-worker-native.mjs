@@ -1,6 +1,7 @@
 // Fresh CI containers and a unique disposable fixture volume only. No daemon,
 // game process, existing installation, credentials, or world mounts are used.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {runWorker} from '/app/fleet/worker.js';
@@ -19,6 +20,7 @@ if(process.argv[2]==='prepare'){
     {name:'saves/world.zip',data:makeZip([{name:'world/level.dat',data:Buffer.from('synthetic world')}])},
     {name:'config/rconpw',data:Buffer.from('never-copy-this-secret')},
   ]),{mode:0o600});
+  await fs.writeFile(root+'/backup.sha256',crypto.createHash('sha256').update(await fs.readFile(backup)).digest('hex'));
   await fs.chown(backup,845,845);await fs.chown(path.dirname(backup),845,845);
 }else if(process.argv[2]==='before'){
   await assert.rejects(runWorker(config,{instance,library}),{code:'EACCES'});
@@ -29,6 +31,6 @@ if(process.argv[2]==='prepare'){
   const manifest=await verifySnapshot(library,snapshotId,result.manifestSha256);
   assert.deepEqual(manifest.files.map(file=>file.name),['world.zip']);
   assert.equal((await fs.stat(backup)).uid,845);assert.equal((await fs.stat(backup)).mode&0o777,0o600);
-  assert.equal((await fs.readFile(backup)).includes(Buffer.from('never-copy-this-secret')),true);
+  assert.equal(crypto.createHash('sha256').update(await fs.readFile(backup)).digest('hex'),await fs.readFile(root+'/backup.sha256','utf8'));
   console.log('Snapshot publication passed with DAC_OVERRIDE; backup ownership, privacy, and source bytes were preserved.');
 }

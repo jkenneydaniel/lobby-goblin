@@ -17,7 +17,7 @@ export function storageWorkerFailure(error) {
       : 'The isolated storage operation failed. Review the backup and host storage before retrying.')};
 }
 export function storageWorkerMessage(failure, {oomKilled = false, exitCode} = {}) {
-  if (oomKilled) return 'The snapshot worker ran out of memory. The requested removal was not completed; server storage was kept.';
+  if (oomKilled) return 'The isolated storage worker ran out of memory. Server storage was kept.';
   if (failure?.version === 1 && typeof failure.error === 'string' && failure.error.length <= 300 && !/[\x00-\x1f\x7f]/.test(failure.error)) return failure.error;
   return `The isolated storage worker stopped${Number.isInteger(exitCode) ? ' (exit ' + exitCode + ')' : ''} before completing. Server storage was kept. Review host storage and retry.`;
 }
