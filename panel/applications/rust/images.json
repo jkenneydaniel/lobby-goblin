@@ -5,6 +5,7 @@
       "id": "server",
       "manifest": "images/image.json",
       "dockerfile": "Dockerfile",
+      "dependencies": ["shared/steamcmd/runtime"],
       "files": [
         {
           "source": "images/Dockerfile",
@@ -28,8 +29,7 @@
         }
       ],
       "buildArgs": {
-        "BASE_IMAGE": "baseImage",
-        "STEAMCMD_SHA256": "steamcmdSha256"
+        "BASE_IMAGE": "baseImage"
       },
       "checks": [
         {
@@ -37,9 +37,7 @@
           "file": "images/test-runtime.test.mjs"
         }
       ],
-      "acceptance": [
-        "images/acceptance.mjs"
-      ]
+      "acceptance": ["images/acceptance.mjs"]
     }
   ]
 }

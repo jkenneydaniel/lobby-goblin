@@ -1,10 +1,9 @@
 {
   "format": 1,
   "repository": "ghcr.io/jkenneydaniel/rust-server",
-  "tag": "steam-lg.3",
+  "tag": "steam-lg.4",
   "compatibility": 1,
-  "revision": 3,
+  "revision": 4,
   "platform": "linux/amd64",
-  "baseImage": "node:24.22.0-bookworm-slim@sha256:ec857ea6bb60cb3d0fa4d97495590c5fe7d51be8572c307b55957eeb06569cf7",
-  "steamcmdSha256": "cebf0046bfd08cf45da6bc094ae47aa39ebf4155e5ede41373b579b8f1071e7c"
+  "baseImage": "ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:acb54444388c2b0886fbb5937d0faa16a18a8cf14e28586cb62de203cd64429b"
 }

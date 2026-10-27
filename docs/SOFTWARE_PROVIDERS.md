@@ -91,6 +91,8 @@ software, stop a server or reset world/configuration/mod data.
 3. Rust integration and managed software updates: real server build discovery,
    mod-aware staging, save barriers, paired software/data recovery and failure
    injection. Keep old image defaults and installations until explicit adoption.
+   First move the separately versioned Rust image onto the published shared base
+   without changing bootstrap behavior; follow with provider/update integration.
 4. Setup experience: capability-driven host/version choices, preflight,
    installation progress, useful retry and session-expiry regression coverage.
 5. Package authoring: generator, validator, documentation and native acceptance
