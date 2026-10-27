@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
+import {gunzipSync} from 'node:zlib';
 import {cliConstants} from '../applications/rust/cli-constants.js';
 import {rustSoftwareProtocol} from '../applications/rust/software-protocol.js';
 import {readSoftwareModule} from '../core/software-module.js';
@@ -20,12 +21,17 @@ test('CLI metadata reads unsigned Rust protocol fields and a published independe
       ['report', 1],
     ],
   );
-  const bytes = await fs.readFile(
-    new URL(
-      'fixtures/cli-metadata/System.Reflection.Metadata.dll',
-      import.meta.url,
+  const corpus = JSON.parse(
+    await fs.readFile(
+      new URL('fixtures/cli-metadata/assembly.json', import.meta.url),
+      'utf8',
     ),
   );
+  assert.equal(corpus.encoding, 'gzip+base64');
+  const bytes = gunzipSync(Buffer.from(corpus.data, 'base64'), {
+    maxOutputLength: 1024 ** 2,
+  });
+  assert.equal(bytes.length, corpus.size);
   assert.equal(
     createHash('sha256').update(bytes).digest('hex'),
     '24c8d1f3d93803a7db24ed9c9725fec5613990321f7080a96f8d4a5dfe832be4',
