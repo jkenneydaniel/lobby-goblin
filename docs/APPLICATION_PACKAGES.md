@@ -24,6 +24,9 @@ The HTTP page is application code inside its image, independent of panel UI.
 Images are built/tested locally before publication; adding this package does not
 publish its image or deploy it on an existing host.
 
+Start with the [small application guide and copyable template](ADDING_AN_APPLICATION.md)
+for a working package that needs no custom panel code.
+
 ## Existing providers
 
 Select `managed-container-v1` for one required web/service/worker process in one

@@ -24,6 +24,7 @@ await fs.writeFile(env.RUST_RCON_PASSWORD_FILE,'fixture_only_password_1234567890
 await writeJSON(path.join(env.AUTH_DIR,'users.json'),{admin:{...hashPassword('rust-preview-password'),role:'admin'},viewer:{...hashPassword('rust-preview-password'),role:'viewer'},pending:{...hashPassword('rust-preview-password'),role:'member',grants:{}},member:{...hashPassword('rust-preview-password'),role:'member',grants:{standalone:['server.view','mods.manage']}}});
 const users=JSON.parse(await fs.readFile(path.join(env.AUTH_DIR,'users.json'),'utf8'));
 for(const [username,permission] of Object.entries({framework:'application.rust.framework.manage',plugins:'application.rust.plugins.manage',configuration:'application.rust.plugins.configure'}))users[username]={...hashPassword('rust-preview-password'),role:'member',grants:{standalone:['server.view','mods.manage',permission]}};
+users.software={...hashPassword('rust-preview-password'),role:'member',grants:{standalone:['server.view','images.change']}};
 await writeJSON(path.join(env.AUTH_DIR,'users.json'),users);
 if(process.env.UI_RECOVERY_TEST==='1')await writeJSON(path.join(env.RUST_STATE_DIR,'jobs.json'),[{id:'interrupted-browser-operation',action:'restart',actor:'Fixture',state:'running',phase:'executing',started:new Date().toISOString()}]);
 let running=true;

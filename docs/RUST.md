@@ -138,6 +138,32 @@ Treat `.env`, `rust.env`, `control/` and backups as private. Do not publish them
 If manually rotating WebRCON, change both `rust.env` and the password secret
 together and recreate only this installation's affected containers.
 
+## Managed software setup and recovery
+
+New managed fleet installations expose **Software** to users with image-change
+permission. It shows the recorded Steam build and current setup operation.
+**Prepare and start Rust** installs once and then starts; opening the screen
+never downloads or updates software. Existing installer-based servers keep their
+current delivery method and are not converted automatically.
+
+**Check Steam updates** explicitly resolves a build. Review its exact selection
+and framework before applying. Applying saves/stops Rust, retains the previous
+software and complete world together, then validates the target. Reviews expire
+and cannot silently select a different build. Modded updates require the existing
+framework and executable-mod permissions as well as software/lifecycle access.
+
+After an interruption, review any blocked operation in **Operations**, then
+**Inspect recovery** in Software. Stop Rust before a paired restore; a retained
+metadata-only update check can be closed while running. Recovery restores the
+matching earlier software/world/settings/mod data and retains newer data
+privately. Initial setup recovery resumes preparation without starting Rust.
+Cancellation stops retained preparation; inspect again before recovering. Session
+expiry returns to sign-in and never resubmits an earlier operation.
+
+Factorio continues to use its existing **Settings → Updates** flow and official
+headless source. See the [minimal application guide](ADDING_AN_APPLICATION.md)
+for small image-owned applications that need no game-specific adapter.
+
 ## Backup consistency and recovery
 
 For a running Rust server, the module preflights the identity, asks `server.save`,

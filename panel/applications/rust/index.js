@@ -212,6 +212,7 @@ export const rust = {
     sessionCookie: 'rust_session',
     accountRoutes: [],
     extensions: {
+      'rust.software': {version: 1, script: '/rust/software-capability.js', template: '/rust/software.html'},
       'rust.mods': {
         version: 1,
         script: '/rust/mods-capability.js',
@@ -223,6 +224,8 @@ export const rust = {
       .map(([route]) => route),
     publicRoot: new URL('./public/', import.meta.url),
     assets: {
+      '/rust/software-capability.js': ['rust/software-capability.js', 'text/javascript; charset=utf-8'],
+      '/rust/software.html': ['rust/software.html', 'text/html; charset=utf-8'],
       '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
       '/rust/mods-capability.js': [
         'rust/mods-capability.js',
