@@ -376,7 +376,7 @@ export function reviewSoftwareInstallation(
 ) {
   const current = currentRevision(value, expectedRevision);
   assert(
-    confirm && ['failed', 'recovery-required'].includes(current.state),
+    confirm === true && ['failed', 'recovery-required'].includes(current.state),
     'Explicit installation recovery review is required.',
     409,
   );
@@ -454,7 +454,7 @@ export function adoptSoftwareInstallation(
     installed = softwareReceipt(receipt);
   fields(identity, ['provider', 'application', 'platform']);
   assert(
-    confirm &&
+    confirm === true &&
       current.state === 'uninstalled' &&
       ['provider', 'application', 'platform'].every(
         (key) => identity[key] === installed.selection[key],

@@ -251,7 +251,7 @@ export function createSteamProvider({
   }
   async function empty() {
     const state = await readState();
-    if (state.state !== 'uninstalled' || !(await isApplicationEmpty()))
+    if (state.state !== 'uninstalled' || (await isApplicationEmpty()) !== true)
       return false;
     const stat = await fs.lstat(software).catch((error) => {
       if (error.code === 'ENOENT') return null;
@@ -331,7 +331,8 @@ export function createSteamProvider({
         409,
       );
       assert(
-        confirm === true && (current.installed || (await isApplicationEmpty())),
+        confirm === true &&
+          (current.installed || (await isApplicationEmpty()) === true),
         'Explicit software staging or empty-application confirmation is required.',
         409,
       );
@@ -517,7 +518,7 @@ export function createSteamProvider({
     receipt = boundReceipt(receipt);
     assert(confirm === true, 'Explicit software activation is required.', 409);
     assert(
-      await isApplicationStopped(),
+      (await isApplicationStopped()) === true,
       'Stop the application before activating software.',
       409,
     );
@@ -536,7 +537,7 @@ export function createSteamProvider({
       );
       await verify(receipt);
       assert(
-        await isApplicationStopped(),
+        (await isApplicationStopped()) === true,
         'Application state changed before software activation.',
         409,
       );
@@ -590,7 +591,7 @@ export function createSteamProvider({
     assert(
       !state.installed &&
         ['uninstalled', 'failed'].includes(state.state) &&
-        (await isApplicationEmpty()),
+        (await isApplicationEmpty()) === true,
       'Existing or interrupted applications need explicit adoption or recovery.',
       409,
     );
@@ -665,7 +666,6 @@ export function createSteamProvider({
       if (candidate)
         observation = {state: 'staged', receipt: candidate.receipt};
       else if (!state.installed && state.operationId) {
-        const stage = path.join(stages, state.operationId);
         if (
           (
             await fs.readdir(releases).catch((error) => {
@@ -674,13 +674,35 @@ export function createSteamProvider({
             })
           ).length === 0
         ) {
-          const partial = await fs.lstat(stage).catch((error) => {
-            if (error.code === 'ENOENT') return null;
+          const retained = await fs.readdir(stages).catch((error) => {
+            if (error.code === 'ENOENT') return [];
             throw error;
           });
-          if (partial) {
+          if (retained.length) {
             try {
-              await softwareInventory(stage, {maxFiles, maxBytes, hash: false});
+              assert(
+                retained.length <= 16 &&
+                  retained.every((name) =>
+                    /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(name),
+                  ),
+                'Staging contains unknown entries.',
+                409,
+              );
+              let files = 0,
+                bytes = 0;
+              for (const name of retained) {
+                const inventory = await softwareInventory(
+                  path.join(stages, name),
+                  {maxFiles, maxBytes, hash: false},
+                );
+                files += inventory.inventory.files;
+                bytes += inventory.inventory.bytes;
+                assert(
+                  files <= maxFiles && bytes <= maxBytes,
+                  'Retained staging exceeds its inventory budget.',
+                  413,
+                );
+              }
               observation = {state: 'partial'};
             } catch {}
           } else if (['failed', 'recovery-required'].includes(state.state))

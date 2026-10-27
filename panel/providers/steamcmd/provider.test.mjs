@@ -489,6 +489,69 @@ test('required software declarations are copied and cannot be weakened after reg
   );
 });
 
+test('retained staging from an older failed target cannot be reported as empty after a new preflight failure', async (t) => {
+  const f = await fixture(t),
+    first = await f.provider.resolve({channel: 'public'});
+  f.runtime.failDownload = true;
+  await assert.rejects(f.provider.install(first));
+  const failedA = await f.provider.read();
+  f.runtime.build = '12346';
+  const limited = createSteamProvider({...f.options, disk: async () => 0});
+  const second = await limited.resolve({channel: 'public'});
+  await assert.rejects(limited.install(second), /insufficient space/);
+  const failedB = await limited.read();
+  assert.notEqual(failedA.operationId, failedB.operationId);
+  assert.equal(
+    await fs
+      .stat(path.join(f.software, 'staging', failedB.operationId))
+      .catch(() => null),
+    null,
+  );
+  const review = await limited.inspect();
+  assert.equal(review.observation.state, 'partial');
+  const recovered = await limited.recover(review, {
+    confirm: true,
+    offline: true,
+  });
+  assert.equal(recovered.state, 'failed');
+  f.runtime.failDownload = false;
+  assert.equal(
+    await f.provider.installed(await f.provider.install(second)),
+    true,
+  );
+  assert.equal(
+    await fs.readFile(
+      path.join(f.software, 'staging', failedA.operationId, 'partial'),
+      'utf8',
+    ),
+    'resumable',
+  );
+});
+
+test('unknown inspector observations cannot satisfy empty or stopped-state requirements', async (t) => {
+  const f = await fixture(t),
+    target = await f.provider.resolve({channel: 'public'});
+  const unknownEmpty = createSteamProvider({
+    ...f.options,
+    isApplicationEmpty: async () => ({state: 'unknown'}),
+  });
+  assert.equal(await unknownEmpty.empty(), false);
+  await assert.rejects(unknownEmpty.install(target), /adoption or recovery/);
+  const staged = await f.provider.stage(target, {confirm: true});
+  const unknownStopped = createSteamProvider({
+    ...f.options,
+    isApplicationStopped: async () => 'unknown',
+  });
+  await assert.rejects(
+    unknownStopped.activate(staged, {confirm: true}),
+    /Stop the application/,
+  );
+  assert.equal(
+    await fs.stat(path.join(f.control, 'active.json')).catch(() => null),
+    null,
+  );
+});
+
 test('activation requires a stopped application and leaves staged software and the prior pointer intact', async (t) => {
   const f = await fixture(t),
     receipt = await f.provider.install(

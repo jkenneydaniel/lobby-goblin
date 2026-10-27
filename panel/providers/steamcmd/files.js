@@ -34,10 +34,7 @@ export async function directory(location, {create = false} = {}) {
   );
   return absolute;
 }
-export async function readRecord(
-  file,
-  {optional = false, max = 1024 ** 2} = {},
-) {
+async function readRecordOnce(file, {optional = false, max = 1024 ** 2} = {}) {
   const stat = await fs.lstat(file).catch((error) => {
     if (optional && error.code === 'ENOENT') return null;
     throw error;
@@ -93,6 +90,24 @@ export async function readRecord(
     return JSON.parse(bytes);
   } catch {
     throw Error('Invalid software record. Preserve it for inspection.');
+  }
+}
+export async function readRecord(file, options) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await readRecordOnce(file, options);
+    } catch (error) {
+      // Atomic replacement is normal while progress is being published. Retry
+      // bounded reads, retaining the same inode, hard-link and size guards.
+      if (
+        attempt >= 3 ||
+        error.status !== 409 ||
+        !/^Software record changed while (opening|reading) it\.$/.test(
+          error.message,
+        )
+      )
+        throw error;
+    }
   }
 }
 export async function atomicRecord(file, value) {
