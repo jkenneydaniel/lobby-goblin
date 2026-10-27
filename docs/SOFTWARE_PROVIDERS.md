@@ -260,6 +260,31 @@ build can have different inventory digests because Steam metadata contains times
 The managed choice currently supports vanilla Rust. Existing Carbon/Oxide
 installations keep their current path. Framework changes and updates need the
 paired software, mod and data workflow before they are enabled on this choice.
+
+The separately versioned managed image revision 2 adds mod-data ABI 1. Carbon
+code remains under the sealed engine while fixed links place its mutable folders
+and configuration under the stable identity's `mods/carbon` directory. Oxide's
+instance directory lives under `mods/oxide`; its native-library bindings are
+prepared by the controller before startup. Its compiler is a separate reviewed,
+SHA-256-pinned download prepared with framework software, not a game-start
+download. The image checks the compiler's bytes before launch. Carbon settings
+are prepared only by a game-user helper with a minimal environment. No privileged
+write follows mutable configuration paths. Missing managed configuration targets are
+initialized exclusively as that user before Mono follows their fixed links;
+existing configuration is retained, and a new web-panel configuration is disabled.
+The game child's Harmony log path is
+set to the mutable Carbon logs directory before its first constructor runs;
+Carbon's own later logging setup must not require a write into the sealed engine.
+The controller must prepare Carbon's required compiler-library removals in a private
+candidate, retaining pristine software and recovery copies. Startup refuses
+those conflicts instead of letting the game rewrite code. Its two packaged hook
+components carry hashes bound to the exact Rust build, protocol and verified
+framework archive; startup checks those hashes without downloading replacements.
+Startup rejects links, hardlinks and special files in the bounded world inventory
+before its ownership handoff, preserving unexpected files for operator review.
+Existing nonempty data in an execution
+tree is retained for explicit migration; startup never discards it. The existing
+managed image 1 default remains pinned while controller integration is completed.
 Native acceptance is an explicit workflow using a fresh engine, the published
 worker and game images, actual broker credentials, and two newly created worlds
 and volumes. No test selects an existing Docker engine, server or world.

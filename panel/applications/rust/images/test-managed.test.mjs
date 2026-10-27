@@ -11,6 +11,7 @@ import {
 } from './managed-entrypoint.mjs';
 import {prepareSdk} from './managed-helper.mjs';
 import {liveProcess} from './managed-health.mjs';
+import {carbonHookPaths} from './mod-layout.js';
 
 async function fixture(t) {
   const root = await fs.realpath(
@@ -138,8 +139,23 @@ test('linked identities are refused before creating configuration outside the wo
   await fs.mkdir(outside);
   await fs.mkdir(path.join(f.root, 'server'));
   await fs.symlink(outside, path.join(f.root, 'server/lobby-goblin-rust'));
-  await assert.rejects(managedStartup(f.env, f.root), /cannot be linked/);
+  await assert.rejects(managedStartup(f.env, f.root), /cannot be links/);
   assert.deepEqual(await fs.readdir(outside), []);
+});
+
+test('world hardlinks cannot pass the ownership handoff for protected software', async (t) => {
+  const f = await fixture(t),
+    world = path.join(f.root, 'server/lobby-goblin-rust'),
+    protectedFile = path.join(f.engine, 'protected-library.dll');
+  await fs.mkdir(world, {recursive: true});
+  await fs.writeFile(protectedFile, 'sealed library', {mode: 0o644});
+  const before = await fs.stat(protectedFile);
+  await fs.link(protectedFile, path.join(world, 'plugin-cache.dll'));
+  await assert.rejects(managedStartup(f.env, f.root), /cannot be hardlinks/);
+  assert.equal(await fs.readFile(protectedFile, 'utf8'), 'sealed library');
+  assert.equal((await fs.stat(protectedFile)).uid, before.uid);
+  assert.equal((await fs.stat(protectedFile)).mode, before.mode);
+  assert.equal((await fs.lstat(path.join(world, 'plugin-cache.dll'))).nlink, 2);
 });
 
 test('readiness writes use a reserved descriptor and cannot follow a replaced temporary path', async (t) => {
@@ -200,4 +216,94 @@ test('readiness checks prove a live process without cross-user signal privileges
     );
   assert.equal(liveProcess({pid: 43}, '42 (RustDedicated) S 1 2 3'), false);
   assert.equal(liveProcess({pid: '../other'}, '42 (RustDedicated) S'), false);
+});
+
+test('unrecorded framework loaders and an unprepared compiler cannot start or redirect mutable setup', async (t) => {
+  const f = await fixture(t),
+    managed = path.join(f.engine, 'RustDedicated_Data/Managed');
+  await fs.mkdir(managed, {recursive: true});
+  await fs.writeFile(path.join(managed, 'Oxide.Rust.dll'), 'synthetic loader', {
+    mode: 0o644,
+  });
+  await assert.rejects(managedStartup(f.env, f.root), /Unrecorded framework/);
+  await fs.writeFile(
+    path.join(f.engine, '.lobby-goblin-mods.json'),
+    JSON.stringify({format: 1, status: 'complete', framework: 'oxide'}),
+    {mode: 0o644},
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /ENOENT/);
+  await fs.writeFile(
+    path.join(f.engine, 'Oxide.Compiler'),
+    'unreviewed compiler',
+    {mode: 0o755},
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /executable differs/);
+  assert.equal(
+    await fs
+      .lstat(path.join(f.root, 'server/lobby-goblin-rust/mods'))
+      .catch(() => null),
+    null,
+  );
+});
+
+test('Carbon initial Harmony logging uses world data before its first framework constructor', async (t) => {
+  const f = await fixture(t);
+  await fs.mkdir(path.join(f.engine, 'carbon/managed'), {recursive: true});
+  for (const name of ['libdoorstop.so', 'carbon/managed/Carbon.Preloader.dll'])
+    await fs.writeFile(path.join(f.engine, name), 'synthetic loader', {
+      mode: 0o644,
+    });
+  const hooks = {
+    format: 1,
+    buildId: f.receipt.buildId,
+    protocol: '2635.289.1',
+    packageSha256: 'b'.repeat(64),
+    files: [],
+  };
+  for (const name of carbonHookPaths) {
+    const data = Buffer.from('synthetic hook: ' + name);
+    await fs.mkdir(path.dirname(path.join(f.engine, name)), {recursive: true});
+    await fs.writeFile(path.join(f.engine, name), data, {mode: 0o644});
+    hooks.files.push({
+      name,
+      size: data.length,
+      sha256: crypto.createHash('sha256').update(data).digest('hex'),
+    });
+  }
+  const marker = path.join(f.engine, '.lobby-goblin-mods.json');
+  await fs.writeFile(
+    marker,
+    JSON.stringify({
+      format: 1,
+      status: 'complete',
+      framework: 'carbon',
+      hooks: {...hooks, buildId: '999'},
+    }),
+  );
+  await assert.rejects(managedStartup(f.env, f.root), /different Rust build/);
+  await fs.writeFile(
+    marker,
+    JSON.stringify({format: 1, status: 'complete', framework: 'carbon', hooks}),
+    {mode: 0o644},
+  );
+  const config = await managedStartup(
+    {...f.env, HARMONY_LOG_FILE: '/unreviewed'},
+    f.root,
+  );
+  const expected = path.join(
+    f.root,
+    'server/lobby-goblin-rust/mods/carbon/logs/Carbon.Harmony.bootstrap.log',
+  );
+  assert.equal(config.modEnv.HARMONY_LOG_FILE, expected);
+  assert.equal(
+    await fs.realpath(path.dirname(expected)),
+    path.dirname(expected),
+  );
+  assert.equal(
+    await fs.lstat(path.join(f.engine, 'harmony_log.txt')).catch(() => null),
+    null,
+  );
+  assert.equal((await fs.stat(f.engine)).mode & 0o022, 0);
+  await fs.appendFile(path.join(f.engine, carbonHookPaths[0]), 'changed');
+  await assert.rejects(managedStartup(f.env, f.root), /hook size changed/);
 });

@@ -71,6 +71,11 @@ test('compatible release bundles contain an importable core/module runtime and p
       const catalogue=await run(process.execPath,['tools/application-images.mjs','matrix'],{cwd:complete,timeout:5000});
       assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='status-page/server'));
       assert.ok(JSON.parse(catalogue.stdout).include.some(recipe=>recipe.key==='shared/steamcmd/runtime'));
+      // Resolve the actual native entrypoint's complete import graph in the
+      // extracted layout, intercepting its first engine call before any Docker
+      // process, socket, volume or world can be accessed.
+      const imports="import assert from 'node:assert/strict'; import processes from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module'; let calls=0; processes.execFile=(program,...args)=>{assert.equal(program,'docker');calls++;args.at(-1)(Error('Reached disposable engine boundary'));};syncBuiltinESMExports();await assert.rejects(import('./panel/games/rust/image/managed-native-acceptance.mjs'),error=>error.message==='Reached disposable engine boundary');assert.equal(calls,1);";
+      await run(process.execPath,['--input-type=module','-e',imports],{cwd:complete,env:childEnv,timeout:5000});
       assert.ok(files.has('panel/providers/steamcmd/images/Dockerfile'));
       await run(process.execPath,['tools/application-images.mjs','check','shared/steamcmd/runtime'],{cwd:complete,env:childEnv,timeout:60000});
       // Repack an extracted source bundle without changing its installed paths.

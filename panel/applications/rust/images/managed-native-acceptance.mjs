@@ -1,4 +1,16 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  frameworkRelease,
+  frameworkFiles,
+  boundedDownload,
+  sha256,
+} from './mod-packages.js';
+import {oxideCompiler} from './mod-layout.js';
+import {createWebRcon} from './transport.js';
+import {packagedCarbonHooks} from './mod-components.js';
 import {randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -10,10 +22,19 @@ const execute = promisify(execFile),
   owner = 'io.lobby-goblin.acceptance=' + id;
 const game = 'lobby-managed-rust-' + id,
   image = metadata.repository + ':' + metadata.tag;
-const volumes = ['software', 'control', 'game'].map(
+const volumes = ['software', 'control', 'game', 'mod-scratch'].map(
   (name) => 'lobby-managed-rust-' + id + '-' + name,
 );
 const fixture = fileURLToPath(new URL('./managed-native.mjs', import.meta.url));
+const modFixture = fileURLToPath(
+  new URL('./managed-mod-native.mjs', import.meta.url),
+);
+let packagesRoot = null;
+let phase = 'initializing';
+const progress = (next, detail = {}) => {
+  phase = next;
+  console.log(JSON.stringify({phase, ...detail}));
+};
 const password =
   randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
 const run = async (args, timeout = 120000) =>
@@ -83,6 +104,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const info = async () => JSON.parse(await run(['inspect', game]))[0];
 async function ready() {
   const deadline = Date.now() + 900000;
+  let nextDiagnostics = 0;
   for (;;) {
     const state = await info();
     assert.ok(
@@ -90,25 +112,199 @@ async function ready() {
       'New fixture game stopped before readiness.',
     );
     if (state.State.Health?.Status === 'healthy') return;
+    if (Date.now() >= nextDiagnostics) {
+      const logs = await run(['logs', '--tail', '150', game]);
+      assert.ok(
+        !/^Unable to initialize\. \(/m.test(logs),
+        'Framework core initialization failed. Inspect its retained native diagnostics.',
+      );
+      nextDiagnostics = Date.now() + 20000;
+    }
     assert.ok(Date.now() < deadline, 'New fixture game readiness timed out.');
     await sleep(2000);
   }
 }
-const rcon = async (command) =>
-  run([
-    'exec',
-    game,
-    'node',
-    '--input-type=module',
-    '-e',
-    "import {createWebRcon} from '/app/transport.js';const r=createWebRcon();try{console.log(await r({host:'127.0.0.1',port:28016,password:process.env.RUST_RCON_PASSWORD,command:process.argv[1]}));}finally{r.close();}",
-    command,
-  ]);
+// Match the controller's reusable remote connection. Spawning a new loopback
+// client for every assertion can hit Rust's per-IP reconnect controls and
+// prevent the supervisor's separate loopback save/quit connection.
+const consoleClient = createWebRcon();
+const rcon = async (command) => {
+  const current = await info(),
+    networks = Object.values(current.NetworkSettings.Networks)
+      .map((network) => network.IPAddress)
+      .filter(Boolean);
+  assert.equal(current.Config.Labels['io.lobby-goblin.acceptance'], id);
+  assert.equal(networks.length, 1);
+  assert.match(networks[0], /^\d{1,3}(?:\.\d{1,3}){3}$/);
+  return consoleClient({host: networks[0], port: 28016, password, command});
+};
 async function worldTime() {
   const value = await rcon('env.time'),
     match = value.match(/env\.time:\s*"?([0-9]+(?:\.[0-9]+)?)/);
   assert.ok(match, 'The fixture must report its saved world time.');
   return Number(match[1]);
+}
+async function packages(buildId, protocol) {
+  packagesRoot = await fs.mkdtemp(
+    path.join(os.tmpdir(), 'lobby-managed-mod-packages-'),
+  );
+  const result = new Map();
+  for (const framework of ['carbon', 'oxide']) {
+    const release = await frameworkRelease(framework),
+      archive = await boundedDownload(release.url, 64 * 1024 ** 2);
+    assert.equal(archive.length, release.size);
+    assert.equal(sha256(archive), release.sha256);
+    let files = frameworkFiles(framework, archive),
+      carbonHooks = null;
+    if (framework === 'carbon') {
+      carbonHooks = packagedCarbonHooks(
+        {buildId, protocol, packageSha256: release.sha256},
+        files,
+      );
+    }
+    if (framework === 'oxide') {
+      const response = await fetch(oxideCompiler.url, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(120000),
+      });
+      assert.equal(response.status, 200);
+      let bytes = 0;
+      const chunks = [];
+      for await (const chunk of response.body) {
+        bytes += chunk.length;
+        assert.ok(bytes <= oxideCompiler.bytes);
+        chunks.push(chunk);
+      }
+      const compiler = Buffer.concat(chunks);
+      assert.equal(compiler.length, oxideCompiler.bytes);
+      assert.equal(sha256(compiler), oxideCompiler.sha256);
+      files.push({name: 'Oxide.Compiler', data: compiler, mode: 0o755});
+    }
+    const directory = path.join(packagesRoot, framework);
+    await fs.mkdir(directory);
+    const manifest = {
+      framework,
+      version: release.version,
+      archiveSha256: release.sha256,
+      ...(carbonHooks ? {carbonHooks} : {}),
+      files: [],
+    };
+    for (const file of files) {
+      const target = path.join(directory, file.name);
+      await fs.mkdir(path.dirname(target), {recursive: true});
+      await fs.writeFile(target, file.data, {flag: 'wx', mode: 0o644});
+      manifest.files.push({
+        name: file.name,
+        sha256: sha256(file.data),
+        size: file.data.length,
+        mode: file.mode,
+      });
+    }
+    await fs.writeFile(
+      path.join(directory, 'manifest.json'),
+      JSON.stringify(manifest),
+      {flag: 'wx'},
+    );
+    result.set(framework, {
+      directory,
+      version: release.version,
+      sha256: release.sha256,
+    });
+  }
+  return result;
+}
+async function modRun(mode, framework, directory) {
+  assert.equal(
+    (await info()).State.Running,
+    false,
+    'Stop the fresh game before private fixture writes.',
+  );
+  return run(
+    [
+      'run',
+      '--rm',
+      '--init',
+      '--network',
+      'none',
+      '--label',
+      owner,
+      '--user',
+      '0:0',
+      '--cap-drop',
+      'ALL',
+      '--cap-add',
+      'DAC_OVERRIDE',
+      '--security-opt',
+      'no-new-privileges:true',
+      '--memory',
+      '2g',
+      '--cpus',
+      '2',
+      '--mount',
+      'type=bind,source=' + modFixture + ',target=/acceptance.mjs,readonly',
+      '--mount',
+      'type=volume,source=' + volumes[2] + ',target=/game,volume-nocopy',
+      '--mount',
+      'type=volume,source=' + volumes[3] + ',target=/scratch,volume-nocopy',
+      ...(directory
+        ? [
+            '--mount',
+            'type=bind,source=' + directory + ',target=/package,readonly',
+          ]
+        : []),
+      '-e',
+      'LOBBY_MANAGED_MOD_ACCEPTANCE=disposable',
+      '--entrypoint',
+      'node',
+      image,
+      '/acceptance.mjs',
+      mode,
+      ...(framework ? [framework] : []),
+    ],
+    1200000,
+  );
+}
+async function frameworkAcceptance(buildId, protocol) {
+  progress('reviewing-framework-packages');
+  const selected = await packages(buildId, protocol),
+    reports = [];
+  await modRun('base');
+  for (const framework of ['carbon', 'oxide']) {
+    const release = selected.get(framework);
+    progress('staging-' + framework, {version: release.version});
+    await modRun('stage', framework, release.directory);
+    progress('starting-' + framework);
+    await run(['start', game]);
+    await ready();
+    progress('compiling-' + framework + '-plugin');
+    assert.match(
+      await rcon(framework === 'carbon' ? 'c.version' : 'oxide.version'),
+      framework === 'carbon' ? /carbon/i : /oxide/i,
+    );
+    const deadline = Date.now() + 240000;
+    let probe = '';
+    while (Date.now() < deadline) {
+      try {
+        probe = await rcon('lg.probe');
+        if (/LG_MOD_PROBE_OK:[1-9]/.test(probe)) break;
+      } catch {}
+      await sleep(2000);
+    }
+    assert.match(
+      probe,
+      /LG_MOD_PROBE_OK:[1-9]/,
+      'The framework must compile and run its C# plugin.',
+    );
+    await cleanStop();
+    const report = JSON.parse(await modRun('inspect', framework));
+    progress('verified-' + framework, report);
+    reports.push({
+      ...report,
+      version: release.version,
+      packageSha256: release.sha256,
+    });
+  }
+  return reports;
 }
 async function cleanStop() {
   await run(['stop', '--time', '-1', game], 180000);
@@ -118,6 +314,7 @@ async function cleanStop() {
   assert.equal(state.ExitCode, 0, 'Managed Rust must prove its save and quit.');
 }
 try {
+  progress('preparing-exact-rust-software');
   await run(['pull', '--platform', 'linux/amd64', deployment.image], 1200000);
   for (const volume of volumes)
     await run(['volume', 'create', '--label', owner, volume]);
@@ -126,6 +323,7 @@ try {
   const prepared = JSON.parse(
     await fixtureRun('publish', ['software', 'control', 'game']),
   );
+  progress('starting-vanilla', {buildId: prepared.buildId});
   await run([
     'run',
     '-d',
@@ -159,6 +357,7 @@ try {
     image,
   ]);
   await ready();
+  progress('verifying-vanilla-save');
   assert.equal((await info()).Image, imageId);
   const first = JSON.parse(await rcon('serverinfo'));
   assert.equal(first.MaxPlayers, 1);
@@ -177,6 +376,7 @@ try {
   await cleanStop();
   const before = JSON.parse(await fixtureRun('inspect', ['game']));
   const oldLogs = await run(['logs', game]);
+  progress('reloading-vanilla-world');
   await run(['start', game]);
   await ready();
   assert.equal(JSON.parse(await rcon('serverinfo')).MaxPlayers, 1);
@@ -195,9 +395,23 @@ try {
     /Spawning [1-9]\d* entities from save/.test(newLogs),
     'Restart must report loading entities from its saved world.',
   );
+  const protocols = [
+    ...new Set(
+      [...newLogs.matchAll(/^Protocol:\s*(\d+\.\d+\.\d+)\s*$/gm)].map(
+        (match) => match[1],
+      ),
+    ),
+  ];
+  assert.equal(
+    protocols.length,
+    1,
+    'Vanilla must identify its actual protocol before component review.',
+  );
+  const frameworks = await frameworkAcceptance(prepared.buildId, protocols[0]);
   console.log(
     JSON.stringify({
       passed: true,
+      frameworks,
       image,
       ...prepared,
       ...after,
@@ -213,16 +427,18 @@ try {
     }),
   );
 } catch (error) {
-  const logs = await execute('docker', ['logs', '--tail', '150', game], {
+  console.error(JSON.stringify({failedPhase: phase, message: error.message}));
+  const logs = await execute('docker', ['logs', '--tail', '400', game], {
     encoding: 'utf8',
     timeout: 30000,
     maxBuffer: 4 * 1024 ** 2,
   })
     .then((value) => value.stdout + '\n' + value.stderr)
     .catch(() => 'New fixture logs unavailable');
-  console.error(logs.replaceAll(password, '[redacted]').slice(-12000));
+  console.error(logs.replaceAll(password, '[redacted]').slice(-32000));
   throw error;
 } finally {
+  consoleClient.close();
   const containers = (await run(['ps', '-aq', '--filter', 'label=' + owner]))
     .split('\n')
     .filter(Boolean);
@@ -246,4 +462,5 @@ try {
     assert.equal(current.Labels['io.lobby-goblin.acceptance'], id);
     await run(['volume', 'rm', volume]);
   }
+  if (packagesRoot) await fs.rm(packagesRoot, {recursive: true, force: true});
 }

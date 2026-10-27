@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {prepareCarbonConfig} from './mod-layout.js';
 const check = (value, message) => {
   if (!value) throw Error(message);
 };
@@ -45,6 +46,8 @@ if (
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   if (process.argv[2] === 'sdk') await prepareSdk(process.argv[3]);
+  else if (process.argv[2] === 'carbon-config')
+    await prepareCarbonConfig(process.argv[3]);
   else if (process.argv[2] === 'signal') {
     const pid = Number(process.argv[3]);
     check(Number.isSafeInteger(pid) && pid > 1, 'Invalid game signal identity');

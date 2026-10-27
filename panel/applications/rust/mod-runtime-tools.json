@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "oxideCompiler": {
+    "platform": "linux/amd64",
+    "url": "https://downloads.oxidemod.com/artifacts/Oxide.Compiler/master/linux-x64.Compiler",
+    "bytes": 127842362,
+    "sha256": "f214cec0fc09c57d87183ee903a529a4c193caf22c0a8e5f1ce49a0a9af3b20c"
+  }
+}

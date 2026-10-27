@@ -27,7 +27,10 @@ assert.equal(
   info.Config.Labels['io.lobby-goblin.software-provider'],
   'steamcmd',
 );
-assert.equal(info.Config.Labels['io.lobby-goblin.image-revision'], '1');
+assert.equal(
+  info.Config.Labels['io.lobby-goblin.image-revision'],
+  String(metadata.revision),
+);
 const name = 'lobby-managed-rust-smoke-' + randomUUID();
 try {
   run([
