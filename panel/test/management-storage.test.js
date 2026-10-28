@@ -380,3 +380,13 @@ test('selected transactional accounts survive raw offline management restoration
     'world outside management authority',
   );
 });
+
+test('metadata snapshots retain legacy history repair evidence through rollback',async t=>{
+  const f=await fixture(t),relative='host/migration-history-repairs/'+'a'.repeat(64)+'.json';
+  const evidence=JSON.stringify({version:1,registryHash:'a'.repeat(64),registry:{version:1,servers:[],snapshots:[],jobs:[]},changes:[]});
+  await f.write(relative,evidence);
+  const backup=await backupManagementStorage(request,f.options);
+  await f.write(relative,'failed replacement');
+  await restoreManagementStorage(operation('restore',{manifestHash:backup.manifestHash}),f.options);
+  assert.equal(await fs.readFile(path.join(f.storageRoot,relative),'utf8'),evidence);
+});

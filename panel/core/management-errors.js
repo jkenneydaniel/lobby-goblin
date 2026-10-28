@@ -17,6 +17,10 @@ const reasons = Object.freeze({
     'The management Docker socket could not be verified.',
     'Use the original local Docker Desktop connection and check that the controller reaches the same engine. Custom socket mounts require operator review.',
   ],
+  'management-mounts-changed': [
+    'The management service mounts changed after review.',
+    'Cancel this review and review the current management configuration before updating. Retain existing recovery records.',
+  ],
   'management-service-custom': [
     'A management service has custom mounts, privileges or is unavailable.',
     'Restore the supported management configuration before updating. Game servers do not need to be recreated.',

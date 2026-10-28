@@ -65,6 +65,7 @@ const config = (info) =>
       .filter((key) => info.Config[key] !== undefined)
       .map((key) => [key, info.Config[key]]),
   );
+const mountsHash = mounts => managementHash(mounts.map(mount => managementHash(mount)).sort());
 const originalHash = (info) =>
   managementHash({
     config: config(info),
@@ -549,7 +550,7 @@ export class ManagementEngine {
         'The original management service changed.',
         409,
       );
-      assert(managementHash(info.Mounts) === managementHash(service.info.Mounts), 'The original management mounts changed.', 409);
+      if (mountsHash(info.Mounts) !== mountsHash(service.info.Mounts)) throw new ManagementFailure('management-mounts-changed');
       await verifyManagementSocket(info, this.engineInfo, (id, script) => this.exec(id, script));
     }
   }
