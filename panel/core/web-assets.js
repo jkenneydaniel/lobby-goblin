@@ -24,6 +24,7 @@ export const sharedAssets = Object.freeze({
   '/application/operation-templates.html':['application/operation-templates.html','text/html; charset=utf-8'],
   '/shared/templates.js':['shared/templates.js','text/javascript; charset=utf-8'],
   '/shared/view.js': ['shared/view.js','text/javascript; charset=utf-8'],
+  '/shared/versions.js': ['shared/versions.js','text/javascript; charset=utf-8'],
   '/shared/session.js': ['shared/session.js','text/javascript; charset=utf-8'],
   '/shared/permission-editor.js':['shared/permission-editor.js','text/javascript; charset=utf-8'],
   '/shared/audit-history.js':['shared/audit-history.js','text/javascript; charset=utf-8'],

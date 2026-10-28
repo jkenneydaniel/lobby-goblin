@@ -27,7 +27,7 @@ test('review, confirm, survive a lost install response and reconnect to durable 
       if (input.action === 'plan') update = {...review(), requestId: input.requestId, action: input.action};
       else {expect(input).toMatchObject({action: 'apply', id, confirm: true}); update = {...update, requestId: input.requestId, action: input.action, state: 'running', phase: 'stopping', actions: [], message: 'Updating management services. Waiting for the panel to reconnect…'}; return route.abort('connectionreset');}
     } else if (update?.state === 'running' && ++reads > 1) update = {...update, state: 'complete', phase: 'complete', message: 'Management update complete. Application containers and storage were preserved.'};
-    return route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update}});
+    return route.fulfill({json: {supported: true, currentVersion: update?.state === 'complete' ? update.version : '0.3.14-alpha', update}});
   });
   await open(page); await page.getByRole('button', {name: 'Review update'}).click();
   await expect(page.getByRole('status').filter({hasText: 'Ready to install'})).toBeVisible();
@@ -169,7 +169,7 @@ test('cancelling a review is explicit and does not describe an installation', as
   await expect(dialog).toContainText('Review the release again when you are ready to install.');
   await expect(dialog).not.toContainText('restart');
   await dialog.getByRole('button', {name: 'Confirm', exact: true}).click();
-  expect(writes.map(input => input.action)).toEqual(['cancel']);
+  await expect.poll(() => writes.map(input => input.action)).toEqual(['cancel']);
 });
 
 test('checking releases does not silently rebase an unsaved settings change', async ({page}) => {
@@ -201,4 +201,22 @@ test('a failed initial release-settings read can be retried from Check for updat
   await page.getByRole('button', {name: 'Check for updates', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Review update', exact: true})).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('a completed update never hides a newer available release', async ({page}) => {
+  await page.route('**/api/management-update', route => route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update: {...review(), version: '0.3.14-alpha', state: 'complete', phase: 'complete', actions: []}}}));
+  await open(page);
+  await expect(page.getByRole('status').filter({hasText: 'Update available'})).toBeVisible();
+  await expect(page.getByText('Installed 0.3.14-alpha → 99.0.0-alpha', {exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Review update', exact: true})).toBeVisible();
+  await expect(page.getByText('Last update details', {exact: true})).toBeVisible();
+});
+
+test('a newer installed version is never offered an older release', async ({page}) => {
+  await page.route('**/api/management-update', route => route.fulfill({json: {supported: true, currentVersion: '100.0.0-alpha', update: null}}));
+  await open(page);
+  await expect(page.getByRole('status').filter({hasText: 'Up to date'})).toBeVisible();
+  await expect(page.getByText('Installed 100.0.0-alpha', {exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Review update', exact: true})).toHaveCount(0);
+  expect(await page.locator('#updates-view').innerText()).not.toContain('→');
 });

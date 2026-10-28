@@ -1,4 +1,5 @@
 import {escapeHTML as esc, formatDate} from '../shared/view.js';
+import {version, compareVersions} from '../shared/versions.js';
 
 export function createUpdatesScreen({model, notice}) {
   const expanded = new Set();
@@ -158,8 +159,13 @@ export function createUpdatesScreen({model, notice}) {
       (selectedHost()?.local ? release?.current : selectedHost()?.version) ||
       host?.version;
     const target = targetVersion();
-    const available = target && current && target !== current;
+    const knownVersions = version(target) && version(current);
+    const available = knownVersions && compareVersions(target, current) > 0;
+    const terminal = ['complete', 'rolled-back', 'failed'].includes(
+      update?.state,
+    );
     const title =
+      (available && terminal ? 'Update available' : '') ||
       {
         planning: 'Preparing update…',
         reviewed: 'Ready to install',
@@ -173,7 +179,7 @@ export function createUpdatesScreen({model, notice}) {
         ? 'Could not check updates'
         : available
           ? 'Update available'
-          : release?.state === 'current'
+          : knownVersions || release?.state === 'current'
             ? 'Up to date'
             : release?.state === 'disabled'
               ? 'Release checks are off'
@@ -181,11 +187,7 @@ export function createUpdatesScreen({model, notice}) {
                 ? 'Checking for updates…'
                 : 'No release available');
     const canReview =
-      management?.supported &&
-      !busy &&
-      (!update ||
-        ['complete', 'rolled-back', 'failed'].includes(update.state)) &&
-      available;
+      management?.supported && !busy && (!update || terminal) && available;
     const label = {
       apply: 'Install update',
       cancel: 'Cancel review',
@@ -211,7 +213,7 @@ export function createUpdatesScreen({model, notice}) {
     else if (update?.state === 'failed')
       explanation =
         'The release could not be reviewed. Try again or open Update help.';
-    return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && !update ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'attention' && update.id ? `<p class="hint">Update reference: <code>${esc(update.id)}</code></p>` : ''}<div class="actions updates-actions">${(
+    return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && (!update || terminal) ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'attention' && update.id ? `<p class="hint">Update reference: <code>${esc(update.id)}</code></p>` : ''}<div class="actions updates-actions">${(
       update?.actions || []
     )
       .filter((action) => label[action])
@@ -221,7 +223,7 @@ export function createUpdatesScreen({model, notice}) {
       )
       .join(
         '',
-      )}${canReview ? `<button class="primary" data-management-action="plan">Review update</button>` : ''}${release?.latest ? `<a href="${esc(release.latest.url)}" target="_blank" rel="noopener noreferrer">Release notes</a>` : ''}${settings?.editable && !settings.enabled ? '<button class="quiet" data-open-update-settings>Configure release checks</button>' : ''}</div>${management?.supported === false ? `<p class="updates-setup">This host needs a one-time setup before panel updates can be installed. ${guide('Set up panel updates')}</p>` : !management && !managementError ? '<p class="hint">Checking update controls…</p>' : ''}${canReview ? '<p class="hint">Panel updates keep your game servers running.</p>' : ''}${update?.id ? disclosure('update', 'Update details', `<dl class="updates-details"><div><dt>Update reference</dt><dd><code>${esc(update.id)}</code></dd></div>${update.phase ? `<div><dt>Stage</dt><dd>${esc(update.phase)}</dd></div>` : ''}${update.services ? `<div><dt>Scope</dt><dd>${update.services.management} panel services · ${update.services.applications} game containers preserved</dd></div>` : ''}${update.state === 'reviewed' ? `<div><dt>Review expires</dt><dd>${esc(formatDate(update.expires))}</dd></div>` : ''}${update.image ? `<div><dt>Verified runtime image</dt><dd><code>${esc(update.image)}</code></dd></div>` : ''}</dl>${update.message ? `<p>${esc(update.message)}</p>` : ''}`) : ''}</div>`;
+      )}${canReview ? `<button class="primary" data-management-action="plan">Review update</button>` : ''}${release?.latest ? `<a href="${esc(release.latest.url)}" target="_blank" rel="noopener noreferrer">Release notes</a>` : ''}${settings?.editable && !settings.enabled ? '<button class="quiet" data-open-update-settings>Configure release checks</button>' : ''}</div>${management?.supported === false ? `<p class="updates-setup">This host needs a one-time setup before panel updates can be installed. ${guide('Set up panel updates')}</p>` : !management && !managementError ? '<p class="hint">Checking update controls…</p>' : ''}${canReview ? '<p class="hint">Panel updates keep your game servers running.</p>' : ''}${update?.id ? disclosure('update', terminal ? 'Last update details' : 'Update details', `<dl class="updates-details"><div><dt>Update reference</dt><dd><code>${esc(update.id)}</code></dd></div>${update.phase ? `<div><dt>Stage</dt><dd>${esc(update.phase)}</dd></div>` : ''}${update.services ? `<div><dt>Scope</dt><dd>${update.services.management} panel services · ${update.services.applications} game containers preserved</dd></div>` : ''}${update.state === 'reviewed' ? `<div><dt>Review expires</dt><dd>${esc(formatDate(update.expires))}</dd></div>` : ''}${update.image ? `<div><dt>Verified runtime image</dt><dd><code>${esc(update.image)}</code></dd></div>` : ''}</dl>${update.message ? `<p>${esc(update.message)}</p>` : ''}`) : ''}</div>`;
   }
   function pollManagement(ctx) {
     clearTimeout(managementTimer);
@@ -246,7 +248,7 @@ export function createUpdatesScreen({model, notice}) {
       if (version !== managementGeneration || !ctx.isCurrent()) return;
       if (['planning', 'running'].includes(management?.update?.state))
         managementError =
-          'Waiting for management to reconnect. Keep this page open; you may need to sign in again. Use the host recovery guide if it stays unavailable.';
+          'Waiting for the panel to reconnect. You may need to sign in again.';
       else {
         management = null;
         managementError = error.message;
@@ -339,7 +341,7 @@ export function createUpdatesScreen({model, notice}) {
     const choices = data.choices
       .map(
         (choice) =>
-          `<option value="${esc(runtimeSoftware ? choice.version : choice.image)}">${esc(choice.version)} · ${esc(choice.channel)}</option>`,
+          `<option value="${esc(runtimeSoftware ? choice.version : choice.image)}">${esc(choice.version)}${!runtimeSoftware && choice.imageRevision != null ? ' · image revision ' + esc(choice.imageRevision) : ''} · ${esc(choice.channel)}</option>`,
       )
       .join('');
     return (
