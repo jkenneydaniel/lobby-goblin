@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.18-alpha — 2026-10-28
+
+- Show a self-contained goblin maintenance screen during panel activation, with
+  automatic reconnection, reduced-motion support and help for longer waits.
+  Preserve API/operator responses and safely return expired server sessions to
+  the main sign-in page without following arbitrary redirect destinations.
+- Keep recovery references saved on the host and tucked under Update details.
+  Explain pre-activation restore and forward recovery after activation, without
+  requiring users to write down an update ID or changing recovery safeguards.
+- Offer searchable selection across the official supported Factorio 2.x headless
+  catalogue, including historical releases needed for console version matching.
+  Keep the installed version selected, support keyboard/mobile use, reject
+  unlisted search text and warn before choosing an older release.
+- Share checksum-inventory validation between discovery and controller selection.
+  Normalize reported Factorio versions for comparisons and installed labels,
+  including running-server RCON responses with build information.
+- Preserve bundled-image choices, game images, software-provider pins, updater
+  protocols and storage contracts. Publishing does not deploy installations,
+  restart running servers or change existing worlds.
+
 ## 0.3.17-alpha — 2026-10-28
 
 - Give automatic image-migration attempts unique operation IDs while preserving
