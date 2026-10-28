@@ -36,6 +36,9 @@ export function ownedDocker(
     'io.lobby-goblin.instance': id,
   };
   const execIds = new Map();
+  const declaredCommand = (cmd) => Array.isArray(cmd) && execCommands.some(command =>
+    cmd[0] === command.executable && cmd.length === command.arguments + 1 &&
+    cmd.slice(1).every(value => typeof value === 'string' && Buffer.byteLength(value) <= command.maxArgumentBytes));
   const softwareStarts = new Set();
   const softwareScope = softwareWorker
     ? softwareWorkerScope({
@@ -507,9 +510,7 @@ export function ownedDocker(
           ...data.Labels,
           ...marker,
           'io.lobby-goblin.worker': 'true',
-          ...(enforceBoundary
-            ? {'io.lobby-goblin.worker-kind': 'game-preview'}
-            : {}),
+          'io.lobby-goblin.worker-kind': 'game-preview',
         },
         HostConfig: {
           ...host,
@@ -703,17 +704,7 @@ export function ownedDocker(
               Object.keys(data).every((key) =>
                 ['Cmd', 'AttachStdout', 'AttachStderr'].includes(key),
               ) &&
-              Array.isArray(data.Cmd) &&
-              execCommands.some(
-                (command) =>
-                  data.Cmd[0] === command.executable &&
-                  data.Cmd.length === command.arguments + 1 &&
-                  data.Cmd.slice(1).every(
-                    (value) =>
-                      typeof value === 'string' &&
-                      Buffer.byteLength(value) <= command.maxArgumentBytes,
-                  ),
-              ),
+              declaredCommand(data.Cmd),
             'Only a declared game command helper may be executed.',
             403,
           );
@@ -722,9 +713,8 @@ export function ownedDocker(
         assert(
           (info.Name === '/' + game ||
             bits[1] === game ||
-            (enforceBoundary &&
-              info.Config?.Labels?.['io.lobby-goblin.worker-kind'] ===
-                'game-preview')) &&
+            (info.Config?.Labels?.['io.lobby-goblin.worker-kind'] ===
+                'game-preview' && declaredCommand(data?.Cmd))) &&
             data &&
             Array.isArray(data.Cmd) &&
             data.Cmd.every((value) => typeof value === 'string') &&

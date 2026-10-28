@@ -5,18 +5,20 @@ import {readInstallation} from './install.js';
 import {readHostInstallation} from './host-install.js';
 import {ManagementUpdate} from './fleet/management-update.js';
 import {ManagementEngine} from './fleet/management-engine.js';
+import {operatorManagement} from './core/management-native.js';
 
 export async function main(
   args = process.argv.slice(2),
   {
     engineFactory = (options) => new ManagementEngine(options),
     log = console.log,
+    operator = operatorManagement,
   } = {},
 ) {
   const [command, ...rest] = args;
   if (command === '--help' || command === undefined)
     return log(
-      'Management updates (local operator only)\n  plan --directory PATH --socket PATH --engine ENGINE_ID --image IMMUTABLE_IMAGE\n  apply|status|resume|rollback --directory PATH --socket PATH --engine ENGINE_ID --id UPDATE_ID\n  apply, resume and rollback require --confirm. Planning never changes existing services.\n  Application containers, worlds and backups are never mounted or changed.\n  A retained filesystem lease needs offline review through panel/storage.js lock/unlock.',
+      'Management updates\n  Windows, macOS and Linux: plan --fleet FLEET_ID --image IMMUTABLE_IMAGE\n  apply|status|resume|rollback --fleet FLEET_ID --id UPDATE_ID\n  Original operator records: plan --directory PATH --socket PATH --engine ENGINE_ID --image IMMUTABLE_IMAGE\n  apply|status|resume|rollback --directory PATH --socket PATH --engine ENGINE_ID --id UPDATE_ID\n  apply, resume and rollback require --confirm. Planning never changes existing services.\n  Application containers, worlds and backups are never mounted or changed.\n  A retained filesystem lease needs offline identity-bound lock review.',
     );
   assert(
     ['plan', 'apply', 'status', 'resume', 'rollback'].includes(command),
@@ -33,6 +35,7 @@ export async function main(
         '--image',
         '--id',
         '--confirm',
+        '--fleet',
       ].includes(key) && !Object.hasOwn(options, key),
       'Unknown or repeated management update option.',
     );
@@ -44,6 +47,11 @@ export async function main(
       );
       options[key] = rest[++index];
     }
+  }
+  if (options['--fleet']) {
+    assert(!options['--directory'] && !options['--socket'] && (command === 'plan' ? options['--image'] && !options['--id'] && !options['--confirm'] : options['--id'] && !options['--image']), 'Choose either Docker-managed records with --fleet or original host-directory records.');
+    const result = await operator(command, {fleet: options['--fleet'], engine: options['--engine'], image: options['--image'], id: options['--id'], confirm: options['--confirm'] === true});
+    log(JSON.stringify(result, null, 2)); return result;
   }
   assert(
     options['--directory'] && options['--socket'] && options['--engine'],

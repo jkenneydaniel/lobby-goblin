@@ -147,6 +147,7 @@ export function managementOverlay(manifest, receipt) {
         environment: {
           FLEET_IMAGE: receipt.image,
           PANEL_MAINTENANCE_ID: receipt.id,
+          ...(manifest.management?.profile === 'legacy' ? {FLEET_SKIP_MIGRATIONS: 'true'} : {}),
         },
       },
       [agent ? 'host-agent' : 'fleet-web']: {

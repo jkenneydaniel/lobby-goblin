@@ -56,7 +56,7 @@ const common = ['run', '--name', 'lgb-panel-acceptance-runner', '--user', '1001:
   '--mount', 'type=bind,source=' + path.resolve('deploy/fleet/compose.yaml') + ',target=/acceptance-template,readonly',
   '-e', 'DOCKER_SOCKET=/var/run/docker.sock', '-e', 'ACCEPTANCE_ENGINE_ID=' + engine,
   '-e', 'ACCEPTANCE_RUNTIME=' + runtime, '-e', 'ACCEPTANCE_NEXT=' + next,
-  '-e', 'ACCEPTANCE_PANEL=true', '--entrypoint', 'node', runtime, 'test/management-update-runtime.mjs'];
+  '-e', 'ACCEPTANCE_PANEL=true', ...(process.env.ACCEPTANCE_LEGACY === 'true' ? ['-e', 'ACCEPTANCE_LEGACY=true'] : []), '--entrypoint', 'node', runtime, 'test/management-update-runtime.mjs'];
 console.log(await docker(common));
 const result = JSON.parse(await command('sudo', ['cat', output + '/result.json']));
 assert.equal(result.panel, true); assert.equal(result.complete, true);

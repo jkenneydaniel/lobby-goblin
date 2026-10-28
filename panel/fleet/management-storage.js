@@ -32,9 +32,9 @@ const sum = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 // Fixed core metadata mounts. Workloads' data/backups and the immutable snapshot
 // library are deliberately outside this helper's filesystem authority.
 export function managementStorageSlots(input) {
-  const {fleet, instances} = freezeDefinition(input);
+  const {fleet, instances, profile = 'brokered'} = freezeDefinition(input);
   assert(
-    validId(fleet) &&
+    ['brokered', 'legacy'].includes(profile) && validId(fleet) &&
       Array.isArray(instances) &&
       instances.length <= 64 &&
       new Set(instances.map((item) => item?.id)).size === instances.length,
@@ -44,7 +44,7 @@ export function managementStorageSlots(input) {
   const slots = [
     {id: 'host', kind: 'host', volume: prefix + '-state', subpath: ''},
     {id: 'web', kind: 'web', volume: prefix + '-web', subpath: ''},
-    {
+    ...(profile === 'legacy' ? [] : [{
       id: 'broker-state',
       kind: 'broker-state',
       volume: prefix + '-broker-state',
@@ -55,7 +55,7 @@ export function managementStorageSlots(input) {
       kind: 'broker-transport',
       volume: prefix + '-broker-transport',
       subpath: '',
-    },
+    }]),
   ];
   for (const instance of instances) {
     assert(
@@ -96,6 +96,7 @@ function requestScope(request) {
           'offline',
           'manifestHash',
           'registryHash',
+          'profile',
         ].includes(key),
       ),
     'Invalid management storage request.',
@@ -203,7 +204,7 @@ async function walk(slot, root, visit) {
   async function descend(name) {
     // Detached coordinator journals remain live while management is stopped.
     // They are recovery authority, not management metadata to roll back.
-    if (slot.kind === 'broker-state' && name === 'panel-updates') return;
+    if (['broker-state', 'host'].includes(slot.kind) && name === 'panel-updates') return;
     assert(relative(name), 'Invalid management snapshot path.');
     const location = name ? path.join(root, name) : root,
       stat = await fs.lstat(location);
@@ -304,12 +305,13 @@ async function snapshotManifest(request, artifactRoot) {
       manifest.complete === true &&
       manifest.id === request.id &&
       manifest.fleet === request.fleet &&
+      (manifest.profile || 'brokered') === (request.profile || 'brokered') &&
       definitionFingerprint(manifest.instances) ===
         definitionFingerprint(request.instances) &&
       Array.isArray(manifest.slots) &&
       manifest.slots.length === slots.length &&
       Object.keys(manifest).every((key) =>
-        ['version', 'complete', 'id', 'fleet', 'instances', 'slots'].includes(
+        ['version', 'complete', 'id', 'fleet', 'instances', 'slots', 'profile'].includes(
           key,
         ),
       ),
@@ -342,7 +344,7 @@ async function snapshotManifest(request, artifactRoot) {
         ++count <= maxEntries &&
           entry &&
           relative(entry.path) &&
-          (slot.kind !== 'broker-state' || entry.path.split('/')[0] !== 'panel-updates') &&
+          (!['broker-state', 'host'].includes(slot.kind) || entry.path.split('/')[0] !== 'panel-updates') &&
           !entry.path.split('/').includes('.panel-storage-lock') &&
           !paths.has(entry.path) &&
           ['directory', 'file'].includes(entry.kind) &&
@@ -448,6 +450,7 @@ export async function backupManagementStorage(
     id: request.id,
     fleet: request.fleet,
     instances: request.instances,
+    ...(request.profile ? {profile: request.profile} : {}),
     slots: [],
   };
   let count = 0,
@@ -609,7 +612,7 @@ export async function restoreManagementStorage(
       entries = result.manifest.slots[index].entries;
     const selected = (await fs.readdir(root)).filter(
       (name) => (slot.kind !== 'broker-transport' || name !== 'socket') &&
-        (slot.kind !== 'broker-state' || name !== 'panel-updates'),
+        (!['broker-state', 'host'].includes(slot.kind) || name !== 'panel-updates'),
     );
     for (const name of selected)
       await fs.rm(path.join(root, name), {recursive: true, force: true});

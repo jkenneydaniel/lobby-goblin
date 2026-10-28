@@ -8,6 +8,7 @@ import {
 import {resources, validId} from '../core/instance.js';
 import {managementStorageSlots} from './management-storage.js';
 import {assertPanelWorker} from '../core/management-panel-contract.js';
+import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet';
@@ -262,11 +263,19 @@ export class ManagementEngine {
     }
     const hostName = 'lobby-goblin-host-' + fleet;
     const host = await this.inspect(hostName);
+    const profile = installation.management?.profile || 'brokered';
+    assert(['brokered', 'legacy'].includes(profile), 'Unsupported management profile.');
+    const anchor = await this.inspect(managementAnchor(fleet), {optional: true});
+    if (anchor) {
+      assert(installation.management && anchor.Id === installation.management.anchor, 'This fleet keeps update records in Docker storage. Use the matching management-update command with --fleet.', 409);
+      assertAnchor(anchor, fleet, engine);
+    }
     assert(
       host.Config.Labels?.[fleetKey] === fleet &&
         host.Config.Labels?.[roleKey] === 'host-controller' &&
-        environment(host).DOCKER_BROKER_SOCKET === '/broker/socket/docker.sock',
-      'Only existing broker-managed installations can use this update command.',
+        (profile === 'brokered' ? environment(host).DOCKER_BROKER_SOCKET === '/broker/socket/docker.sock' :
+          !environment(host).DOCKER_BROKER_SOCKET && host.Mounts.some(m => m.Type === 'bind' && m.Source === '/var/run/docker.sock' && m.Destination === '/var/run/docker.sock')),
+      'The management transport no longer matches its reviewed profile.',
       409,
     );
     const registry = await this.exec(
@@ -286,7 +295,7 @@ export class ManagementEngine {
       instances.every(
         (item) =>
           item.state === 'installed' &&
-          item.isolationVersion === 1 &&
+          (profile === 'brokered' ? item.isolationVersion === 1 : item.isolationVersion === undefined || item.isolationVersion === 0) &&
           !item.maintenance &&
           (!item.migration || item.migration.state === 'complete') &&
           Object.entries(resources(fleet, item.id, item.game)).every(
@@ -298,7 +307,7 @@ export class ManagementEngine {
     );
     const expected = new Map([
       [hostName, 'host-controller'],
-      ['lobby-goblin-docker-broker-' + fleet, 'docker-broker'],
+      ...(profile === 'brokered' ? [['lobby-goblin-docker-broker-' + fleet, 'docker-broker']] : []),
       [
         installation.kind === 'host-agent'
           ? 'lobby-goblin-agent-' + fleet
@@ -318,6 +327,7 @@ export class ManagementEngine {
     const services = [];
     const slots = managementStorageSlots({
       fleet,
+      ...(profile === 'legacy' ? {profile} : {}),
       instances: instances.map(({id, game}) => ({id, game})),
     });
     const allowedVolumes = new Set([
@@ -339,7 +349,7 @@ export class ManagementEngine {
           info.Mounts.every(
             (mount) =>
               (mount.Type === 'volume' && allowedVolumes.has(mount.Name)) ||
-              (role === 'docker-broker' &&
+              ((role === 'docker-broker' || profile === 'legacy' && ['host-controller', 'instance-controller'].includes(role)) &&
                 mount.Type === 'bind' &&
                 mount.Source === '/var/run/docker.sock' &&
                 mount.Destination === '/var/run/docker.sock'),
@@ -390,6 +400,7 @@ export class ManagementEngine {
     for (const value of listed)
       assert(
         services.some((service) => service.id === value.Id) ||
+          value.Id === anchor?.Id ||
           value.Id === this.coordinator?.id ||
           games.some((game) => game.id === value.Id) ||
           value.Labels?.[roleKey] === 'host-gateway' ||
@@ -430,6 +441,8 @@ export class ManagementEngine {
       imageId: runtime.Id,
       imageDefaults: runtime.Config,
       registryHash: managementHash(registry),
+      ...(anchor ? {authority: anchor.Id} : {}),
+      ...(profile === 'legacy' ? {profile} : {}),
       instances: instances.map(({id, game}) => ({id, game})),
       services,
       games,
@@ -449,7 +462,12 @@ export class ManagementEngine {
     // Docker names provide an engine-wide exclusive claim, including operators
     // using two copies of the same installation directory. This container never
     // starts and has no mounts or credentials; it is only an ownership record.
-    const name = 'lobby-goblin-management-lock-' + plan.fleet;
+    const anchor = await this.inspect(managementAnchor(plan.fleet), {optional: true});
+    if (plan.authority) {
+      assert(anchor?.Id === plan.authority, 'Portable management enrollment changed.', 409);
+      assertAnchor(anchor, plan.fleet, plan.engine);
+    } else assert(!anchor || anchor.Config.Labels?.[roleKey] === 'management-lock', 'Use the enrolled portable updater with --fleet. Original directory records were preserved.', 409);
+    const name = (plan.authority ? 'lobby-goblin-management-active-' : 'lobby-goblin-management-lock-') + plan.fleet;
     let claim = await this.inspect(name, {optional: true});
     if (!claim) {
       const result = await this.request(
@@ -502,7 +520,7 @@ export class ManagementEngine {
         await this.request('DELETE', '/containers/' + original.Id);
       }
     const claim = await this.inspect(
-      'lobby-goblin-management-lock-' + plan.fleet,
+      (plan.authority ? 'lobby-goblin-management-active-' : 'lobby-goblin-management-lock-') + plan.fleet,
       {optional: true},
     );
     if (
@@ -626,6 +644,7 @@ export class ManagementEngine {
         id: plan.id,
         fleet: plan.fleet,
         instances: plan.instances,
+        ...(plan.profile ? {profile: plan.profile} : {}),
         operation,
         confirm: true,
         offline: true,
@@ -668,6 +687,7 @@ export class ManagementEngine {
               ...managementStorageSlots({
                 fleet: plan.fleet,
                 instances: plan.instances,
+                ...(plan.profile ? {profile: plan.profile} : {}),
               }).map((slot) => ({
                 Type: 'volume',
                 Source: slot.volume,
@@ -724,6 +744,7 @@ export class ManagementEngine {
       };
     env.PANEL_MAINTENANCE_ID = plan.id;
     if (service.role === 'host-controller') env.FLEET_IMAGE = plan.image;
+    if (service.role === 'host-controller' && plan.profile === 'legacy') env.FLEET_SKIP_MIGRATIONS = 'true';
     const networks = Object.fromEntries(
       Object.entries(info.NetworkSettings.Networks).map(([name, value]) => {
         assert(
@@ -973,12 +994,13 @@ export class ManagementEngine {
       ],
     );
   }
-  async reconcilePanelUpdate(result) {
+  async reconcilePanelUpdate(result, {profile = 'brokered'} = {}) {
     assert((await this.identity()) === result.engine, 'Operator recovery engine changed.', 409);
-    const info = await this.inspect('lobby-goblin-docker-broker-' + result.fleet);
-    assert(info.Config.Labels?.[fleetKey] === result.fleet && info.Config.Labels?.[roleKey] === 'docker-broker' && info.State.Running, 'Recovered broker ownership changed.', 409);
+    const role = profile === 'legacy' ? 'host-controller' : 'docker-broker';
+    const info = await this.inspect((profile === 'legacy' ? 'lobby-goblin-host-' : 'lobby-goblin-docker-broker-') + result.fleet);
+    assert(info.Config.Labels?.[fleetKey] === result.fleet && info.Config.Labels?.[roleKey] === role && info.State.Running, 'Recovered manager ownership changed.', 409);
     return this.exec(info.Id,
-      "import fs from 'node:fs/promises';let supported=true;try{await fs.access('/app/core/management-panel.js');}catch(error){if(error.code!=='ENOENT')throw error;supported=false;}let result={supported};if(supported){const {publishPanelRecovery}=await import('./core/management-panel.js');result=await publishPanelRecovery(process.env.BROKER_STATE||'/broker-state',JSON.parse(process.argv[1]));}console.log(JSON.stringify(result));",
+      "import fs from 'node:fs/promises';let supported=true;try{await fs.access('/app/core/management-panel.js');}catch(error){if(error.code!=='ENOENT')throw error;supported=false;}let result={supported};if(supported){const {publishPanelRecovery}=await import('./core/management-panel.js');result=await publishPanelRecovery(process.env.MODE==='fleet-controller'?(process.env.FLEET_ROOT||'/fleet'):(process.env.BROKER_STATE||'/broker-state'),JSON.parse(process.argv[1]));}console.log(JSON.stringify(result));",
       [JSON.stringify(result)]);
   }
 }

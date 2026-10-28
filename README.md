@@ -38,8 +38,8 @@ dedicated port (24443 by default). See [remote game hosts](docs/REMOTE_HOSTS.md)
 
 Use **Updates → Update management services** to review and install coordinated
 updates for the panel, broker and controllers while game containers keep running.
-Installations older than v0.3.14-alpha need one host-side upgrade to enable this
-broker capability. See [management updates and recovery](docs/MANAGEMENT_UPDATES.md).
+Windows, macOS and Linux hosts use the same coordinated updater. Older versions
+need one host-side upgrade to enable the portable coordinator. See [management updates and recovery](docs/MANAGEMENT_UPDATES.md).
 
 For an existing installation or a dedicated single-game setup:
 

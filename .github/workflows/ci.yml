@@ -6,6 +6,9 @@ permissions:
   contents: read
 jobs:
   management-panel:
+    strategy:
+      matrix:
+        profile: [brokered, legacy]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -16,6 +19,7 @@ jobs:
       - name: Verify detached coordinated panel update on this fresh engine
         env:
           MANAGEMENT_PANEL_DISPOSABLE: 'true'
+          ACCEPTANCE_LEGACY: ${{ matrix.profile == 'legacy' && 'true' || 'false' }}
         run: node panel/test/management-panel-acceptance.mjs
       - name: Preserve public synthetic acceptance evidence
         if: always()
@@ -27,7 +31,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: management-panel-acceptance
+          name: management-panel-acceptance-${{ matrix.profile }}
           path: /acceptance-output/result.json
           retention-days: 7
   static-quality:
@@ -78,7 +82,7 @@ jobs:
         with:
           node-version: '24'
       - name: Exercise host launchers with simulated Docker (no containers)
-        run: node --test panel/test/host-setup.test.js panel/test/installation.test.js
+        run: node --test panel/test/host-setup.test.js panel/test/installation.test.js panel/test/management-native.test.js panel/test/management-volume.test.js panel/test/management-launcher.test.js
   verify:
     needs: static-quality
     runs-on: ubuntu-latest
@@ -96,7 +100,7 @@ jobs:
       - name: Validate default deployment
         run: docker compose --env-file .env.example config --quiet
       - name: Build alpha image
-        run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.13-alpha panel
+        run: docker build -t ghcr.io/jkenneydaniel/lobby-goblin:0.3.15-alpha panel
       - name: Verify updater registry TLS and a build inside its restricted container
         run: |
           docker run --rm --user 0:0 --read-only --cap-drop ALL \
@@ -105,7 +109,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
             --mount "type=bind,source=$PWD/panel,target=/source,readonly" \
-            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.13-alpha -ec '
+            --entrypoint /bin/sh ghcr.io/jkenneydaniel/lobby-goblin:0.3.15-alpha -ec '
               export DOCKER_HOST=unix:///var/run/docker.sock DOCKER_CONFIG=/tmp/lobby-goblin-docker
               docker manifest inspect docker:29.9.0-cli >/dev/null
               docker build --pull --progress=plain --tag local/lobby-goblin:updater-smoke /source
@@ -123,7 +127,7 @@ jobs:
               --security-opt no-new-privileges:true --memory 512m \
               --mount "type=volume,source=$fixture_volume,target=/fixture" \
               --mount "type=bind,source=$PWD/panel/test/storage-worker-native.mjs,target=/smoke.mjs,readonly" \
-              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.13-alpha /smoke.mjs "$mode"
+              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.15-alpha /smoke.mjs "$mode"
           done
       - name: Verify read-only retained storage inspection and independent recovery
         run: |
@@ -143,7 +147,7 @@ jobs:
               "${target_mount[@]}" \
               --mount "type=volume,source=$fixture_prefix-setup,target=/setup" \
               --mount "type=bind,source=$PWD/panel/test/retained-storage-native.mjs,target=/smoke.mjs,readonly" \
-              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.13-alpha /smoke.mjs "$mode"
+              --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.15-alpha /smoke.mjs "$mode"
           done
       - name: Check public source artifact
         run: node tools/release.mjs
@@ -153,7 +157,7 @@ jobs:
             --tmpfs /tmp:rw,nosuid,size=512m \
             --mount "type=bind,source=$PWD/dist,target=/release,readonly" \
             --mount "type=bind,source=$PWD/panel/test/installer-image-smoke.js,target=/installer-image-smoke.mjs,readonly" \
-            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.13-alpha /installer-image-smoke.mjs
+            --entrypoint node ghcr.io/jkenneydaniel/lobby-goblin:0.3.15-alpha /installer-image-smoke.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: alpha-source
