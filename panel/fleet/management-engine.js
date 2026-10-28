@@ -194,8 +194,13 @@ export class ManagementEngine {
       'Use the installation identity and a reviewed immutable management image.',
     );
     const engine = await this.identity();
+    const anchor = await this.inspect(managementAnchor(fleet), {optional: true});
+    if (installation.management) {
+      assert(anchor?.Id === installation.management.anchor, 'Portable management enrollment changed.', 409);
+      assertAnchor(anchor, fleet, engine);
+    } else assert(!anchor, 'Another management update or portable enrollment retains this fleet. Use its original records or --fleet.', 409);
     assert(
-      !(await this.inspect('lobby-goblin-management-lock-' + fleet, {
+      !(await this.inspect((installation.management ? 'lobby-goblin-management-active-' : 'lobby-goblin-management-lock-') + fleet, {
         optional: true,
       })),
       'Another management update retains this fleet. Recover its operator record first.',
@@ -265,11 +270,6 @@ export class ManagementEngine {
     const host = await this.inspect(hostName);
     const profile = installation.management?.profile || 'brokered';
     assert(['brokered', 'legacy'].includes(profile), 'Unsupported management profile.');
-    const anchor = await this.inspect(managementAnchor(fleet), {optional: true});
-    if (anchor) {
-      assert(installation.management && anchor.Id === installation.management.anchor, 'This fleet keeps update records in Docker storage. Use the matching management-update command with --fleet.', 409);
-      assertAnchor(anchor, fleet, engine);
-    }
     assert(
       host.Config.Labels?.[fleetKey] === fleet &&
         host.Config.Labels?.[roleKey] === 'host-controller' &&

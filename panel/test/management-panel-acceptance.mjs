@@ -37,7 +37,9 @@ const next = await docker(['image', 'inspect', '--format', '{{.Id}}', 'local/lgb
 const worker = path.join(panel, 'management-panel-worker.js'), source = await fs.readFile(worker, 'utf8');
 const resolver = 'resolveImage: version => resolvePanelRuntime(engine, version)';
 assert.equal(source.split(resolver).length, 2);
-await fs.writeFile(worker, source.replace(resolver, 'resolveImage: async () => ' + JSON.stringify(next)));
+await fs.writeFile(worker, source.replace(resolver, 'resolveImage: async () => ' + JSON.stringify(next))
+  .replace('  } catch {', '  } catch (error) {')
+  .replace("'The management review failed. Check the selected release and installation using the host update guide.'", "'Synthetic acceptance failure: ' + error.message"));
 await version('0.3.6-alpha');
 await docker(['build', '-t', 'local/lgb-panel-current:fixture', panel]);
 const runtime = await docker(['image', 'inspect', '--format', '{{.Id}}', 'local/lgb-panel-current:fixture']);
