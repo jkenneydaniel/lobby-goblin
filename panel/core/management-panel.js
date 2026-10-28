@@ -69,7 +69,8 @@ export class ManagementPanel {
   }
   view(current) {
     if (!current) return {supported: true, currentVersion: this.version, update: null};
-    const {job, result, running} = current;
+    const {job, running} = current;
+    const result = job.reset === true ? {state: 'failed', message: 'The review coordinator never started. You can review the release again.'} : current.result;
     const interrupted = !running && (!result || ['running', 'planning'].includes(result.state));
     const state = running ? (job.action === 'plan' ? 'planning' : 'running') : interrupted ? 'attention' : result.state;
     return {supported: true, currentVersion: this.version, update: {
@@ -78,10 +79,19 @@ export class ManagementPanel {
       committed: result?.plan?.commit === true, cleanupRequired: result?.plan?.cleanupRequired === true,
       services: result?.services || null,
       message: running ? (job.action === 'plan' ? 'Preparing the management review…' : 'Updating management services. Waiting for the panel to reconnect…') :
-        interrupted ? 'The coordinator stopped before reporting completion. Inspect recovery before retrying.' : result.message,
+        interrupted ? (this.canReset(current) ? 'The review coordinator never started. Reset this failed review to try again.' : 'The coordinator stopped before reporting completion. Inspect recovery before retrying.') : result.message,
       actions: running ? [] : state === 'reviewed' ? ['apply', 'cancel'] :
-        state === 'attention' ? (result?.plan ? ['resume', ...(!result.plan.commit ? ['rollback'] : [])] : ['inspect']) : [],
+        state === 'attention' ? (this.canReset(current) ? ['reset'] : result?.plan ? ['resume', ...(!result.plan.commit ? ['rollback'] : [])] : ['inspect']) : [],
     }};
+  }
+  canReset(current) {
+    if (!current || current.job.action !== 'plan' || current.running || current.result) return false;
+    const worker = current.worker;
+    // No start request was durably intended, or Docker positively reports an
+    // owned created container which has never run. Absence after an uncertain
+    // start is insufficient: an auto-removed coordinator may have made effects.
+    return !worker ? current.job.startRequested === false :
+      worker.State?.Status === 'created' && worker.State.StartedAt === '0001-01-01T00:00:00Z' && !worker.State.Restarting;
   }
   blocksChanges(current) {
     return !!current && current.job.action !== 'plan' &&
@@ -90,7 +100,7 @@ export class ManagementPanel {
   async handle(input) {
     assert(input && typeof input === 'object' && !Array.isArray(input), 'Invalid management update request.');
     const {action} = input;
-    assert(['status', 'plan', 'apply', 'resume', 'rollback', 'cancel'].includes(action), 'Unknown management update action.');
+    assert(['status', 'plan', 'apply', 'resume', 'rollback', 'cancel', 'reset'].includes(action), 'Unknown management update action.');
     const keys = action === 'status' ? ['action'] : action === 'plan' ? ['action', 'requestId', 'version'] : ['action', 'requestId', 'id', 'confirm'];
     assert(Object.keys(input).every(key => keys.includes(key)), 'Unexpected management update parameters.');
     let current = await this.current();
@@ -102,6 +112,12 @@ export class ManagementPanel {
       return this.view(current);
     }
     assert(!current?.running, 'Wait for the current management coordinator to finish.', 409);
+    if (action === 'reset') {
+      assert(current && input.id === current.job.id && input.confirm === true && this.canReset(current), 'Only a confirmed never-started review can be reset. Preserve uncertain launches for operator inspection.', 409);
+      if (current.worker) await this.docker('DELETE', '/containers/' + current.worker.Id);
+      await saveManagementJSON(path.join(this.root, 'current.json'), {...current.job, action, requestId: input.requestId, reset: true});
+      return this.view(await this.current());
+    }
     let id, targetVersion;
     if (action === 'plan') {
       const version = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -132,7 +148,7 @@ export class ManagementPanel {
     const scope = path.join(this.root, attempt);
     await fs.mkdir(scope, {mode: 0o700});
     const spec = panelWorkerSpec({fleet: this.fleet, attempt, image: own.Image, directory, socket: socket[0].Source, volume: state[0].Name, subpath: 'panel-updates/' + attempt});
-    const job = {id, fleet: this.fleet, engine: engine.ID, attempt, name, spec, requestId: input.requestId, action, version: targetVersion, expires: action === 'plan' ? this.now() + 15 * 60000 : current.job.expires};
+    const job = {id, fleet: this.fleet, engine: engine.ID, attempt, name, spec, startRequested: false, requestId: input.requestId, action, version: targetVersion, expires: action === 'plan' ? this.now() + 15 * 60000 : current.job.expires};
     await saveManagementJSON(path.join(scope, 'input.json'), {version: 1, fleet: this.fleet, id, action, targetVersion, directory, engine: engine.ID, spec, name});
     // Intent is saved before create/start; a lost response is never permission
     // to launch another socket-owning coordinator.
@@ -140,6 +156,8 @@ export class ManagementPanel {
     try {
       const created = await this.docker('POST', '/containers/create?' + new URLSearchParams({name}), spec);
       assertPanelWorker(await this.inspect(created.Id), spec, name);
+      job.startRequested = true;
+      await saveManagementJSON(path.join(this.root, 'current.json'), job);
       await this.docker('POST', '/containers/' + created.Id + '/start');
     } catch {
       // Status inspects the exact fixed helper after an uncertain response.

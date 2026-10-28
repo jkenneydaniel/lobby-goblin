@@ -47,6 +47,10 @@ publishes a verified broker receipt after final cleanup so stale panel progress
 cannot keep application changes blocked. A killed coordinator may leave a filesystem
 lease requiring offline identity-bound inspection through `panel/storage.js`;
 the panel never deletes that lease or retries an uncertain install automatically.
+If Docker confirms that the initial review coordinator never started, **Reset
+failed review** removes only that unstarted helper and permits another review.
+An absent helper after an uncertain start is not proof that nothing ran; those
+attempts retain their recovery guard and require operator inspection.
 Progress journals under the private broker's `panel-updates` directory survive
 metadata rollback and are excluded from management snapshots.
 

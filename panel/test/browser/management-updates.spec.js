@@ -52,6 +52,22 @@ test('a rejected management action remains visible after successful status recon
   await expect(page.getByRole('alert')).toContainText('Wait for the active application operation to finish.');
   await expect(page.getByRole('button', {name: 'Review management update to 99.0.0-alpha'})).toBeEnabled();
 });
+test('a confirmed never-started coordinator can be reset before a new review', async ({page}) => {
+  let update = {...review(), state: 'attention', actions: ['reset'], message: 'The review coordinator never started. Reset this failed review to try again.'};
+  const writes = [];
+  await page.route('**/api/management-update', route => {
+    if (route.request().method() === 'POST') {
+      const input = route.request().postDataJSON(); writes.push(input);
+      expect(input).toMatchObject({action: 'reset', id, confirm: true});
+      update = {...update, state: 'failed', actions: [], message: 'The review coordinator never started. You can review the release again.'};
+    }
+    return route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update}});
+  });
+  await open(page); await page.getByRole('button', {name: 'Reset failed review', exact: true}).click();
+  await page.getByRole('dialog').getByRole('button', {name: 'Confirm', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Review management update to 99.0.0-alpha'})).toBeEnabled();
+  expect(writes).toHaveLength(1);
+});
 test('expired reviews allow cancellation and committed recovery offers only forward resume', async ({page}) => {
   let update = {...review(), expires: Date.now() - 60000};
   await page.route('**/api/management-update', route => route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update}}));

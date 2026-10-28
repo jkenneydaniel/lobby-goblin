@@ -33,13 +33,13 @@ async function fixture(t) {
     if (route === '/info') return {ID: 'fixture-engine', OSType: 'linux'};
     const url = new URL(route, 'http://fixture');
     if (url.pathname === '/containers/create') {
-      const name = url.searchParams.get('name'), value = {Id: 'helper-' + name, Name: '/' + name, Image: data.Image, Config: {...data, HostConfig: undefined}, HostConfig: data.HostConfig, State: {Running: false}};
+      const name = url.searchParams.get('name'), value = {Id: 'helper-' + name, Name: '/' + name, Image: data.Image, Config: {...data, HostConfig: undefined}, HostConfig: data.HostConfig, State: {Running: false, Status: 'created', StartedAt: '0001-01-01T00:00:00Z'}};
       containers.set(name, value); containers.set(value.Id, value); return {Id: value.Id};
     }
     const [, , name, action] = url.pathname.split('/'), value = containers.get(name);
     if (!value) throw Object.assign(Error('missing'), {status: 404});
     if (method === 'DELETE') { containers.delete(name); containers.delete(value.Name.slice(1)); return; }
-    if (action === 'start') { value.State.Running = true; return; }
+    if (action === 'start') { value.State = {Running: true, Status: 'running', StartedAt: '2026-10-28T00:00:00Z'}; return; }
     assert.equal(action, 'json'); return structuredClone(value);
   };
   const panel = new ManagementPanel({root, fleet, docker, runtimeImage}); await panel.init();
@@ -152,4 +152,36 @@ for (const rollback of [false, true]) test(`verified operator ${rollback ? 'roll
   const current = await f.panel.current();
   assert.equal(f.panel.view(current).update.state, rollback ? 'rolled-back' : 'complete');
   assert.equal(f.panel.blocksChanges(current), false);
+});
+for (const failure of ['rejected-create', 'lost-create', 'rejected-start', 'uncertain-start']) test(`initial review launch recovery distinguishes never-started helpers from uncertainty: ${failure}`, async t => {
+  const f = await fixture(t), docker = f.panel.docker;
+  f.panel.docker = async (...args) => {
+    const [method, route] = args;
+    if (method === 'POST' && route.startsWith('/containers/create')) {
+      if (failure === 'rejected-create') throw Error('Rejected creation');
+      const result = await docker(...args);
+      if (failure === 'lost-create') throw Error('Lost creation response');
+      return result;
+    }
+    if (method === 'POST' && route.endsWith('/start')) {
+      if (failure === 'rejected-start') throw Error('Rejected start');
+      await docker(...args);
+      const current = await f.panel.current(); f.containers.delete(current.job.name); f.containers.delete(current.worker.Id);
+      throw Error('Lost start response and helper disappeared');
+    }
+    return docker(...args);
+  };
+  const value = await f.panel.handle(f.request), current = await f.panel.current();
+  assert.equal(value.update.state, 'attention');
+  const input = {action: 'reset', id: current.job.id, requestId: 'e'.repeat(32), confirm: true};
+  if (failure === 'uncertain-start') {
+    assert.deepEqual(value.update.actions, ['inspect']);
+    await assert.rejects(f.panel.handle(input), /never-started/);
+  } else {
+    assert.deepEqual(value.update.actions, ['reset']);
+    const reset = await f.panel.handle(input); assert.equal(reset.update.state, 'failed');
+    assert.equal((await f.panel.handle(input)).update.state, 'failed');
+    f.panel.docker = docker;
+    assert.equal((await f.panel.handle({...f.request, requestId: 'f'.repeat(32)})).update.state, 'planning');
+  }
 });

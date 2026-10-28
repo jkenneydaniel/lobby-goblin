@@ -112,6 +112,7 @@ export function createUpdatesScreen({model, notice}) {
       cancel: 'Cancel review',
       resume: 'Resume update',
       rollback: 'Restore previous management',
+      reset: 'Reset failed review',
     };
     const canReview =
       management?.supported &&
