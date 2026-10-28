@@ -1,3 +1,4 @@
+import {publicTransportMessage} from '../core/operation-errors.js';
 import {ApplicationReleases} from '../core/application-releases.js';
 import {managementMaintenance,assertManagementIdle} from '../core/management-maintenance.js';
 import {OperationFeed,jobOperationSource,operationProgressSnapshot} from '../core/operation-feed.js';
@@ -103,7 +104,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   await manager.ownedContainer(item.controller,item.id);let body;if(req.method==='POST'){body=await readBody(req,route==='/upload'?128*1024**2:1024**2);if(route==='/jobs'&&req.headers['x-panel-user']){let value;try{value=JSON.parse(body);}catch{assert(false,'Invalid action.');}body=Buffer.from(JSON.stringify({...value,actor:req.headers['x-panel-user']}));}}
   return proxyResponse(req,res,`http://${item.controller}:8081${route}${url.search}`,{headers:{authorization:'Bearer '+item.controllerToken,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator','x-panel-update-kind':req.headers['x-panel-update-kind']==='game'?'game':'any'},body,download:route==='/download',timeout:['/mod-library','/mod-library-plan'].includes(route)?150000:30000});
  }
- const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:error.status?redact(error.message):'The host manager could not complete the request.'});else res.destroy();}));server.requestTimeout=300000;
+ const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:publicTransportMessage(error)??(error.status?redact(error.message):'The host manager could not complete the request.')});else res.destroy();}));server.requestTimeout=300000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});
  const sweep=()=>{if(!maintenance.held)void cleanupFleetContainers(manager).catch(error=>console.error('Container cleanup deferred:',redact(error.message)));};
  const cleanupTimer=setInterval(sweep,60000).unref();server.once('close',()=>{clearInterval(cleanupTimer);hosts.close();});

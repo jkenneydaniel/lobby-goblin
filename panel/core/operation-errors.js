@@ -1,8 +1,13 @@
 import {HttpError, redact} from '../common.js';
+import {DockerTransportError} from './docker-transport-error.js';
 
 // Public diagnostics are selected from code, never from Docker output, saved
 // container configuration, exception text or worker logs.
 const reasons = Object.freeze({
+  'docker-request-failed': [
+    'Docker could not complete the requested operation.',
+    'Use the operation reference to inspect its private diagnostic before retrying or recovering.',
+  ],
   'storage-worker-out-of-memory': [
     'The isolated storage worker ran out of memory. Server storage was kept.',
     'Review available host memory before retrying this operation.',
@@ -147,6 +152,7 @@ export function operationDiagnostic(
       clientMessages &&
       !client &&
       cause instanceof HttpError &&
+      !(cause instanceof DockerTransportError) &&
       cause.status >= 400 &&
       cause.status < 500
     )
@@ -159,6 +165,8 @@ export function operationDiagnostic(
                 .slice(0, 600)
             : operationReason('operation-rejected').message,
       };
+    if (cause instanceof DockerTransportError)
+      resource ||= operationReason('docker-request-failed');
     if (cause instanceof OperationFailure)
       return publicOperationDiagnostic(cause.diagnostic);
     const codes = {
@@ -189,4 +197,12 @@ export function operationDiagnostic(
       resource ||= operationReason('docker-unavailable');
   }
   return client || resource || operationReason(fallback);
+}
+
+// Sanitize at public controller boundaries before an HTTP hop can erase the
+// transport error type and a downstream client wraps the response again.
+export function publicTransportMessage(error) {
+  if (!(error instanceof DockerTransportError)) return null;
+  const diagnostic = operationDiagnostic(error);
+  return diagnostic.message + ' ' + diagnostic.action;
 }

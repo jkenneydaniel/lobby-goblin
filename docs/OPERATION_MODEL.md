@@ -178,3 +178,9 @@ collection can recover a missed teardown only from a completed `collected`
 receipt. Failed management inspections and metadata helpers also copy bounded
 worker output into private diagnostics before ordinary helper cleanup can remove
 its logs.
+
+Docker daemon and broker response failures retain a distinct transport error
+identity. Their upstream text remains private even for HTTP 404; it is not an
+intentional public application rejection. Public controller boundaries sanitize
+these errors before forwarding them over HTTP. Diagnostic appends use the shared
+writer lock so concurrent observers cannot overwrite earlier evidence.

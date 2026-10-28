@@ -166,3 +166,33 @@ test('malformed exception metadata cannot prevent safe classification or private
   });
   assert.equal(diagnostic.retained, true);
 });
+
+test('concurrent diagnostic writers retain every observation for the same operation', async (t) => {
+  const root = await fixture(t),
+    scope = {
+      id: 'concurrent-operation',
+      source: 'management-updates',
+      phase: 'planning',
+    };
+  const results = await Promise.all(
+    Array.from({length: 6}, (_, i) =>
+      retainOperationDiagnostic(root, Error('concurrent cause ' + i), scope),
+    ),
+  );
+  assert.ok(results.every((result) => result.retained));
+  const saved = JSON.parse(
+    await fs.readFile(
+      path.join(
+        root,
+        'operation-diagnostics',
+        'management-updates-concurrent-operation.json',
+      ),
+      'utf8',
+    ),
+  );
+  assert.equal(saved.events.length, 6);
+  assert.deepEqual(
+    saved.events.map((event) => event.causes[0].message).sort(),
+    Array.from({length: 6}, (_, i) => 'concurrent cause ' + i),
+  );
+});

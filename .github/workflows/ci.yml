@@ -83,7 +83,7 @@ jobs:
         with:
           node-version: '24'
       - name: Exercise host launchers with simulated Docker (no containers)
-        run: node --test panel/test/host-setup.test.js panel/test/installation.test.js panel/test/management-native.test.js panel/test/management-socket.test.js panel/test/management-errors.test.js panel/test/management-volume.test.js panel/test/management-launcher.test.js
+        run: node --test panel/test/host-setup.test.js panel/test/installation.test.js panel/test/management-native.test.js panel/test/management-socket.test.js panel/test/management-errors.test.js panel/test/docker-transport-error.test.js panel/test/management-volume.test.js panel/test/management-launcher.test.js
   verify:
     needs: static-quality
     runs-on: ubuntu-latest

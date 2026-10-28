@@ -7,6 +7,7 @@ import {
   privateManagementDirectory,
 } from './management-installation.js';
 import {operationDiagnostic} from './operation-errors.js';
+import {withStorageLock} from './storage/coordination.js';
 
 const identifier = (value) =>
   typeof value === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(value);
@@ -63,27 +64,29 @@ export async function retainOperationDiagnostic(
     );
     await fs.mkdir(directory, {mode: 0o700, recursive: true});
     await privateManagementDirectory(directory);
-    const file = path.join(directory, source + '-' + id + '.json');
-    const previous = await readManagementJSON(file, {optional: true});
-    assert(
-      !previous ||
-        (previous.version === 1 &&
-          previous.source === source &&
-          previous.id === id &&
-          Array.isArray(previous.events) &&
-          previous.events.length <= 8),
-      'Private operation diagnostic scope changed.',
-    );
-    const event = {phase, at: new Date().toISOString(), diagnostic, causes};
-    const events = [...(previous?.events || []), event];
-    await saveManagementJSON(file, {
-      version: 1,
-      source,
-      id,
-      events:
-        events.length <= 8
-          ? events
-          : [...events.slice(0, 4), ...events.slice(-4)],
+    await withStorageLock(directory, 'write', async () => {
+      const file = path.join(directory, source + '-' + id + '.json');
+      const previous = await readManagementJSON(file, {optional: true});
+      assert(
+        !previous ||
+          (previous.version === 1 &&
+            previous.source === source &&
+            previous.id === id &&
+            Array.isArray(previous.events) &&
+            previous.events.length <= 8),
+        'Private operation diagnostic scope changed.',
+      );
+      const event = {phase, at: new Date().toISOString(), diagnostic, causes};
+      const events = [...(previous?.events || []), event];
+      await saveManagementJSON(file, {
+        version: 1,
+        source,
+        id,
+        events:
+          events.length <= 8
+            ? events
+            : [...events.slice(0, 4), ...events.slice(-4)],
+      });
     });
     return {...diagnostic, retained: true};
   } catch {
