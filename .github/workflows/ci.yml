@@ -5,6 +5,31 @@ on:
 permissions:
   contents: read
 jobs:
+  management-panel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify detached coordinated panel update on this fresh engine
+        env:
+          MANAGEMENT_PANEL_DISPOSABLE: 'true'
+        run: node panel/test/management-panel-acceptance.mjs
+      - name: Preserve public synthetic acceptance evidence
+        if: always()
+        run: |
+          if [ -f /acceptance-output/result.json ]; then
+            sudo chmod a+rx /acceptance-output
+            sudo chmod a+r /acceptance-output/result.json
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-panel-acceptance
+          path: /acceptance-output/result.json
+          retention-days: 7
   static-quality:
     runs-on: ubuntu-latest
     timeout-minutes: 5

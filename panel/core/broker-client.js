@@ -93,6 +93,7 @@ export function brokerClient({socketPath, tokenFile}) {
     );
   return {
     docker,
+    managementUpdate: (input) => call('/v1/management-update', input),
     grant: (input) => call('/v1/grants', input),
     revoke: (id) => call('/v1/revoke', {id}),
   };

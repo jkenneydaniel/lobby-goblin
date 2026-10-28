@@ -7,6 +7,7 @@ import {
 } from '../core/management-installation.js';
 import {resources, validId} from '../core/instance.js';
 import {managementStorageSlots} from './management-storage.js';
+import {assertPanelWorker} from '../core/management-panel-contract.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet';
@@ -103,6 +104,7 @@ export class ManagementEngine {
     socket,
     engine,
     request,
+    coordinator,
     pause = () => sleep(200),
     timeout = 90000,
   }) {
@@ -121,7 +123,7 @@ export class ManagementEngine {
         process.env.DOCKER_BROKER_TOKEN_FILE === undefined,
       'Management updates require local operator authority, outside the panel broker.',
     );
-    Object.assign(this, {socket, expectedEngine: engine, pause, timeout});
+    Object.assign(this, {socket, expectedEngine: engine, pause, timeout, coordinator});
     this.request =
       request ||
       ((method, route, body, options) =>
@@ -383,9 +385,12 @@ export class ManagementEngine {
     }
     // Helpers may still own writable state after a lost controller response.
     // Retained previous management containers are allowed only when stopped.
+    if (this.coordinator)
+      assertPanelWorker(await this.inspect(this.coordinator.id), this.coordinator.spec, this.coordinator.name);
     for (const value of listed)
       assert(
         services.some((service) => service.id === value.Id) ||
+          value.Id === this.coordinator?.id ||
           games.some((game) => game.id === value.Id) ||
           value.Labels?.[roleKey] === 'host-gateway' ||
           (value.State === 'exited' &&

@@ -106,7 +106,8 @@ export class ManagementUpdate {
     await this.checkpoint(context, {pending: null});
     return result;
   }
-  async plan(image) {
+  async plan(image, {id = crypto.randomBytes(16).toString('hex')} = {}) {
+    assert(/^[a-f0-9]{32}$/.test(id), 'Invalid management review identity.');
     return this.locked(async () => {
       const stat = await fs.lstat(this.root).catch((error) => {
         if (error.code === 'ENOENT') return null;
@@ -126,7 +127,6 @@ export class ManagementUpdate {
           );
           retained.push({id: name, services: value.plan.services});
         }
-      const id = crypto.randomBytes(16).toString('hex');
       const plan = await this.engine.plan({
         fleet: this.installation.id,
         image,

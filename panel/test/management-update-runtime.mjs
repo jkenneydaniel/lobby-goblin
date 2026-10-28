@@ -235,6 +235,38 @@ const options = [
   '--engine',
   engineId,
 ];
+if (process.env.ACCEPTANCE_PANEL === 'true') {
+  const originalHost = (await inspect(host)).Id;
+  const reviewed = await request('/management-update', {action: 'plan', version: '0.3.7-alpha', requestId: crypto.randomBytes(16).toString('hex')});
+  const id = reviewed.update.id;
+  const review = await wait(async () => {
+    const value = await request('/management-update');
+    if (['failed', 'attention'].includes(value.update?.state)) throw Error(JSON.stringify(value));
+    return value.update?.state === 'reviewed' && value.update;
+  });
+  assert.equal(review.services.applications, 1);
+  assert.ok(review.actions.includes('apply'));
+  await request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')});
+  const complete = await wait(async () => {
+    try {
+      const value = await request('/management-update');
+      if (value.update?.state === 'attention') throw Object.assign(Error(JSON.stringify(value)), {fatal: true});
+      return value.update?.state === 'complete' && value;
+    } catch (error) { if (error.fatal) throw error; return null; }
+  });
+  assert.equal(complete.currentVersion, '0.3.7-alpha');
+  assert.equal(complete.update.id, id);
+  await preserved();
+  const operatorRecord = JSON.parse(await fs.readFile(path.join(directory, '.management-updates', id, 'operation.json'), 'utf8'));
+  assert.equal((await fs.stat(path.join(directory, '.management-updates'))).uid, process.getuid());
+  assert.equal(operatorRecord.phase, 'complete');
+  assert.equal(operatorRecord.pending, null);
+  assert.equal((await inspect(item.container)).State.Running, true);
+  assert.notEqual((await inspect(host)).Id, originalHost);
+  await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
+  console.log('Panel-triggered detached management update passed with operator-owned records, broker reconnection and unchanged application/world identity.');
+  process.exit(0);
+}
 let plan = await updateCLI(['plan', ...options, '--image', next], {
   log: () => {},
 });

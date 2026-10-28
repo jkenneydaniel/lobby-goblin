@@ -24,6 +24,7 @@ export function hostOrigin(value){
 // account administration, enrollment and arbitrary controller URLs stay local.
 export function remoteRoute(method,route){
  if(!['GET','POST'].includes(method))return false;
+ if(route==='/management-update')return true;
  if(/^\/snapshots\/[a-f0-9]{32}$/.test(route))return method==='GET';
  if(/^\/snapshots\/[a-f0-9]{32}\/remove$/.test(route))return method==='POST';
  if(/^\/removed-servers\/[a-f0-9]{32}\/(inspect|recover|remove)$/.test(route))return method==='POST';
@@ -118,7 +119,7 @@ export class RemoteHosts{
   const hosts=[this.local()];
   // Bounded parallel probes. A failed host never hides the local host or others.
   for(let n=0;n<this.state.outgoing.length;n+=4)hosts.push(...await Promise.all(this.state.outgoing.slice(n,n+4).map(async item=>{
-   const {id,name,origin,created}=item;try{const status=await this.request(origin,'/status',{token:item.token,timeout:3000});assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);const panelVersion=await agentVersion();return {id,name,origin,created,local:false,connected:true,connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate,agentUpdateSupported:status.agentUpdateSupported,isolation:status.isolation};}
+   const {id,name,origin,created}=item;try{const status=await this.request(origin,'/status',{token:item.token,timeout:3000});assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);const panelVersion=await agentVersion();return {id,name,origin,created,local:false,connected:true,connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate,agentUpdateSupported:status.agentUpdateSupported,managementUpdateSupported:status.managementUpdateSupported,isolation:status.isolation};}
    catch(error){return {id,name,origin,created,local:false,connected:false,error:error.message};}
   })));return {hosts};
  }
@@ -137,7 +138,7 @@ export class RemoteHosts{
   assert(remoteRoute(req.method,route),'Remote route not found.',404);
   let body=req.method==='POST'?await readBody(req,route.endsWith('/upload')?128*1024**2:1024**2):undefined;
   if(route==='/agent-update-plan')body=Buffer.from(JSON.stringify({version:await agentVersion()}));
-  if(req.method==='POST'&&!['/agent-update','/agent-update-plan'].includes(route)){
+  if(req.method==='POST'&&!['/agent-update','/agent-update-plan','/management-update'].includes(route)){
    const status=await this.request(host.origin,'/status',{token:host.token,timeout:5000});assert(status.hostId===host.id&&status.version===await agentVersion(),'Update the agent to match this panel before changing its servers.',409);
   }
   await proxyResponse(req,res,host.origin+'/remote/v1'+route+url.search,{fetcher:this.fetchFor(host.origin),headers:{origin:host.origin,authorization:'Bearer '+host.token,'content-type':req.headers['content-type']||'application/json','x-panel-user':req.headers['x-panel-user']||'administrator','x-panel-update-kind':req.headers['x-panel-update-kind']==='game'?'game':'any'},body,download:route.endsWith('/download'),timeout:route.endsWith('/mod-library')||route.endsWith('/mod-library-plan')?150000:30000});return true;

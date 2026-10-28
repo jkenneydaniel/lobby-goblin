@@ -1,6 +1,6 @@
 # Management updates and recovery
 
-The local operator command updates an intact, broker-enabled installation's
+The panel and local operator command update an intact, broker-enabled installation's
 management services together. It preserves application container IDs, images,
 mounts, networks and start timestamps. Application storage, worlds, backups and
 the snapshot library are never mounted by the metadata worker.
@@ -8,6 +8,45 @@ the snapshot library are never mounted by the metadata worker.
 This command does not adopt legacy/custom installations or migrate them to the
 broker. Existing installation records and generated Compose files remain intact.
 Ordinary startup without an operator update keeps its previous behavior.
+
+## Updating from the panel
+
+In **Updates → Update management services**, choose the management host and
+review the displayed release. Review resolves the owned published runtime to an
+immutable digest, validates the installation and shows the number of management
+services and protected application containers. Confirm **Install management
+update** within fifteen minutes. An expired review can be cancelled and repeated.
+
+The fixed coordinator runs independently of the broker, panel and controllers it
+replaces. The panel briefly disconnects and polls for reconnection. Sessions are
+held in memory, so sign in again after the panel restarts; reopen Updates to read
+the durable result. The same controls support paired remote hosts, including
+aligning an older agent to the panel's installed version.
+
+Only administrators with a valid session and CSRF token can start or recover an
+update. The broker accepts release versions and retained review IDs, never
+browser-supplied commands, image references, sockets or installation paths. It
+derives the existing directory from the owned Compose controller and the worker
+revalidates its intact installer manifest before any change. A private detached
+helper alone receives the local socket, installation directory and one scoped
+progress directory. It has no network or game/library mounts. It drops to the
+installation owner's UID so the existing operator CLI retains recovery access.
+
+**Installations older than v0.3.14-alpha need one host-side coordinated upgrade**
+to obtain this broker capability. Their earlier broker intentionally cannot
+launch it from the panel. Use the operator procedure below for that first upgrade.
+Legacy/custom layouts and Windows named-pipe transport are still unsupported by
+this coordinated path; they are never silently adopted.
+
+Retain the displayed update ID. If management remains reachable after an
+interruption, use **Resume update**, or **Restore previous management** before
+activation is committed. A committed update offers forward resume only. If
+ingress or a held controller cannot reconnect, use the operator command below
+with the same ID and directory. A killed coordinator may leave a filesystem
+lease requiring offline identity-bound inspection through `panel/storage.js`;
+the panel never deletes that lease or retries an uncertain install automatically.
+Progress journals under the private broker's `panel-updates` directory survive
+metadata rollback and are excluded from management snapshots.
 
 ## Operator command
 
@@ -43,7 +82,8 @@ Inspect the retained update with `status`. Use `resume` with the same arguments
 as `apply` to reconcile an interrupted step. Before activation is committed,
 `rollback` with the same arguments restores the previous management metadata and
 services. After commitment, only forward recovery is permitted. These commands
-require `--confirm`; the web panel cannot invoke them.
+require `--confirm`. The panel invokes the same workflow through the fixed
+broker coordinator, without exposing private operator records to web services.
 
 Keep `.management-updates` private and retain its original specifications,
 operation records, active-runtime receipt and Compose override. They can contain

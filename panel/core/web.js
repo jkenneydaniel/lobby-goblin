@@ -120,6 +120,20 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
       }
       if(url.pathname==='/api/updates/check'){requireAdmin(user);assert(req.method==='POST','Not found.',404);await releaseConfiguration();return json(res,200,await releases.check({force:true}),{'cache-control':'no-store'});}
       if(url.pathname==='/api/updates'){requireAdmin(user);assert(req.method==='GET','Not found.',404);await releaseConfiguration();void releases.check();return json(res,200,releases.result,{'cache-control':'no-store'});}
+      if(module.id==='fleet'&&/^\/api(?:\/hosts\/[a-f0-9]{32})?\/management-update$/.test(url.pathname)){
+        requireAdmin(user);assert(['GET','POST'].includes(req.method),'Not found.',404);
+        let body;
+        if(req.method==='POST'){
+          const input=await requestJSON(req);
+          if(input.action==='plan'){
+            await releaseConfiguration();const checked=await releases.check();
+            const remote=url.pathname.startsWith('/api/hosts/');
+            assert(checked.latest?.tag?.replace(/^v/,'')===input.version||remote&&input.version===panelVersion,'Check releases and choose the displayed management version.',409);
+          }
+          body=Buffer.from(JSON.stringify(input));
+        }
+        return proxyResponse(req,res,controller+url.pathname.slice(4),{headers:{authorization:'Bearer '+token,'content-type':'application/json','x-panel-user':user.username},body});
+      }
       if(req.method==='POST'&&url.pathname==='/api/logout'){sessions.delete(user.id);return json(res,200,{ok:true},{'set-cookie':`${web.sessionCookie}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${secureCookie}`});}
       if(req.method==='POST'&&url.pathname==='/api/password'){
         const key='password:'+user.username,entry=attempts.get(key)||{count:0,reset:Date.now()+600000};

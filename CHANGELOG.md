@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.14-alpha — 2026-10-28
+
+- Restore administrator-driven management updates in the panel using the existing
+  coordinated updater. Review a verified immutable release, confirm installation,
+  reconnect and inspect the durable result for local or paired remote hosts.
+- Run a narrowly scoped detached coordinator so replacing the broker, panel and
+  controllers cannot interrupt their own update. Preserve private operator records,
+  metadata recovery, forward-only committed recovery and the CLI fallback.
+- Preserve installer files, historical updater archives and application containers,
+  storage and worlds. Older installations need one host-side upgrade to enable
+  the new broker capability. Publication does not deploy any installation.
+
 ## 0.3.13-alpha — 2026-10-27
 
 - Add public curl/wget host-agent setup commands pinned to the panel release.

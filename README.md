@@ -36,6 +36,11 @@ The panel can run locally or remotely; daily management and reviewed agent
 updates use the persistent, pairing-secured agent connection on a configurable
 dedicated port (24443 by default). See [remote game hosts](docs/REMOTE_HOSTS.md).
 
+Use **Updates → Update management services** to review and install coordinated
+updates for the panel, broker and controllers while game containers keep running.
+Installations older than v0.3.14-alpha need one host-side upgrade to enable this
+broker capability. See [management updates and recovery](docs/MANAGEMENT_UPDATES.md).
+
 For an existing installation or a dedicated single-game setup:
 
 - [Standalone Factorio](docs/SETUP.md): `sh scripts/standalone/Setup.sh` or

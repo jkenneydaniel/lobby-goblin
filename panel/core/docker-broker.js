@@ -18,6 +18,7 @@ import {registeredApplications} from '../applications/index.js';
 import {resources, validId} from './instance.js';
 import {AuditLog} from './audit.js';
 import {softwareWorkerDeployment} from './software-worker-policy.js';
+import {ManagementPanel} from './management-panel.js';
 import {
   preparationWorker,
   applicationContainer,
@@ -170,6 +171,8 @@ export async function startDockerBroker({
     runtimeImage = own.Image;
   }
   const engine = docker;
+  const management = new ManagementPanel({root, fleet, docker: engine, runtimeImage});
+  await management.init();
   async function instanceContainers() {
     const filters = encodeURIComponent(
       JSON.stringify({label: ['io.lobby-goblin.fleet=' + fleet]}),
@@ -364,7 +367,7 @@ export async function startDockerBroker({
     const principal = authenticate(req); // Authenticate before reading any body.
     assert(
       req.method === 'POST' &&
-        ['/v1/docker', '/v1/grants', '/v1/revoke'].includes(req.url),
+        ['/v1/docker', '/v1/grants', '/v1/revoke', '/v1/management-update'].includes(req.url),
       'Docker broker route not found.',
       404,
     );
@@ -411,6 +414,7 @@ export async function startDockerBroker({
             403,
           );
           result = await change(async () => {
+            if (req.url === '/v1/management-update') return management.handle(input);
             if (req.url === '/v1/grants') return grant(input);
             assert(
               input &&
@@ -471,6 +475,15 @@ export async function startDockerBroker({
                 timeout: input.timeout,
               });
             };
+          if (input.method !== 'GET') {
+            const update = await management.current();
+            const blocking = update && update.job.action !== 'plan' &&
+              (update.running || management.view(update).update.state === 'attention');
+            // Held controllers reconnect only their own existing networks during
+            // activation. The existing policy still validates that exact shape.
+            const reconnect = principal.role === 'host' && /^\/networks\/[^/]+\/connect$/.test(input.route);
+            assert(!blocking || reconnect, 'A coordinated management update owns this host. Wait for completion or recover it.', 409);
+          }
           if (
             input.method === 'POST' &&
             input.route.startsWith('/containers/create')
