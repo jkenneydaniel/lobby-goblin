@@ -121,18 +121,14 @@ Existing game processes and worlds must remain untouched. The review plan does
 not prove that this operational upgrade has happened or that an older game's
 runtime restrictions have changed.
 
-Legacy standalone panel/game updates and agent updates retain their existing
-recovery behavior. Broker-enabled hosts refuse the old socket-bearing self-update
-helper. Their UI requests an operator-reviewed update of the broker and management
-services together, while games remain in place. A future broker-supervised updater
-must preserve that boundary; granting the helper a general daemon socket would
-undo it. Existing non-broker agent-update behavior is unchanged.
-
-Broker-enabled installations have an explicit local-operator update command,
-held startup, metadata-only backup/restore and inspection-driven recovery. This
-authority remains separate from panel/broker clients. It does not apply the
-legacy-to-broker review plan above. See [management updates](MANAGEMENT_UPDATES.md)
-for the supported scope, commands and acceptance evidence.
+Standalone panel/game updaters retain their existing validation and recovery.
+Managed fleets and agents use coordinated management updates; an interrupted old
+agent update retains its recovery route. The fixed coordinator is the only new
+socket-bearing helper. Broker-mode application and web credentials cannot choose
+its commands, mounts, image or paths. Recognized legacy deployments retain their
+existing raw-socket authority; this update does not convert their registry or
+change game isolation. See [management updates](MANAGEMENT_UPDATES.md) for
+portable storage, supported scope and recovery commands.
 
 ## Remaining trust boundary
 

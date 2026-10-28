@@ -1,4 +1,5 @@
 import {assertManagementStartAllowed,managementInstallationRuntime} from './core/management-installation.js';
+import {portableStartupRuntime} from './core/management-startup.js';
 // Prepare a game-host agent on the target machine. Starting is explicit and
 // limited to a fresh project; existing installations are never adopted.
 import fs from 'node:fs/promises';
@@ -42,7 +43,7 @@ export async function startHostInstallation(directory,record,{execute=run,log=co
  try{
   assert(JSON.stringify(await readHostInstallation(directory))===JSON.stringify(record),'Host-agent installation changed. Review it first.');
   await assertManagementStartAllowed(directory);
-  const runtime=await managementInstallationRuntime(directory,record);
+  const runtime=await portableStartupRuntime(directory,record,{execute})||await managementInstallationRuntime(directory,record);
   const host=await checkHost({execute});if(runtime.engine)assert((await execute('docker',['info','--format','{{.ID}}'])).trim()===runtime.engine,'This management update belongs to another Docker engine. No containers were started.');assert(host.memoryGiB>=record.options.memory+2,'Docker needs the selected game budget plus at least 2 GiB of management headroom.');
   const args=[...hostComposeArgs(directory,record),...runtime.arguments],docker=tail=>execute('docker',[...args,...tail],{cwd:directory,env:installationEnvironment()});
   if(await docker(['ps','--all','--quiet'])){log('This host-agent installation already has containers. They were left unchanged. Use --pairing-code to issue a new code.');return {started:false};}

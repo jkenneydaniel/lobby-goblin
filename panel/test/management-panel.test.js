@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import {ManagementPanel, publishPanelRecovery} from '../core/management-panel.js';
 import {saveManagementJSON} from '../core/management-installation.js';
 import {runPanelUpdate, resolvePanelRuntime} from '../management-panel-worker.js';
@@ -23,7 +24,7 @@ test('release resolution uses only the owned repository, verifies metadata and p
 async function fixture(t) {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'lgb-panel-update-')));
   t.after(() => fs.rm(root, {recursive: true, force: true}));
-  const containers = new Map(), calls = [];
+  const containers = new Map(), calls = [], volumes = new Map();
   for (const [name, role] of [['lobby-goblin-docker-broker-', 'docker-broker'], ['lobby-goblin-host-', 'host-controller']]) {
     const value = {Id: name + fleet, Image: runtimeImage, Config: {Labels: {'io.lobby-goblin.fleet': fleet, 'io.lobby-goblin.role': role, 'com.docker.compose.project': project, 'com.docker.compose.project.working_dir': '/reviewed/installation'}}, Mounts: [{Type: 'bind', Source: '/run/owned.sock', Destination: '/var/run/docker.sock'}, {Type: 'volume', Name: project + '-broker-state', Destination: '/broker-state'}]};
     containers.set(name + fleet, value);
@@ -32,8 +33,10 @@ async function fixture(t) {
     calls.push({method, route, data});
     if (route === '/info') return {ID: 'fixture-engine', OSType: 'linux'};
     const url = new URL(route, 'http://fixture');
+    if (url.pathname === '/volumes/create') {const volume = {...data, Options: {}}; volumes.set(data.Name, volume); return volume;}
+    if (url.pathname.startsWith('/volumes/')) {const value=volumes.get(url.pathname.slice(9));if(!value)throw Object.assign(Error('missing'),{status:404});return value;}
     if (url.pathname === '/containers/create') {
-      const name = url.searchParams.get('name'), value = {Id: 'helper-' + name, Name: '/' + name, Image: data.Image, Config: {...data, HostConfig: undefined}, HostConfig: data.HostConfig, State: {Running: false, Status: 'created', StartedAt: '0001-01-01T00:00:00Z'}};
+      const name = url.searchParams.get('name'), value = {Id: crypto.createHash('sha256').update(name).digest('hex'), Name: '/' + name, Image: data.Image, Config: {...data, HostConfig: undefined}, HostConfig: data.HostConfig, State: {Running: false, Status: 'created', StartedAt: '0001-01-01T00:00:00Z'}};
       containers.set(name, value); containers.set(value.Id, value); return {Id: value.Id};
     }
     const [, , name, action] = url.pathname.split('/'), value = containers.get(name);
@@ -51,11 +54,29 @@ async function fixture(t) {
   }
   return {panel, containers, calls, request, finish};
 }
+for (const profile of ['brokered', 'legacy']) for (const directory of ['C:\\Users\\Player\\Lobby Goblin', '/Users/player/Lobby Goblin', '/srv/lobby-goblin'])
+  test(profile + ' panel updates use private Docker storage independently of ' + directory, async t => {
+    const f = await fixture(t);
+    f.panel.profile = profile;
+    const host = f.containers.get('lobby-goblin-host-' + fleet);
+    host.Config.Labels['com.docker.compose.project.working_dir'] = directory;
+    if (profile === 'legacy') host.Mounts[1] = {Type: 'volume', Name: project + '-state', Destination: '/fleet'};
+    await f.panel.handle(f.request);
+    const {job} = await f.panel.current();
+    assert.deepEqual(job.spec.HostConfig.CapAdd, []);
+    const mounts = job.spec.HostConfig.Mounts;
+    assert.equal(mounts.filter(value => value.Type === 'bind').length, 1);
+    assert.equal(mounts.find(value => value.Target === '/management').Source, project + '-management-updates');
+    assert.equal(JSON.stringify(mounts).includes(directory), false);
+    const input = JSON.parse(await fs.readFile(path.join(f.panel.root, job.attempt, 'input.json')));
+    assert.equal(input.context.profile, profile); assert.equal(input.context.sourceDirectory, directory);
+    assert.equal(input.directory, undefined);
+  });
 test('broker starts only its fixed, scoped helper and reads a lost response without replaying', async t => {
   const f = await fixture(t), first = await f.panel.handle(f.request);
   assert.equal(first.update.state, 'planning');
   assert.equal((await f.panel.handle(f.request)).update.id, first.update.id);
-  assert.equal(f.calls.filter(c => c.route.startsWith('/containers/create')).length, 1);
+  assert.equal(f.calls.filter(c => c.route.startsWith('/containers/create') && c.data.Labels['io.lobby-goblin.role'] === 'management-panel-worker').length, 1);
   const job = (await f.panel.current()).job;
   assert.deepEqual(job.spec.Entrypoint, ['node', '/app/management-panel-worker.js']);
   assert.equal(job.spec.HostConfig.NetworkMode, 'none');
@@ -156,8 +177,8 @@ for (const rollback of [false, true]) test(`verified operator ${rollback ? 'roll
 for (const failure of ['rejected-create', 'lost-create', 'rejected-start', 'uncertain-start']) test(`initial review launch recovery distinguishes never-started helpers from uncertainty: ${failure}`, async t => {
   const f = await fixture(t), docker = f.panel.docker;
   f.panel.docker = async (...args) => {
-    const [method, route] = args;
-    if (method === 'POST' && route.startsWith('/containers/create')) {
+    const [method, route, body] = args;
+    if (method === 'POST' && route.startsWith('/containers/create') && body.Labels['io.lobby-goblin.role'] === 'management-panel-worker') {
       if (failure === 'rejected-create') throw Error('Rejected creation');
       const result = await docker(...args);
       if (failure === 'lost-create') throw Error('Lost creation response');

@@ -11,6 +11,7 @@ import {readManagementJSON} from './core/management-installation.js';
 import {syncDirectory} from './core/storage/files.js';
 import {ManagementEngine} from './fleet/management-engine.js';
 import {ManagementUpdate} from './fleet/management-update.js';
+import {volumeInstallation} from './core/management-volume.js';
 
 export async function resolvePanelRuntime(engine, version) {
   const tag = panelImage(version);
@@ -65,11 +66,18 @@ export async function main() {
   const input = await readManagementJSON('/request/input.json');
   assert(input.version === 1 && /^[a-f0-9]{32}$/.test(input.fleet) && /^[a-f0-9]{32}$/.test(input.id) &&
     ['plan', 'apply', 'resume', 'rollback', 'cancel'].includes(input.action) &&
-    path.isAbsolute(input.directory) && input.directory !== '/', 'Invalid coordinator scope.');
+    (input.context || path.isAbsolute(input.directory) && input.directory !== '/'), 'Invalid coordinator scope.');
   const own = await docker('GET', '/containers/' + input.name + '/json');
   assertPanelWorker(own, input.spec, input.name);
-  const owner = await fs.lstat(input.directory), socket = await fs.stat('/var/run/docker.sock');
-  assert(owner.isDirectory() && !owner.isSymbolicLink() && await fs.realpath(input.directory) === input.directory && socket.isSocket(), 'The installation or Docker socket changed.');
+  let installation, directory;
+  if (input.context) {
+    directory = '/management';
+    assert(input.context.fleet === input.fleet && input.context.engine === input.engine, 'The coordinator enrollment changed.');
+    installation = await volumeInstallation(directory, input.context);
+  } else {
+  directory = input.directory;
+  const owner = await fs.lstat(directory), socket = await fs.stat('/var/run/docker.sock');
+  assert(owner.isDirectory() && !owner.isSymbolicLink() && await fs.realpath(directory) === directory && socket.isSocket(), 'The installation or Docker socket changed.');
   // Match operator ownership so the existing CLI can read/recover these records.
   // Keep only socket-group membership; no host user credentials are imported.
   // The enclosing broker-state directory stays root-only. Within this single
@@ -78,10 +86,11 @@ export async function main() {
   await fs.chmod('/request', 0o770);
   process.setgroups([socket.gid]); process.setgid(0); process.setuid(owner.uid);
   const central = await fs.lstat(path.join(input.directory, 'installation.json')).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
-  const installation = await (central ? readInstallation : readHostInstallation)(input.directory);
+  installation = await (central ? readInstallation : readHostInstallation)(directory);
+  }
   assert(installation?.id === input.fleet && installation.project === 'lobby-goblin-fleet-' + input.fleet, 'Installer identity changed. No resources were adopted.');
   const engine = new ManagementEngine({socket: '/var/run/docker.sock', engine: input.engine, coordinator: {id: own.Id, spec: input.spec, name: input.name}});
-  const workflow = new ManagementUpdate({directory: input.directory, installation, engine, actor: 'panel-administrator'});
+  const workflow = new ManagementUpdate({directory, installation, engine, actor: 'panel-administrator'});
   await runPanelUpdate({input, workflow,
     resolveImage: version => resolvePanelRuntime(engine, version), save: async value => {
       const temporary = '/request/result.next';

@@ -6,6 +6,7 @@ import {saveManagementJSON, privateManagementDirectory} from './management-insta
 import {regularFile} from './storage/files.js';
 import {compareVersions, version as parseVersion} from '../updates.js';
 import {panelWorkerName, panelWorkerSpec, assertPanelWorker} from './management-panel-contract.js';
+import {ensureManagementVolume} from './management-volume.js';
 
 const idOK = value => typeof value === 'string' && /^[a-f0-9]{32}$/.test(value);
 async function read(file) {
@@ -33,8 +34,9 @@ export async function publishPanelRecovery(root, result) {
 // This RPC accepts release versions and retained review IDs, never Docker
 // requests, host paths, mounts, commands or arbitrary image references.
 export class ManagementPanel {
-  constructor({root, fleet, docker, runtimeImage, now = Date.now}) {
-    Object.assign(this, {fleet, docker, runtimeImage, now});
+  constructor({root, fleet, docker, runtimeImage, profile = 'brokered', now = Date.now}) {
+    assert(['brokered', 'legacy'].includes(profile), 'Unsupported management update profile.');
+    Object.assign(this, {fleet, docker, runtimeImage, profile, now});
     this.root = path.join(root, 'panel-updates');
   }
   async init() {
@@ -68,12 +70,12 @@ export class ManagementPanel {
     return {job, worker, result, running};
   }
   view(current) {
-    if (!current) return {supported: true, currentVersion: this.version, update: null};
+    if (!current) return {supported: true, profile: this.profile, currentVersion: this.version, update: null};
     const {job, running} = current;
     const result = job.reset === true ? {state: 'failed', message: 'The review coordinator never started. You can review the release again.'} : current.result;
     const interrupted = !running && (!result || ['running', 'planning'].includes(result.state));
     const state = running ? (job.action === 'plan' ? 'planning' : 'running') : interrupted ? 'attention' : result.state;
-    return {supported: true, currentVersion: this.version, update: {
+    return {supported: true, profile: this.profile, currentVersion: this.version, update: {
       id: job.id, requestId: job.requestId, action: job.action, version: job.version, state, expires: job.expires,
       image: result?.plan?.image || null, phase: result?.plan?.operation?.phase || null,
       committed: result?.plan?.commit === true, cleanupRequired: result?.plan?.cleanupRequired === true,
@@ -130,26 +132,31 @@ export class ManagementPanel {
       assert(action !== 'apply' || current.job.expires > this.now(), 'This review expired. Cancel it and review the release again.', 409);
       id = current.job.id; targetVersion = current.job.version;
     }
-    const own = await this.inspect('lobby-goblin-docker-broker-' + this.fleet);
     const host = await this.inspect('lobby-goblin-host-' + this.fleet);
+    const own = this.profile === 'legacy' ? host : await this.inspect('lobby-goblin-docker-broker-' + this.fleet);
     const project = 'lobby-goblin-fleet-' + this.fleet;
-    for (const [info, role] of [[own, 'docker-broker'], [host, 'host-controller']])
+    for (const [info, role] of [[own, this.profile === 'legacy' ? 'host-controller' : 'docker-broker'], [host, 'host-controller']])
       assert(info?.Config?.Labels?.['io.lobby-goblin.fleet'] === this.fleet && info.Config.Labels['io.lobby-goblin.role'] === role && info.Config.Labels['com.docker.compose.project'] === project, 'Only an owned installer-created host supports panel updates.', 409);
     const directory = host.Config.Labels['com.docker.compose.project.working_dir'];
-    assert(typeof directory === 'string' && path.isAbsolute(directory) && path.normalize(directory) === directory && directory !== '/' && !/[\x00-\x1f]/.test(directory), 'The installer directory is unavailable. Use the host update guide.', 409);
+    assert(typeof directory === 'string' && directory.length <= 4096 && !/[\x00-\x1f]/.test(directory), 'The existing Compose installation identity is unavailable.', 409);
     const socket = own.Mounts?.filter(m => m.Type === 'bind' && m.Destination === '/var/run/docker.sock');
-    const state = own.Mounts?.filter(m => m.Type === 'volume' && m.Destination === '/broker-state');
-    assert(socket?.length === 1 && state?.length === 1 && state[0].Name === project + '-broker-state', 'The broker deployment requires operator review.', 409);
+    const stateTarget = this.profile === 'legacy' ? '/fleet' : '/broker-state';
+    const state = own.Mounts?.filter(m => m.Type === 'volume' && m.Destination === stateTarget);
+    assert(socket?.length === 1 && state?.length === 1 && state[0].Name === project + (this.profile === 'legacy' ? '-state' : '-broker-state'), 'The management deployment requires operator review.', 409);
     const engine = await this.docker('GET', '/info');
     assert(engine.OSType === 'linux' && /^[A-Za-z0-9:_-]{1,128}$/.test(engine.ID || ''), 'A local Linux Docker engine is required.', 409);
     assert(own.Image === this.runtimeImage && /^sha256:[a-f0-9]{64}$/.test(own.Image), 'The broker runtime changed.', 409);
+    const enrolled = await ensureManagementVolume({docker: this.docker, inspect: name => this.inspect(name), fleet: this.fleet, engine: engine.ID, image: own.Image});
+    const env = Object.fromEntries((host.Config.Env || []).map(value => { const at = value.indexOf('='); return [value.slice(0, at), value.slice(at + 1)]; }));
+    const context = {version: 1, fleet: this.fleet, engine: engine.ID, volume: enrolled.volume, anchor: enrolled.anchor,
+      profile: this.profile, kind: env.FLEET_AGENT_ONLY === 'true' ? 'host-agent' : 'fleet', image: own.Image, sourceDirectory: directory};
     if (current?.worker) await this.docker('DELETE', '/containers/' + current.worker.Id).catch(error => { if (error.status !== 404) throw error; });
     const attempt = crypto.randomBytes(16).toString('hex'), name = panelWorkerName(this.fleet, attempt);
     const scope = path.join(this.root, attempt);
     await fs.mkdir(scope, {mode: 0o700});
-    const spec = panelWorkerSpec({fleet: this.fleet, attempt, image: own.Image, directory, socket: socket[0].Source, volume: state[0].Name, subpath: 'panel-updates/' + attempt});
+    const spec = panelWorkerSpec({fleet: this.fleet, attempt, image: own.Image, managementVolume: enrolled.volume, socket: socket[0].Source, volume: state[0].Name, subpath: 'panel-updates/' + attempt});
     const job = {id, fleet: this.fleet, engine: engine.ID, attempt, name, spec, startRequested: false, requestId: input.requestId, action, version: targetVersion, expires: action === 'plan' ? this.now() + 15 * 60000 : current.job.expires};
-    await saveManagementJSON(path.join(scope, 'input.json'), {version: 1, fleet: this.fleet, id, action, targetVersion, directory, engine: engine.ID, spec, name});
+    await saveManagementJSON(path.join(scope, 'input.json'), {version: 1, fleet: this.fleet, id, action, targetVersion, context, engine: engine.ID, spec, name});
     // Intent is saved before create/start; a lost response is never permission
     // to launch another socket-owning coordinator.
     await saveManagementJSON(path.join(this.root, 'current.json'), job);

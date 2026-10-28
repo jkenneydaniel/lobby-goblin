@@ -134,6 +134,22 @@ test('management snapshot and rollback preserve the detached coordinator journal
   assert.equal(await fs.readFile(path.join(f.storageRoot, 'broker-state/panel-updates/current.json'), 'utf8'), 'live recovery authority');
   assert.equal(await fs.readFile(path.join(f.storageRoot, 'broker-state/capabilities.json'), 'utf8'), 'private capability bytes');
 });
+test('legacy metadata rollback excludes broker slots and preserves live host update authority', async t => {
+  const f = await fixture(t), legacy = {...request, profile: 'legacy'};
+  assert.equal(managementStorageSlots(legacy).length, 5);
+  assert.ok(managementStorageSlots(legacy).every(slot => !slot.kind.startsWith('broker')));
+  await f.write('host/panel-updates/current.json', 'before');
+  const backup = await backupManagementStorage(legacy, f.options);
+  const manifest = JSON.parse(await fs.readFile(f.manifest, 'utf8'));
+  assert.equal(manifest.profile, 'legacy');
+  assert.ok(manifest.slots.find(slot => slot.descriptor.kind === 'host').entries.every(entry => !entry.path.startsWith('panel-updates')));
+  await f.write('host/panel-updates/current.json', 'live recovery authority');
+  await f.write('host/registry.json', 'failed replacement');
+  await restoreManagementStorage({...legacy, operation: 'restore', manifestHash: backup.manifestHash}, f.options);
+  assert.equal(await fs.readFile(path.join(f.storageRoot, 'host/panel-updates/current.json'), 'utf8'), 'live recovery authority');
+  assert.equal(await fs.readFile(path.join(f.storageRoot, 'host/registry.json'), 'utf8'), 'original registry bytes');
+  assert.equal(await fs.readFile(f.world, 'utf8'), 'world outside management authority');
+});
 test('private snapshots restore exact management bytes and remove failed-version metadata without touching world or socket data', async (t) => {
   const f = await fixture(t),
     backup = await backupManagementStorage(request, f.options);

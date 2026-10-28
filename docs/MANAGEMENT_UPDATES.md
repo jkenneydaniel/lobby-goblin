@@ -1,13 +1,18 @@
 # Management updates and recovery
 
-The panel and local operator command update an intact, broker-enabled installation's
+The panel and local operator command update an intact managed installation's
 management services together. It preserves application container IDs, images,
 mounts, networks and start timestamps. Application storage, worlds, backups and
 the snapshot library are never mounted by the metadata worker.
 
-This command does not adopt legacy/custom installations or migrate them to the
-broker. Existing installation records and generated Compose files remain intact.
-Ordinary startup without an operator update keeps its previous behavior.
+Windows, macOS and Linux hosts use the same coordinator inside their local Linux
+Docker engine. Supported layouts include the current broker deployment and the
+recognized legacy raw-socket fleet/agent deployment with owned metadata volumes.
+Custom commands, mounts, unowned resources and active workflows fail validation.
+An update preserves the existing profile; it never converts a legacy registry to
+the broker or automatically migrates game images. Existing installation records
+and original Compose files remain intact. Linux x86-64 container requirements are
+unchanged; native ARM game support remains deferred.
 
 ## Updating from the panel
 
@@ -24,25 +29,33 @@ the durable result. The same controls support paired remote hosts, including
 aligning an older agent to the panel's installed version.
 
 Only administrators with a valid session and CSRF token can start or recover an
-update. The broker accepts release versions and retained review IDs, never
-browser-supplied commands, image references, sockets or installation paths. It
-derives the existing directory from the owned Compose controller and the worker
-revalidates its intact installer manifest before any change. A private detached
-helper alone receives the local socket, installation directory and one scoped
-progress directory. It has no network or game/library mounts. It drops to the
-installation owner's UID so the existing operator CLI retains recovery access.
+update. The request accepts release versions and retained review IDs, never
+browser-supplied commands, image references, sockets or installation paths.
+The fixed detached helper gets the engine-side Unix socket, private named recovery
+volume and one scoped progress directory. It has no network or game/library mounts.
+The host's working-directory label is provenance only: a Windows drive path is
+never mounted or interpreted as a Linux directory, and host POSIX ownership is
+irrelevant. Broker-enabled web/controllers keep their existing credential boundary;
+legacy controllers retain their existing daemon authority.
 
-**Installations older than v0.3.14-alpha need one host-side coordinated upgrade**
-to obtain this broker capability. Their earlier broker intentionally cannot
-launch it from the panel. Use the operator procedure below for that first upgrade.
-Legacy/custom layouts and Windows named-pipe transport are still unsupported by
-this coordinated path; they are never silently adopted.
+The recovery volume is `lobby-goblin-fleet-FLEET_ID-management-updates`. A matching
+unstarted `lobby-goblin-management-lock-FLEET_ID` pins its reader image and binds
+storage to the engine and fleet. Preserve both. Do not prune or manually delete
+them: original specifications, snapshots, update records and startup receipts are
+private recovery data. They are not exposed to application or web containers.
+
+**Older versions need one host-side coordinated upgrade** to obtain this code.
+v0.3.14-alpha's panel cannot launch this portable helper on a legacy installation;
+Windows support cannot be retrofitted into an already-running old controller.
+Use the matching new release's operator command below once. This uses the official
+image, without a local map-preview patch or image overlay. Later updates use the
+panel on Windows, macOS and Linux.
 
 Retain the displayed update ID. If management remains reachable after an
 interruption, use **Resume update**, or **Restore previous management** before
 activation is committed. A committed update offers forward resume only. If
 ingress or a held controller cannot reconnect, use the operator command below
-from the matching release with the same ID and directory. Completed CLI recovery
+from the matching release with the same ID and fleet. Completed CLI recovery
 publishes a verified broker receipt after final cleanup so stale panel progress
 cannot keep application changes blocked. A killed coordinator may leave a filesystem
 lease requiring offline identity-bound inspection through `panel/storage.js`;
@@ -51,37 +64,47 @@ If Docker confirms that the initial review coordinator never started, **Reset
 failed review** removes only that unstarted helper and permits another review.
 An absent helper after an uncertain start is not proof that nothing ran; those
 attempts retain their recovery guard and require operator inspection.
-Progress journals under the private broker's `panel-updates` directory survive
-metadata rollback and are excluded from management snapshots.
+Progress journals under the broker state (or legacy host state) `panel-updates`
+directory survive metadata rollback and are excluded from management snapshots.
 
 ## Operator command
 
 Run from a reviewed source checkout with its Node dependencies installed. Select
-the existing installation directory, an explicit local Unix Docker socket, the
-engine's literal identity and an already available immutable runtime image. The
-command never pulls a mutable tag. Windows named-pipe transport is not supported
-by this operator command; existing Windows installation behavior is unchanged.
+the local Docker context and an already available, release-verified immutable
+runtime image. Planning never pulls a mutable tag. Unix sockets on Linux/macOS
+and local Windows named pipes are supported; TCP/SSH contexts are refused. The
+native process uses the selected socket/pipe only to start the fixed coordinator
+inside Docker. The coordinator uses Docker's internal Unix socket.
 
-```sh
-node panel/management-update.js plan \
-  --directory /absolute/installation \
-  --socket /absolute/docker.sock \
-  --engine ENGINE_ID \
-  --image ghcr.io/jkenneydaniel/lobby-goblin@sha256:IMAGE_DIGEST
+The fleet ID is shown by the owned host's `io.lobby-goblin.fleet` label (also
+`FLEET_ID` in the original installation environment file). Use the same ID for
+inspection and recovery. These single-line commands work in PowerShell and Unix
+shells; substitute the checked release image digest and retained ID:
 
-node panel/management-update.js status \
-  --directory /absolute/installation \
-  --socket /absolute/docker.sock --engine ENGINE_ID --id UPDATE_ID
-
-node panel/management-update.js apply \
-  --directory /absolute/installation \
-  --socket /absolute/docker.sock --engine ENGINE_ID --id UPDATE_ID --confirm
+```text
+node panel/management-update.js plan --fleet FLEET_ID --image ghcr.io/jkenneydaniel/lobby-goblin@sha256:IMAGE_DIGEST
+node panel/management-update.js status --fleet FLEET_ID --id UPDATE_ID
+node panel/management-update.js apply --fleet FLEET_ID --id UPDATE_ID --confirm
+node panel/management-update.js resume --fleet FLEET_ID --id UPDATE_ID --confirm
 ```
+
+`--engine ENGINE_ID` optionally pins the native command to an explicitly reviewed
+engine. Every saved workflow always records and rechecks that identity. Recovery
+can run while management services are down. An uncertain launch reports its
+coordinator name and update ID; inspect them before retrying.
+
+The original `--directory PATH --socket UNIX_SOCKET --engine ENGINE_ID` mode is
+retained for existing host-directory update records. Recover an unfinished old
+update with its original mode before enrolling the fleet. After enrollment,
+new plans use `--fleet`; the anchor makes old directory planners fail closed
+instead of creating a conflicting startup receipt. Never copy private records
+between these modes.
 
 Planning validates the actual image's capability manifest, registered instances,
 service ownership and configurations, metadata volumes and protected application
 identities. It creates a temporary unstarted image probe and private local plan;
-it does not change installed services. Unknown/custom layouts, unavailable or
+it does not change installed services. It enrolls the dedicated recovery volume
+and unstarted anchor when needed. Unknown/custom layouts, unavailable or
 active workflows and changed identities require review.
 
 Inspect the retained update with `status`. Use `resume` with the same arguments
@@ -89,9 +112,9 @@ as `apply` to reconcile an interrupted step. Before activation is committed,
 `rollback` with the same arguments restores the previous management metadata and
 services. After commitment, only forward recovery is permitted. These commands
 require `--confirm`. The panel invokes the same workflow through the fixed
-broker coordinator, without exposing private operator records to web services.
+coordinator, without exposing private recovery records to web services.
 
-Keep `.management-updates` private and retain its original specifications,
+Keep the Docker recovery volume (or original directory-mode `.management-updates`) private and retain its original specifications,
 operation records, active-runtime receipt and Compose override. They can contain
 credentials and must not be copied into a support report. CLI output and panel
 history contain only checked public metadata. A retained storage lease after an
@@ -107,7 +130,7 @@ operator process dies requires offline identity-bound lock review using
 2. The operator records intent before each mutation, stops public ingress and
    management writers, and rechecks workflows before stopping controllers. Game
    containers remain running. A fixed worker snapshots management metadata.
-3. The broker, host, instance controllers and web service are replaced in order.
+3. The broker when present, host, instance controllers and web service are replaced in order.
    Old management containers remain stopped until the outcome is confirmed. New
    services start held: health is available, ordinary requests and background
    work wait for activation.
@@ -127,7 +150,10 @@ operator process dies requires offline identity-bound lock review using
    Failed cleanup retains the confirmed outcome and returns `cleanupRequired`;
    `resume` retries cleanup only. Startup refuses unfinished updates or cleanup.
 
-Starting an installation also checks the retained engine identity. It refuses an
+The installer and Fleet launchers read public runtime selection through a read-only,
+socket-free helper. They check the retained engine identity and use an extra
+Compose override without rewriting original configuration. A mismatched legacy/
+broker layout is refused. Starting an installation also checks the retained engine identity. It refuses an
 unfinished update, pending receipt or altered override instead of reverting to
 an older Compose image. There is no automatic migration or update on startup.
 
@@ -147,7 +173,7 @@ The worker has no daemon socket or network. Its mount vocabulary is fixed:
 | --- | --- |
 | Host state, registry and operations | Fleet state volume |
 | Accounts, settings and web secrets | Fleet web volume |
-| Broker authority and credentials | Broker state and credential slots; sockets excluded |
+| Broker authority and credentials (broker profile only) | Broker state and credential slots; sockets excluded |
 | Instance state and credentials | Instance `state`, `updates` and `control` subpaths |
 
 The worker preserves opaque bytes, modes and numeric ownership, including
@@ -164,6 +190,11 @@ Source tests cover intent-before-effect, lost responses, pre-activation rollback
 forward-only activation recovery, private receipts, startup exclusion, engine-wide
 operator exclusion, changed configurations, failed outcome/audit publication and
 cleanup retry. The SSH host installer includes the new startup dependencies.
+
+CI runs the panel-triggered flow with both broker and legacy profiles. Native
+Windows named-pipe and Linux/macOS Unix-socket tests use isolated HTTP fixtures;
+those transport tests are separate from actual Docker engine cutover acceptance.
+They do not constitute a Docker Desktop deployment on a user host.
 
 The opt-in `panel/test/management-update-runtime.mjs` uses a marked disposable
 Linux engine, actual installer-generated Compose files and a fresh synthetic

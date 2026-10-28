@@ -17,9 +17,10 @@ export class AgentUpdater{
    if(known&&!worker?.State?.Running){state=await readJSON(this.file,null);if(state?.state==='running'){state.state='attention';state.message='Agent update was interrupted. Recover the previous management containers before changing this host.';await this.journal.write(state);}}
   }
   if(state&&['complete','failed','attention'].includes(state.state))await this.manager.audit?.appendOnce({action:'operation.agent-update',actor:state.recoveryActor||state.actor,requestId:state.id,operationId:state.id,scope:'host:'+this.manager.fleet,outcome:state.state==='complete'?'succeeded':state.state==='attention'?'interrupted':'failed'});
-  return {version:await agentVersion(),supported:this.enabled,update:state?{id:state.id,state:state.state,message:state.message,target:state.target,rolledBack:state.rolledBack||false}:null};
+  return {version:await agentVersion(),supported:this.enabled&&(!this.coordinated||['running','attention'].includes(state?.state)),update:state?{id:state.id,state:state.state,message:state.message,target:state.target,rolledBack:state.rolledBack||false}:null};
  }
  async plan(input){
+  assert(!this.coordinated,'Use the coordinated management update controls under Updates.',409);
   assert(this.enabled,this.manager.broker?'This isolated host requires a reviewed operator update of its broker and management services. No game restart is required.':'Update this host’s full panel through its own installation. Agent-only hosts support updates here.',409);
   assert(!this.manager.active&&!this.manager.settingsUpdating&&!this.busy,'Wait for the host operation to finish.',409);
   const current=await this.status();assert(!current.update||['complete','failed'].includes(current.update.state),'An agent update needs attention. Recover it before starting another.',409);
@@ -33,7 +34,7 @@ export class AgentUpdater{
  async apply(input,actor='system'){
   assert(!this.busy&&!this.manager.active&&!this.manager.settingsUpdating&&(!this.manager.agentUpdating||input?.recover===true),'Wait for the host operation to finish.',409);this.busy=true;
   try{
-   assert(this.enabled&&input?.confirm===true,'Confirm the agent update.');const previous=await readJSON(this.file,null);
+   assert(this.enabled&&input?.confirm===true,'Confirm the agent update.');assert(!this.coordinated||input.recover===true,'Use the coordinated management update controls under Updates.',409);const previous=await readJSON(this.file,null);
    let state;
    if(input.recover===true){
     assert(previous&&['running','attention'].includes(previous.state),'There is no interrupted agent update to recover.',409);

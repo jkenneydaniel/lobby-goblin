@@ -1,4 +1,5 @@
 import {assertManagementStartAllowed,managementInstallationRuntime} from './core/management-installation.js';
+import {portableStartupRuntime} from './core/management-startup.js';
 // Installation operates on a fresh, separately named host manager. It never
 // imports existing accounts, containers or game storage.
 import fs from 'node:fs/promises';
@@ -88,7 +89,7 @@ export function run(command,args,{cwd,inherit=false,env=process.env}={}){
 }
 
 export async function checkHost({execute=run,env=process.env}={}){
-  const endpoint=env.DOCKER_HOST||await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}']);
+  const endpoint=env.DOCKER_CONTEXT?await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}','--',env.DOCKER_CONTEXT]):env.DOCKER_HOST||await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}']);
   insist(endpoint.startsWith('unix://')||process.platform==='win32'&&endpoint.startsWith('npipe://'),'Run the installer on the target machine using its local Docker engine. Remote Docker contexts are not supported.');
   const info=JSON.parse(await execute('docker',['info','--format','{{json .}}']));
   insist(info.OSType==='linux','Use Docker with Linux containers.');
@@ -111,7 +112,7 @@ export async function startInstallation(directory,manifest,dependencies={}){
 async function startPreparedInstallation(directory,manifest,{execute=run,host,log=console.log}={}){
   insist(JSON.stringify(await readInstallation(directory))===JSON.stringify(manifest),'The installation record changed. Review it before starting.');
   await assertManagementStartAllowed(directory);
-  const runtime=await managementInstallationRuntime(directory,manifest);
+  const runtime=await portableStartupRuntime(directory,manifest,{execute})||await managementInstallationRuntime(directory,manifest);
   host??=await checkHost({execute});
   if(runtime.engine)insist((await execute('docker',['info','--format','{{.ID}}'])).trim()===runtime.engine,'This management update belongs to another Docker engine. No containers were started.');
   insist(Number.isFinite(host.memoryGiB)&&host.memoryGiB>=manifest.options.memory+2,'The budget needs at least 2 GiB of additional Docker memory. Reduce --memory or increase Docker memory; leave more room for existing workloads.');

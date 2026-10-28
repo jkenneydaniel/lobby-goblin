@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.15-alpha — 2026-10-28
+
+- Support coordinated panel updates on Windows, macOS and Linux using private
+  Docker-owned recovery storage, independent of native paths and host ownership.
+- Support recognized legacy raw-socket fleets and agents without converting their
+  registry, migrating game images or changing application containers and worlds.
+  Retain original directory-mode operator recovery and add local named-pipe/Unix
+  operator enrollment and recovery for older installations.
+- Keep later installer/Fleet starts on the checked runtime and preserve interrupted
+  update guards and metadata recovery. Older versions need one initial host-side
+  upgrade to obtain the portable updater.
+- Fix declared RCON commands in legacy Factorio preview helpers so the official
+  runtime no longer needs the local map-preview compatibility patch.
+
 ## 0.3.14-alpha — 2026-10-28
 
 - Restore administrator-driven management updates in the panel using the existing

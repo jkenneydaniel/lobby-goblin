@@ -9,6 +9,7 @@ import {docker} from '../core/docker.js';
 import {ManagementEngine} from '../fleet/management-engine.js';
 import {ManagementUpdate} from '../fleet/management-update.js';
 import {main as updateCLI} from '../management-update.js';
+import {portableStartupRuntime} from '../core/management-startup.js';
 import {
   installationFiles,
   optionsFor,
@@ -48,6 +49,7 @@ assert.ok(
   previousFleets.length <= 4 &&
     previousFleets.every((id) => /^[a-f0-9]{32}$/.test(id)),
 );
+const panelUpdate = process.env.ACCEPTANCE_PANEL === 'true', legacy = process.env.ACCEPTANCE_LEGACY === 'true';
 const agent = process.env.ACCEPTANCE_AGENT === 'true';
 assert.ok(process.env.ACCEPTANCE_AGENT === undefined || agent);
 const runners = initial.filter(
@@ -83,6 +85,17 @@ const wait = async (read) => {
 const directory = '/acceptance-output/installation';
 await fs.mkdir(directory, {mode: 0o700});
 const reference = 'ghcr.io/jkenneydaniel/lobby-goblin:acceptance-' + fleet;
+let template = await fs.readFile('/acceptance-template', 'utf8');
+if (legacy) {
+  assert.ok(panelUpdate && !agent);
+  // The pre-broker Compose shape: raw socket only in owned controllers.
+  template = template.replace(/ {2}docker-broker:\n[\s\S]*?(?= {2}fleet-controller:)/, '')
+    .replace(/^ {6}(?:DOCKER_BROKER_SOCKET|DOCKER_BROKER_TOKEN_FILE|FLEET_BROKER_VOLUME):.*\n/gm, '')
+    .replace(/ {6}- type: volume\n {8}source: broker-transport[\s\S]*?(?= {6}- fleet-state:)/, '      - /var/run/docker.sock:/var/run/docker.sock\n')
+    .replace(/ {4}depends_on:\n {6}docker-broker: \{condition: service_healthy\}\n/, '')
+    .replace(/ {2}broker-state:\n[\s\S]*$/, '')
+    .replace("      MODE: fleet-controller\n", "      MODE: fleet-controller\n      FLEET_SKIP_MIGRATIONS: 'true'\n");
+}
 const files = agent
   ? hostInstallationFiles(
       agentOptionsFor(
@@ -99,7 +112,7 @@ const files = agent
     )
   : installationFiles(
       optionsFor({image: reference, address: '127.0.0.1'}, '0.3.6-alpha'),
-      await fs.readFile('/acceptance-template', 'utf8'),
+      template,
       fleet,
     );
 for (const [name, value] of Object.entries(files))
@@ -207,10 +220,7 @@ async function preserved() {
     world,
   );
   await assertManagementStartAllowed(directory);
-  const effective = await managementInstallationRuntime(
-    directory,
-    installation,
-  );
+  const effective = panelUpdate ? await portableStartupRuntime(directory, installation, {execute: (_file, args) => command(args)}) : await managementInstallationRuntime(directory, installation);
   const selected = await command([
     ...compose,
     ...effective.arguments,
@@ -227,7 +237,7 @@ async function preserved() {
   for (const [name, value] of Object.entries(files))
     assert.equal(await fs.readFile(path.join(directory, name), 'utf8'), value);
 }
-const options = [
+const options = panelUpdate ? ['--fleet', fleet, '--engine', engineId] : [
   '--directory',
   directory,
   '--socket',
@@ -235,7 +245,7 @@ const options = [
   '--engine',
   engineId,
 ];
-if (process.env.ACCEPTANCE_PANEL === 'true') {
+if (panelUpdate) {
   const originalHost = (await inspect(host)).Id;
   const reviewed = await request('/management-update', {action: 'plan', version: '0.3.7-alpha', requestId: crypto.randomBytes(16).toString('hex')});
   const id = reviewed.update.id;
@@ -257,27 +267,27 @@ if (process.env.ACCEPTANCE_PANEL === 'true') {
   assert.equal(complete.currentVersion, '0.3.7-alpha');
   assert.equal(complete.update.id, id);
   await preserved();
-  const operatorRecord = JSON.parse(await fs.readFile(path.join(directory, '.management-updates', id, 'operation.json'), 'utf8'));
-  assert.equal((await fs.stat(path.join(directory, '.management-updates'))).uid, process.getuid());
-  assert.equal(operatorRecord.phase, 'complete');
+  const operatorRecord = await updateCLI(['status', ...options, '--id', id], {log: () => {}});
+  assert.equal(operatorRecord.operation.phase, 'complete');
   assert.equal(operatorRecord.pending, null);
+  assert.equal(await fs.stat(path.join(directory, '.management-updates')).catch(() => null), null, 'Private records never cross into a host folder.');
   assert.equal((await inspect(item.container)).State.Running, true);
   assert.notEqual((await inspect(host)).Id, originalHost);
   await wait(async () => !(await docker('GET', '/containers/json?all=1')).some(value => value.Labels?.['io.lobby-goblin.fleet'] === fleet && value.Labels?.['io.lobby-goblin.role'] === 'management-panel-worker'));
   // Model a lost final worker publication. The authoritative private workflow
   // is complete, but broker progress still reports running after helper exit.
-  const broker = await inspect('lobby-goblin-docker-broker-' + fleet);
-  await driver.exec(broker.Id, "import fs from 'node:fs/promises';const root='/broker-state/panel-updates',job=JSON.parse(await fs.readFile(root+'/current.json','utf8'));const file=root+'/'+job.attempt+'/result.json';const value=JSON.parse(await fs.readFile(file,'utf8'));value.state='running';await fs.writeFile(file+'.fixture',JSON.stringify(value),{mode:0o600});await fs.rename(file+'.fixture',file);console.log('{}');");
+  const broker = await inspect((legacy ? 'lobby-goblin-host-' : 'lobby-goblin-docker-broker-') + fleet);
+  await driver.exec(broker.Id, "import fs from 'node:fs/promises';const root=(process.env.MODE==='fleet-controller'?'/fleet':'/broker-state')+'/panel-updates',job=JSON.parse(await fs.readFile(root+'/current.json','utf8'));const file=root+'/'+job.attempt+'/result.json';const value=JSON.parse(await fs.readFile(file,'utf8'));value.state='running';await fs.writeFile(file+'.fixture',JSON.stringify(value),{mode:0o600});await fs.rename(file+'.fixture',file);console.log('{}');");
   assert.equal((await request('/management-update')).update.state, 'attention');
   await updateCLI(['resume', ...options, '--id', id, '--confirm'], {log: () => {}});
   assert.equal((await request('/management-update')).update.state, 'complete');
-  // A panel update must not leave a helper which breaks the existing operator
-  // planner's strict stray-container guard. Prove the fallback remains usable.
+  // The portable operator fallback uses the same retained records and engine claim.
+  // A pre-enrollment directory planner must refuse this enrolled fleet.
   const operatorReview = await updateCLI(['plan', ...options, '--image', next], {log: () => {}});
   await updateCLI(['rollback', ...options, '--id', operatorReview.id, '--confirm'], {log: () => {}});
   await preserved();
-  await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, operatorRecovery: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
-  console.log('Panel-triggered detached management update passed with operator-owned records, broker reconnection and unchanged application/world identity.');
+  await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, profile: legacy ? 'legacy' : 'brokered', portableRecords: true, operatorRecovery: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
+  console.log('Panel-triggered detached management update passed with Docker-owned records, management reconnection and unchanged application/world identity.');
   process.exit(0);
 }
 let plan = await updateCLI(['plan', ...options, '--image', next], {

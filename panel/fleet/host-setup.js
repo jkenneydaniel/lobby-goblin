@@ -12,7 +12,7 @@ import {dockerBootstrap} from './bootstrap-docker.js';
 
 const quote=value=>"'"+String(value).replaceAll("'","'\\''")+"'";
 const sourceRoot=fileURLToPath(new URL('../',import.meta.url));
-const payloadFiles=['install.js','agent-options.js','host-install.js','https.js','common.js','source-layout.js','package.json','fleet/host-compose.js','fleet/broker-compose.js','core/management-installation.js','core/storage/files.js','core/storage/coordination.js'];
+const payloadFiles=['install.js','agent-options.js','host-install.js','https.js','common.js','source-layout.js','package.json','fleet/host-compose.js','fleet/broker-compose.js','core/management-installation.js','core/management-startup.js','core/management-volume.js','core/instance.js','core/storage/files.js','core/storage/coordination.js'];
 export function setupInput(input,version){
  assert(input&&typeof input.host==='string'&&(net.isIP(input.host)||/^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$/.test(input.host)),'Enter an SSH hostname or IP address.');
  const port=Number(input.port||22);assert(Number.isInteger(port)&&port>0&&port<=65535,'Choose an SSH port from 1 to 65535.');

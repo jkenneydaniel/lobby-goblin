@@ -37,7 +37,9 @@ const next = await docker(['image', 'inspect', '--format', '{{.Id}}', 'local/lgb
 const worker = path.join(panel, 'management-panel-worker.js'), source = await fs.readFile(worker, 'utf8');
 const resolver = 'resolveImage: version => resolvePanelRuntime(engine, version)';
 assert.equal(source.split(resolver).length, 2);
-await fs.writeFile(worker, source.replace(resolver, 'resolveImage: async () => ' + JSON.stringify(next)));
+await fs.writeFile(worker, source.replace(resolver, 'resolveImage: async () => ' + JSON.stringify(next))
+  .replace('  } catch {', '  } catch (error) {')
+  .replace("'The management review failed. Check the selected release and installation using the host update guide.'", "'Synthetic acceptance failure: ' + error.message"));
 await version('0.3.6-alpha');
 await docker(['build', '-t', 'local/lgb-panel-current:fixture', panel]);
 const runtime = await docker(['image', 'inspect', '--format', '{{.Id}}', 'local/lgb-panel-current:fixture']);
@@ -56,7 +58,7 @@ const common = ['run', '--name', 'lgb-panel-acceptance-runner', '--user', '1001:
   '--mount', 'type=bind,source=' + path.resolve('deploy/fleet/compose.yaml') + ',target=/acceptance-template,readonly',
   '-e', 'DOCKER_SOCKET=/var/run/docker.sock', '-e', 'ACCEPTANCE_ENGINE_ID=' + engine,
   '-e', 'ACCEPTANCE_RUNTIME=' + runtime, '-e', 'ACCEPTANCE_NEXT=' + next,
-  '-e', 'ACCEPTANCE_PANEL=true', '--entrypoint', 'node', runtime, 'test/management-update-runtime.mjs'];
+  '-e', 'ACCEPTANCE_PANEL=true', ...(process.env.ACCEPTANCE_LEGACY === 'true' ? ['-e', 'ACCEPTANCE_LEGACY=true'] : []), '--entrypoint', 'node', runtime, 'test/management-update-runtime.mjs'];
 console.log(await docker(common));
 const result = JSON.parse(await command('sudo', ['cat', output + '/result.json']));
 assert.equal(result.panel, true); assert.equal(result.complete, true);

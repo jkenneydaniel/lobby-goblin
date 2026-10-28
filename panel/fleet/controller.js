@@ -4,6 +4,7 @@ import {OperationFeed,jobOperationSource,operationProgressSnapshot} from '../cor
 import {setupOperationSource,agentOperationSource} from './operation-sources.js';
 import {managementUpdateSource} from './management-outcome.js';
 import {dockerTransport} from '../core/broker-client.js';
+import {ManagementPanel} from '../core/management-panel.js';
 import fs from 'node:fs/promises';import http from 'node:http';
 import crypto from 'node:crypto';
 import {ensureAgentIdentity} from './agent-identity.js';
@@ -25,13 +26,21 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   await fs.mkdir(webRoot+'/secrets',{recursive:true});try{await fs.writeFile(webRoot+'/secrets/controller-token',crypto.randomBytes(48).toString('hex'),{flag:'wx',mode:0o600});}catch(error){if(error.code!=='EEXIST')throw error;}
  }else await initializePanel(webRoot,env.FLEET_PANEL_URL||'http://localhost:8082');const token=(await fs.readFile(webRoot+'/secrets/controller-token','utf8')).trim();
  const maintenance=await managementMaintenance(root,env);
- const managementDocker=docker;docker=(method,...args)=>{assert(!maintenance.held||maintenance.preparing||method==='GET','Management startup is held. Docker changes require explicit operator activation.',409);return managementDocker(method,...args);};
+ let legacyUpdates=null;
+ const managementDocker=docker;docker=async(method,...args)=>{assert(!maintenance.held||maintenance.preparing||method==='GET','Management startup is held. Docker changes require explicit operator activation.',409);if(legacyUpdates&&method!=='GET'&&!maintenance.preparing)assert(!legacyUpdates.blocksChanges(await legacyUpdates.current()),'A coordinated management update owns this host.',409);return managementDocker(method,...args);};
  const manager=new FleetManager({docker,broker:transport.grant?transport:null,brokerVolume:env.FLEET_BROKER_VOLUME,root,library,fleet:env.FLEET_ID,stateVolume:env.FLEET_STATE_VOLUME,libraryVolume:env.FLEET_LIBRARY_VOLUME,image:env.FLEET_IMAGE,hostContainer:env.FLEET_HOST_CONTAINER,address:env.FLEET_GAME_ADDRESS||'localhost',bind:env.FLEET_GAME_BIND||'0.0.0.0',memoryBudgetGiB:Number(env.FLEET_MEMORY_GIB||16),portBase:Number(env.FLEET_GAME_PORT_BASE||35000)});await manager.init();
- if(maintenance.held)await manager.assertHost();else await manager.reconnect();
+ await manager.assertHost();
+ legacyUpdates=transport.managementUpdate?null:new ManagementPanel({root,fleet:manager.fleet,docker:managementDocker,runtimeImage:manager.runtimeImage,profile:'legacy'});
+ if(legacyUpdates)await legacyUpdates.init();
+ const coordinatedHold=legacyUpdates&&legacyUpdates.blocksChanges(await legacyUpdates.current());
+ if(!maintenance.held&&!coordinatedHold)await manager.reconnect();
  if(maintenance.held)await manager.audit.list();
+ let managementChanges=Promise.resolve();
+ const coordinatedUpdate=transport.managementUpdate||((input)=>{const next=managementChanges.then(()=>legacyUpdates.handle(input));managementChanges=next.catch(()=>{});return next;});
  const identity=env.FLEET_AGENT_TRANSPORT==='persistent'?await ensureAgentIdentity(webRoot):null;
- const hosts=new RemoteHosts(manager,{fetcher:hostFetch,identity:identity?.fingerprint});await hosts.init({connect:!maintenance.held});
+ const hosts=new RemoteHosts(manager,{fetcher:hostFetch,identity:identity?.fingerprint});await hosts.init({connect:!maintenance.held&&!coordinatedHold});
  const setup=new HostSetup(hosts,setupDependencies);await setup.init();const agent=new AgentUpdater(manager,{enabled:env.FLEET_AGENT_ONLY==='true'}),version=await agentVersion();
+ agent.coordinated=true;
  const applicationReleases=new ApplicationReleases();
  const operationFeed=new OperationFeed({scope:'host:'+manager.fleet,sources:[jobOperationSource(manager.operations),setupOperationSource(setup),agentOperationSource(agent),managementUpdateSource(root)]});
  async function handle(req,res){
@@ -53,14 +62,15 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
    if(url.pathname==='/remote/v1/disconnect'){assert(req.method==='POST','Not found.',404);return json(res,200,await hosts.revoke(peer));}
    url.pathname=url.pathname.slice('/remote/v1'.length);assert(remoteRoute(req.method,url.pathname),'Remote route not found.',404);
    req.headers['x-panel-user']='remote:'+peer.centralId+':'+String(req.headers['x-panel-user']||'administrator').replace(/[^A-Za-z0-9_. -]/g,'').slice(0,80);
-  }else if(await setup.handle(req,res,url)||await hosts.handle(req,res,url))return;
+  }
+  if(legacyUpdates&&req.method!=='GET'&&url.pathname!=='/management-update')assert(!legacyUpdates.blocksChanges(await legacyUpdates.current()),'A coordinated management update owns this host. Wait for completion or recovery.',409);
+  if(!req.url.startsWith('/remote/v1/')&&(await setup.handle(req,res,url)||await hosts.handle(req,res,url)))return;
   if(req.method==='GET'&&url.pathname==='/operations')return json(res,200,await operationFeed.snapshot());
   if(url.pathname==='/management-update'){
    assert(['GET','POST'].includes(req.method),'Not found.',404);
-   if(!transport.managementUpdate){assert(req.method==='GET','Use the host update guide for this legacy installation.',409);return json(res,200,{supported:false,update:null});}
    const input=req.method==='GET'?{action:'status'}:await requestJSON(req);
    if(req.method==='POST'){assert(!manager.active&&!manager.settingsUpdating,'Wait for the host operation to finish.',409);if(['plan','apply'].includes(input.action))assertManagementIdle(await operationFeed.snapshot());}
-   return json(res,req.method==='GET'?200:202,await transport.managementUpdate(input));
+   return json(res,req.method==='GET'?200:202,await coordinatedUpdate(input));
   }
   if(req.method==='POST'&&url.pathname==='/operations/recovery')return json(res,200,await operationFeed.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   const agentState=await agent.status();manager.agentUpdating=!!agentState.update&&['running','attention'].includes(agentState.update.state);
@@ -70,7 +80,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/application-releases'){const item=url.searchParams.has('serverId')?manager.server(url.searchParams.get('serverId')):null;assert(!item||item.state!=='removed','This server was removed.',410);const game=item?.game||url.searchParams.get('game');return json(res,200,await applicationReleases.read(game,item?.software||manager.module(game).managed.software));}
   if(req.method==='POST'&&url.pathname==='/creation-preflight')return json(res,200,await manager.preflight(await requestJSON(req)));
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
-  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:!!transport.managementUpdate,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
+  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:true,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await manager.audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(manager.operations,operationFeed):manager.operations.status());
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
@@ -97,5 +107,5 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});
  const sweep=()=>{if(!maintenance.held)void cleanupFleetContainers(manager).catch(error=>console.error('Container cleanup deferred:',redact(error.message)));};
  const cleanupTimer=setInterval(sweep,60000).unref();server.once('close',()=>{clearInterval(cleanupTimer);hosts.close();});
- if(!maintenance.held&&!manager.broker&&env.FLEET_AGENT_ONLY!=='true'&&env.FLEET_SKIP_MIGRATIONS!=='true')void migrateFleet(manager).catch(()=>console.error('Image migration needs attention; stored data was preserved.')).finally(sweep);return {server,manager,hosts,setup,agent};
+ if(!maintenance.held&&!coordinatedHold&&!manager.broker&&env.FLEET_AGENT_ONLY!=='true'&&env.FLEET_SKIP_MIGRATIONS!=='true')void migrateFleet(manager).catch(()=>console.error('Image migration needs attention; stored data was preserved.')).finally(sweep);return {server,manager,hosts,setup,agent};
 }
