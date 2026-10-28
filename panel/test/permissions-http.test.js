@@ -233,3 +233,17 @@ test('only the root administrator can save release preferences and scoped server
  const wrong={...owner,session:{...owner.session,csrf:'invalid'}};
  assert.equal((await f.request(wrong,'/api/updates/settings',{enabled:true,channel:'preview',revision:2})).status,403);
 });
+test('coordinated panel updates require administrator, CSRF and a displayed release before local or remote proxying',async t=>{
+ const realFetch=globalThis.fetch;
+ t.mock.method(globalThis,'fetch',async(url,options)=>String(url).startsWith('https://api.github.com/')?new Response(JSON.stringify([{tag_name:'v99.0.0-alpha',prerelease:true,draft:false,published_at:'2026-10-28T12:00:00Z'}])):realFetch(url,options));
+ const f=await fixture(t),owner=await f.login('Owner','owner-fixture-password'),member=await f.login('Assigned','member-fixture-password'),viewer=await f.login('Viewer','viewer-fixture-password');
+ const routes=['/api/management-update','/api/hosts/'+'c'.repeat(32)+'/management-update'];
+ for(const user of [member,viewer])for(const route of routes)for(const body of [undefined,{action:'apply',confirm:true}])assert.equal((await f.request(user,route,body)).status,403);
+ const wrong={...owner,session:{...owner.session,csrf:'invalid'}};
+ for(const route of routes)assert.equal((await f.request(wrong,route,{action:'apply',confirm:true})).status,403);
+ assert.equal(f.calls.filter(call=>call.route.endsWith('/management-update')).length,0);
+ assert.equal((await f.request(owner,routes[0],{action:'plan',version:'99.0.0-alpha'})).status,409);
+ await f.request(owner,'/api/updates/settings',{enabled:true,channel:'preview',revision:0});
+ assert.equal((await f.request(owner,routes[0],{action:'plan',version:'evil/runtime:latest'})).status,409);
+ for(const route of routes){assert.equal((await f.request(owner,route)).status,200);assert.equal((await f.request(owner,route,{action:'plan',version:'99.0.0-alpha'})).status,200);assert.equal(f.calls.at(-1).user,'Owner');}
+});

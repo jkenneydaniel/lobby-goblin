@@ -122,6 +122,18 @@ test('metadata slots are derived from fleet ownership and exclude workload data,
   ])
     assert.throws(() => managementStorageSlots(next));
 });
+test('management snapshot and rollback preserve the detached coordinator journal outside metadata recovery', async t => {
+  const f = await fixture(t);
+  await f.write('broker-state/panel-updates/current.json', 'before update');
+  const backup = await backupManagementStorage(request, f.options);
+  const manifest = JSON.parse(await fs.readFile(f.manifest, 'utf8'));
+  assert.ok(manifest.slots.find(slot => slot.descriptor.kind === 'broker-state').entries.every(entry => !entry.path.startsWith('panel-updates')));
+  await f.write('broker-state/panel-updates/current.json', 'live recovery authority');
+  await f.write('broker-state/capabilities.json', 'failed replacement');
+  await restoreManagementStorage(operation('restore', {manifestHash: backup.manifestHash}), f.options);
+  assert.equal(await fs.readFile(path.join(f.storageRoot, 'broker-state/panel-updates/current.json'), 'utf8'), 'live recovery authority');
+  assert.equal(await fs.readFile(path.join(f.storageRoot, 'broker-state/capabilities.json'), 'utf8'), 'private capability bytes');
+});
 test('private snapshots restore exact management bytes and remove failed-version metadata without touching world or socket data', async (t) => {
   const f = await fixture(t),
     backup = await backupManagementStorage(request, f.options);

@@ -55,6 +55,13 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
    req.headers['x-panel-user']='remote:'+peer.centralId+':'+String(req.headers['x-panel-user']||'administrator').replace(/[^A-Za-z0-9_. -]/g,'').slice(0,80);
   }else if(await setup.handle(req,res,url)||await hosts.handle(req,res,url))return;
   if(req.method==='GET'&&url.pathname==='/operations')return json(res,200,await operationFeed.snapshot());
+  if(url.pathname==='/management-update'){
+   assert(['GET','POST'].includes(req.method),'Not found.',404);
+   if(!transport.managementUpdate){assert(req.method==='GET','Use the host update guide for this legacy installation.',409);return json(res,200,{supported:false,update:null});}
+   const input=req.method==='GET'?{action:'status'}:await requestJSON(req);
+   if(req.method==='POST'){assert(!manager.active&&!manager.settingsUpdating,'Wait for the host operation to finish.',409);if(['plan','apply'].includes(input.action))assertManagementIdle(await operationFeed.snapshot());}
+   return json(res,req.method==='GET'?200:202,await transport.managementUpdate(input));
+  }
   if(req.method==='POST'&&url.pathname==='/operations/recovery')return json(res,200,await operationFeed.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   const agentState=await agent.status();manager.agentUpdating=!!agentState.update&&['running','attention'].includes(agentState.update.state);
   if(await agent.handle(req,res,url))return;
@@ -63,7 +70,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/application-releases'){const item=url.searchParams.has('serverId')?manager.server(url.searchParams.get('serverId')):null;assert(!item||item.state!=='removed','This server was removed.',410);const game=item?.game||url.searchParams.get('game');return json(res,200,await applicationReleases.read(game,item?.software||manager.module(game).managed.software));}
   if(req.method==='POST'&&url.pathname==='/creation-preflight')return json(res,200,await manager.preflight(await requestJSON(req)));
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
-  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
+  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:!!transport.managementUpdate,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await manager.audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(manager.operations,operationFeed):manager.operations.status());
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));

@@ -593,6 +593,9 @@ dialog p {
 .snapshot-details dd {
   overflow-wrap: anywhere;
 }
+.management-update p {
+  overflow-wrap: anywhere;
+}
 .snapshot-details code {
   word-break: break-all;
 }

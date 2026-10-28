@@ -45,13 +45,13 @@ Copy the matching command from **Hosts → Add host → I have a pairing code �
 I need to install the agent**. Run it on the game-host machine. For example:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.13-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+curl -fsSL https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.14-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
 ```
 
 Or use wget:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.13-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
+wget -qO- https://raw.githubusercontent.com/jkenneydaniel/lobby-goblin/main/Install.sh | bash -s -- --version 0.3.14-alpha --host-agent --start --host host.example.com --agent-port 24443 --address play.example.com --memory 16
 ```
 
 Use your panel's release version. The public script downloads source from that
@@ -147,7 +147,15 @@ docker compose -f ./lobby-goblin-host/host.compose.json exec fleet-controller no
 ## Keep the agent aligned
 
 Hosts show their agent version beside the main panel version. For an older
-agent-only host, **Update agent** reviews the exact panel version and requires
+broker-enabled host, open **Updates → Update management services**, choose that
+host and review its coordinated update. This replaces the broker, host, agent web
+and registered controllers together. Versions before v0.3.14-alpha need one
+host-side coordinated upgrade to enable the broker capability. See
+[management updates and recovery](MANAGEMENT_UPDATES.md).
+
+### Legacy socket-bearing agents
+
+For a legacy agent-only host, **Update agent** reviews the exact panel version and requires
 administrator confirmation. Version mismatches block game changes until aligned.
 Updates use the agent connection; SSH credentials are not required or retained.
 They never run unattended. If an agent is newer, update the main panel first;

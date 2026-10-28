@@ -399,6 +399,13 @@ async function fixture(t, {softwareWorker = false} = {}) {
   };
 }
 const denied = (error) => [401, 403, 409].includes(error.status);
+test('instance capabilities cannot invoke management coordination and the host RPC rejects arbitrary authority', async t => {
+ const f = await fixture(t), client = await f.instance(one);
+ await assert.rejects(client.managementUpdate({action: 'status'}), error => error.status === 403);
+ assert.equal((await f.host.managementUpdate({action: 'status'})).supported, true);
+ for (const extra of [{image: 'evil/runtime'}, {directory: '/'}, {command: ['sh']}])
+  await assert.rejects(f.host.managementUpdate({action: 'plan', version: '99.0.0-alpha', requestId: 'e'.repeat(32), ...extra}), /Unexpected/);
+});
 
 async function steamFixture(t) {
   const f = await fixture(t, {softwareWorker: true}),

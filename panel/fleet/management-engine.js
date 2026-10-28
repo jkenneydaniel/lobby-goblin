@@ -7,6 +7,7 @@ import {
 } from '../core/management-installation.js';
 import {resources, validId} from '../core/instance.js';
 import {managementStorageSlots} from './management-storage.js';
+import {assertPanelWorker} from '../core/management-panel-contract.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet';
@@ -103,6 +104,7 @@ export class ManagementEngine {
     socket,
     engine,
     request,
+    coordinator,
     pause = () => sleep(200),
     timeout = 90000,
   }) {
@@ -121,7 +123,7 @@ export class ManagementEngine {
         process.env.DOCKER_BROKER_TOKEN_FILE === undefined,
       'Management updates require local operator authority, outside the panel broker.',
     );
-    Object.assign(this, {socket, expectedEngine: engine, pause, timeout});
+    Object.assign(this, {socket, expectedEngine: engine, pause, timeout, coordinator});
     this.request =
       request ||
       ((method, route, body, options) =>
@@ -383,9 +385,12 @@ export class ManagementEngine {
     }
     // Helpers may still own writable state after a lost controller response.
     // Retained previous management containers are allowed only when stopped.
+    if (this.coordinator)
+      assertPanelWorker(await this.inspect(this.coordinator.id), this.coordinator.spec, this.coordinator.name);
     for (const value of listed)
       assert(
         services.some((service) => service.id === value.Id) ||
+          value.Id === this.coordinator?.id ||
           games.some((game) => game.id === value.Id) ||
           value.Labels?.[roleKey] === 'host-gateway' ||
           (value.State === 'exited' &&
@@ -967,5 +972,13 @@ export class ManagementEngine {
         }),
       ],
     );
+  }
+  async reconcilePanelUpdate(result) {
+    assert((await this.identity()) === result.engine, 'Operator recovery engine changed.', 409);
+    const info = await this.inspect('lobby-goblin-docker-broker-' + result.fleet);
+    assert(info.Config.Labels?.[fleetKey] === result.fleet && info.Config.Labels?.[roleKey] === 'docker-broker' && info.State.Running, 'Recovered broker ownership changed.', 409);
+    return this.exec(info.Id,
+      "import fs from 'node:fs/promises';let supported=true;try{await fs.access('/app/core/management-panel.js');}catch(error){if(error.code!=='ENOENT')throw error;supported=false;}let result={supported};if(supported){const {publishPanelRecovery}=await import('./core/management-panel.js');result=await publishPanelRecovery(process.env.BROKER_STATE||'/broker-state',JSON.parse(process.argv[1]));}console.log(JSON.stringify(result));",
+      [JSON.stringify(result)]);
   }
 }

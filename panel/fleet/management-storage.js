@@ -201,6 +201,9 @@ async function streamFile(source, destination, {expected, device} = {}) {
 async function walk(slot, root, visit) {
   const mounted = await canonical(root);
   async function descend(name) {
+    // Detached coordinator journals remain live while management is stopped.
+    // They are recovery authority, not management metadata to roll back.
+    if (slot.kind === 'broker-state' && name === 'panel-updates') return;
     assert(relative(name), 'Invalid management snapshot path.');
     const location = name ? path.join(root, name) : root,
       stat = await fs.lstat(location);
@@ -339,6 +342,7 @@ async function snapshotManifest(request, artifactRoot) {
         ++count <= maxEntries &&
           entry &&
           relative(entry.path) &&
+          (slot.kind !== 'broker-state' || entry.path.split('/')[0] !== 'panel-updates') &&
           !entry.path.split('/').includes('.panel-storage-lock') &&
           !paths.has(entry.path) &&
           ['directory', 'file'].includes(entry.kind) &&
@@ -604,7 +608,8 @@ export async function restoreManagementStorage(
     const root = path.join(storageRoot, slot.id),
       entries = result.manifest.slots[index].entries;
     const selected = (await fs.readdir(root)).filter(
-      (name) => slot.kind !== 'broker-transport' || name !== 'socket',
+      (name) => (slot.kind !== 'broker-transport' || name !== 'socket') &&
+        (slot.kind !== 'broker-state' || name !== 'panel-updates'),
     );
     for (const name of selected)
       await fs.rm(path.join(root, name), {recursive: true, force: true});
