@@ -59,6 +59,7 @@ test('broker starts only its fixed, scoped helper and reads a lost response with
   const job = (await f.panel.current()).job;
   assert.deepEqual(job.spec.Entrypoint, ['node', '/app/management-panel-worker.js']);
   assert.equal(job.spec.HostConfig.NetworkMode, 'none');
+  assert.equal(job.spec.HostConfig.AutoRemove, true, 'Completed helpers cannot block a later operator CLI plan as stray fleet containers.');
   assert.equal(job.spec.HostConfig.Mounts.length, 3);
   assert.ok(job.spec.HostConfig.Mounts.every(m => !/world|library|instance/.test(m.Target)));
   assert.equal(JSON.stringify(first).includes('/reviewed/installation'), false);

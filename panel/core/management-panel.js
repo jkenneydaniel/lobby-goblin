@@ -96,7 +96,7 @@ export class ManagementPanel {
     const engine = await this.docker('GET', '/info');
     assert(engine.OSType === 'linux' && /^[A-Za-z0-9:_-]{1,128}$/.test(engine.ID || ''), 'A local Linux Docker engine is required.', 409);
     assert(own.Image === this.runtimeImage && /^sha256:[a-f0-9]{64}$/.test(own.Image), 'The broker runtime changed.', 409);
-    if (current?.worker) await this.docker('DELETE', '/containers/' + current.worker.Id);
+    if (current?.worker) await this.docker('DELETE', '/containers/' + current.worker.Id).catch(error => { if (error.status !== 404) throw error; });
     const attempt = crypto.randomBytes(16).toString('hex'), name = panelWorkerName(this.fleet, attempt);
     const scope = path.join(this.root, attempt);
     await fs.mkdir(scope, {mode: 0o700});

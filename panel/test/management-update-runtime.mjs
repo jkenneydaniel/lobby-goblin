@@ -263,6 +263,12 @@ if (process.env.ACCEPTANCE_PANEL === 'true') {
   assert.equal(operatorRecord.pending, null);
   assert.equal((await inspect(item.container)).State.Running, true);
   assert.notEqual((await inspect(host)).Id, originalHost);
+  await wait(async () => !(await docker('GET', '/containers/json?all=1')).some(value => value.Labels?.['io.lobby-goblin.fleet'] === fleet && value.Labels?.['io.lobby-goblin.role'] === 'management-panel-worker'));
+  // A panel update must not leave a helper which breaks the existing operator
+  // planner's strict stray-container guard. Prove the fallback remains usable.
+  const operatorReview = await updateCLI(['plan', ...options, '--image', next], {log: () => {}});
+  await updateCLI(['rollback', ...options, '--id', operatorReview.id, '--confirm'], {log: () => {}});
+  await preserved();
   await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
   console.log('Panel-triggered detached management update passed with operator-owned records, broker reconnection and unchanged application/world identity.');
   process.exit(0);

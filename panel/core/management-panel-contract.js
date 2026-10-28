@@ -9,7 +9,7 @@ export function panelWorkerSpec({fleet, attempt, image, directory, socket, volum
     Env: ['NODE_ENV=production'], WorkingDir: '/app',
     Labels: {'io.lobby-goblin.fleet': fleet, 'io.lobby-goblin.role': panelWorkerRole, 'io.lobby-goblin.panel-attempt': attempt},
     HostConfig: {
-      NetworkMode: 'none', ReadonlyRootfs: true, RestartPolicy: {Name: 'no'},
+      NetworkMode: 'none', ReadonlyRootfs: true, RestartPolicy: {Name: 'no'}, AutoRemove: true,
       CapDrop: ['ALL'], CapAdd: ['SETUID', 'SETGID'], SecurityOpt: ['no-new-privileges:true'],
       Memory: 512 * 1024 ** 2, NanoCpus: 1000000000, PidsLimit: 128,
       Mounts: [
@@ -32,7 +32,7 @@ export function assertPanelWorker(info, spec, name) {
     Object.entries(spec.Labels).every(([key, value]) => info.Config.Labels?.[key] === value) &&
     ['NetworkMode', 'ReadonlyRootfs', 'CapDrop', 'CapAdd', 'SecurityOpt', 'Memory', 'NanoCpus', 'PidsLimit'].every(key => same(info.HostConfig?.[key], spec.HostConfig[key])) &&
     same(mounts(info.HostConfig.Mounts), mounts(spec.HostConfig.Mounts)) &&
-    info.HostConfig.RestartPolicy?.Name === 'no' && !info.HostConfig.Privileged &&
+    info.HostConfig.RestartPolicy?.Name === 'no' && info.HostConfig.AutoRemove === true && !info.HostConfig.Privileged &&
     !info.HostConfig.PidMode && !info.HostConfig.Binds?.length && !info.HostConfig.VolumesFrom?.length && !info.HostConfig.Devices?.length && !info.HostConfig.DeviceRequests?.length,
   'The management coordinator changed. Preserve it for operator review.', 409);
 }
