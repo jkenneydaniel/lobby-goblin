@@ -1,6 +1,10 @@
 // Fixed operator entrypoint. Host Docker context transport remains on the host;
 // private records and Unix ownership stay entirely inside the Linux engine.
 import path from 'node:path';
+import {retainOperationDiagnostic} from './core/operation-diagnostics.js';
+import {managementFailure} from './core/management-errors.js';
+
+export const operatorFailure = error => {const diagnostic = managementFailure(error); return {error: diagnostic.message + ' ' + diagnostic.action, diagnostic};};
 import {fileURLToPath} from 'node:url';
 import {assert} from './common.js';
 import {docker} from './core/docker.js';
@@ -40,4 +44,9 @@ export async function main({env = process.env, log = console.log} = {}) {
   return result;
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]))
-  main().catch(() => { console.log(JSON.stringify({error: 'Management recovery needs inspection. Preserve its retained ID, storage and engine claim.'})); process.exitCode = 1; });
+  main().catch(async error => {
+    let input; try {input = JSON.parse(process.env.MANAGEMENT_REQUEST || 'null');} catch {}
+    const result = operatorFailure(error);
+    if (/^[a-f0-9]{32}$/.test(input?.id || '')) {result.diagnostic = await retainOperationDiagnostic('/management', error, {id: input.id, source:'management-updates', phase: input.action || 'unknown', fallback:'management-update-failed'});}
+    console.log(JSON.stringify(result)); process.exitCode = 1;
+  });

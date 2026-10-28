@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assert} from './common.js';
+import {repairMigrationHistory} from './core/migration-history.js';
 import {registeredApplications} from './applications/index.js';
 import {
   planStorageMigration,
@@ -41,8 +42,9 @@ export async function storageMain(
       'recover',
       'lock',
       'unlock',
+      'repair-migration-history',
     ].includes(command),
-    'Choose status, plan, migrate, export, recover, lock or unlock. See docs/STORAGE.md.',
+    'Choose status, plan, migrate, export, recover, lock, unlock or repair-migration-history. See docs/STORAGE.md.',
   );
   for (let index = 0; index < args.length; index++) {
     const key = args[index];
@@ -67,6 +69,7 @@ export async function storageMain(
     }
   }
   const allowed = {
+    'repair-migration-history': ['--root', '--offline', '--confirm'],
     status: ['--root', '--profile'],
     plan: ['--root', '--profile', '--out'],
     migrate: ['--root', '--profile', '--plan', '--offline', '--confirm'],
@@ -99,7 +102,10 @@ export async function storageMain(
       'Choose accounts, controller or host storage.',
     );
   try {
-    if (command === 'status') {
+    if (command === 'repair-migration-history') {
+      assert(confirmation.offline && confirmation.confirm, 'Confirm host management writers are offline before repairing migration history.');
+      result = await repairMigrationHistory(root);
+    } else if (command === 'status') {
       const plan = await planStorageMigration(root, options['--profile'], {
         groups,
       });

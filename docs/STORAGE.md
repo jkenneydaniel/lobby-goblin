@@ -153,3 +153,43 @@ registry identities into fresh stores, and reject altered or incomplete exports.
 controller/host code paths are exercised without an actual game or Docker engine.
 Unrelated world sentinels and original JSON bytes are compared directly. These
 checks establish local behavior, not a production migration or runtime acceptance.
+
+## Legacy automatic migration history
+
+Automatic image migration attempts now use unique operation IDs and retain
+`migrationId: migration-034` for correlation. Older versions could record two
+attempts as `migration-034`, making the application operation history unavailable
+and correctly blocking management updates.
+
+At host-manager startup, the application repairs only that known system migration
+collision. It retains every attempt, state, phase, timestamp and recovery flag,
+assigns distinct identities, updates each attempt's own operation envelope, and
+records its original ID, registry hash and position. Before publishing any change,
+it saves the complete original registry and identity mapping in a private
+`migration-history-repairs/<registry-hash>.json` file. This can contain private
+management data; keep it private. The repair uses the storage writer lease and
+revision checks and works with JSON and selected SQLite storage. It does not edit
+audit history, servers, migration journals, snapshots or worlds.
+
+For maintenance without starting the manager, use the new release's runtime with
+the **host management state only** mounted at an explicit root. Keep management
+writers offline, then run:
+
+```sh
+node panel/storage.js repair-migration-history --root /path/to/host-state --offline --confirm
+```
+
+Within the packaged runtime the entry point is `/app/storage.js`. This command
+performs no Docker or game actions. Interrupted attempts remain blocked until an
+administrator checks and acknowledges their outcome in operation history. It
+never infers that an earlier interruption succeeded because a later attempt did.
+Unknown collisions, modified identities and ambiguous external references require
+operator review and are left unchanged. Repeating a completed repair is a no-op.
+
+Normal history writers enforce valid, unique operation IDs for controller jobs,
+host jobs and host setup history. JSON writes, SQLite writes and related-document
+transactions validate before publication; generated-ID collisions are also
+refused before reservation audit/effects. Read paths remain compatible with
+historical records so the documented repair can inspect them. Unknown duplicates
+cannot be resaved or silently renamed. These checks add no storage schema version
+or database migration and do not change idempotency/request-ID semantics.

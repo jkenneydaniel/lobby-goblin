@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import {retainOperationDiagnostic} from '../core/operation-diagnostics.js';
+import {publicOperationDiagnostic} from '../core/operation-errors.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert} from '../common.js';
@@ -169,8 +171,12 @@ export class ManagementUpdate {
       image: record.image,
       commit: record.commit,
       pending: record.pending,
+      ...(record.state === 'interrupted' && record.failure && {diagnostic: publicOperationDiagnostic(record.failure)}),
       operation: describeOperation(record, managementDescriptor(record)),
     };
+  }
+  failure(error, id, phase = 'planning') {
+    return retainOperationDiagnostic(this.directory, error, {id, source:'management-updates', phase, fallback:'management-update-failed'});
   }
   async status(id) {
     return this.summary((await this.load(id)).record);
@@ -230,12 +236,13 @@ export class ManagementUpdate {
         else await this.forward(context);
         return this.release(plan, record);
       } catch (error) {
-        await this.checkpoint(context, {state: 'interrupted'}).catch(() => {});
+        const diagnostic = await this.failure(error, id, record.phase);
+        await this.checkpoint(context, {state: 'interrupted', failure: diagnostic}).catch(() => {});
         // Do not expose original environment values or upstream Docker payloads.
         throw new Error(
           'Management update needs recovery. Keep the private record and snapshot; inspect update ' +
             id +
-            ' before resuming or rolling back.',
+            ' before resuming or rolling back. ' + diagnostic.message + ' ' + diagnostic.action + ' [' + diagnostic.code + ']',
           {cause: error},
         );
       } finally {

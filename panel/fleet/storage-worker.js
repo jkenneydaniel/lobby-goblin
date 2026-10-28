@@ -2,19 +2,31 @@
 // snapshot library. Game-owned private files need the same DAC access as the
 // instance controller; no ownership changes or additional mounts are needed.
 export const storageWorkerCapabilities = ['DAC_OVERRIDE'];
-const failures = {
-  EACCES: 'Storage access was denied. Check permissions on this server’s backup and snapshot library.',
-  EPERM: 'Storage access was denied. Check permissions on this server’s backup and snapshot library.',
-  ENOSPC: 'Storage is full. Free space for the snapshot before retrying.',
-  EDQUOT: 'The storage quota was reached. Free space for the snapshot before retrying.',
-  EROFS: 'Required snapshot storage is read-only. Check the host storage configuration.',
-  ENOENT: 'A required backup or snapshot file is missing. Create a fresh backup before retrying.',
-};
+import {HttpError} from '../common.js';
+import {OperationFailure, operationDiagnostic, publicOperationDiagnostic} from '../core/operation-errors.js';
+import {privateOperationCauses} from '../core/operation-diagnostics.js';
+
+// failure.json is private worker-to-owner transport. Older owners continue to
+// read version/error; only the owner may retain private causes after teardown.
 export function storageWorkerFailure(error) {
-  return {version: 1, error: failures[error?.code] ||
-    (Number.isInteger(error?.status) && error.status >= 400 && error.status < 500 && typeof error.message === 'string'
-      ? error.message.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 300)
-      : 'The isolated storage operation failed. Review the backup and host storage before retrying.')};
+  const diagnostic = operationDiagnostic(error);
+  return {version: 1, error: diagnostic.message.slice(0,300), diagnostic,
+    privateCauses: privateOperationCauses(error)};
+}
+export function storageWorkerError(failure, context = {}) {
+  const diagnostic = context.oomKilled ? operationDiagnostic(new OperationFailure('storage-worker-out-of-memory')) :
+    failure?.version === 1 && failure.diagnostic ? publicOperationDiagnostic(failure.diagnostic) :
+      operationDiagnostic(new HttpError(409, storageWorkerMessage(failure,context)));
+  const error = OperationFailure.fromDiagnostic(diagnostic);
+  let cause;
+  if (Array.isArray(failure?.privateCauses)) for (const item of failure.privateCauses.slice(0,4).reverse()) {
+    if (typeof item?.message !== 'string' || item.message.length > 2000) continue;
+    const next = new Error(item.message, {cause});
+    if (typeof item.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(item.code)) next.code = item.code;
+    cause = next;
+  }
+  error.cause = cause;
+  return error;
 }
 export function storageWorkerMessage(failure, {oomKilled = false, exitCode} = {}) {
   if (oomKilled) return 'The isolated storage worker ran out of memory. Server storage was kept.';

@@ -208,3 +208,29 @@ No existing installation has been upgraded or published by this source work.
 The complete foundation review and disposable runtime evidence are recorded in
 [the completion ledger](verification/platform-completion.md). Production native
 application acceptance remains separate from these synthetic preservation checks.
+
+### Docker Desktop socket admission and diagnostics
+
+Docker Desktop may report the controller's `/var/run/docker.sock` bind source as
+`/run/host-services/docker.proxy.sock` (including on Windows). The coordinated
+updater accepts this exact alias only for a Linux engine identifying itself as
+Docker Desktop. Before review and again before cutover, it checks the existing
+owned management service's socket is a Unix socket and makes a bounded read of
+`/info` through it, requiring the same reviewed engine ID. Normal service ownership,
+command, privilege, volume and mount checks still apply. Arbitrary paths, extra
+bind mounts, other destinations and different engines remain rejected. The
+original mount specification is retained in recovery records; no game container
+needs to be recreated to normalize a controller socket.
+
+Failed workflows expose a sanitized reason code and next step in the panel and
+operator output. The private update record also retains that diagnostic and its
+existing phase/pending step. Raw Docker output, saved environment variables and
+exception text are not copied into public errors. Duplicate operation identities
+are distinguished from unreadable histories and active/interrupted work; none of
+these conditions bypass the updater's idle-workflow guard. See
+[legacy migration history repair](STORAGE.md#legacy-automatic-migration-history).
+
+Socket source evidence: the reported Windows inspection and
+[Docker's Windows diagnostics](https://github.com/docker/for-win/issues/11300).
+These regression fixtures verify admission logic; they do not replace a live
+Docker Desktop acceptance test on each supported host platform.

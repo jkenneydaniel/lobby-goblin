@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
-import {assert, redact} from '../common.js';
+import {operationDiagnostic} from './operation-errors.js';
+import {assertJobIdentities} from './operation-identity.js';
+import {assert} from '../common.js';
 import {recordOperation, operationKind} from './operation-record.js';
 
 const now = () => new Date().toISOString();
@@ -37,6 +39,7 @@ export class Operations {
     inspect,
     retryable = () => false,
     record = async () => {},
+    failure = async error => operationDiagnostic(error),
   }) {
     Object.assign(this, {
       getJobs,
@@ -46,7 +49,7 @@ export class Operations {
       persist,
       id,
       inspector: inspect,
-      retryable,record,
+      retryable,record,failure,
     });
     this.storageError = false;
     this.recovering = false;
@@ -155,6 +158,7 @@ export class Operations {
       ...(requestId && {requestId, inputHash: fingerprint(input)}),
       ...(retryOf && {retryOf}),
     };
+    assertJobIdentities([job, ...this.getJobs()]);
     this.describe(job);
     const previousJobs = this.getJobs(),
       previousRecovery = original && structuredClone(original.recovery);
@@ -225,7 +229,8 @@ export class Operations {
               : result?.message || 'Completed.',
         });
       } catch (error) {
-        Object.assign(job, {state: 'failed', message: redact(error.message)});
+        const failure = await this.failure(error, job);
+        Object.assign(job, {state: 'failed', failure, message: failure.message + ' ' + failure.action});
       }
       await this.checkpoint(job, 'cleanup');
       await after(job);
@@ -238,17 +243,19 @@ export class Operations {
       await this.persist();
     } catch (error) {
       const interruptedPhase = job.phase;
+      const failure = await this.failure(error, job);
       Object.assign(job, {
         state: 'interrupted',
         phase: 'interrupted',
+        failure,
         finished: now(),
         message:
-          'The operation needs review because its completion or cleanup could not be recorded.',
+          'The operation needs review because its completion or cleanup could not be recorded. ' + failure.message + ' ' + failure.action,
         recovery: {
           required: true,
           state: 'inspection-required',
           interruptedPhase,
-          detail: redact(error.message),
+          detail: failure.message,
           retryable: this.retryable(job),
         },
       });

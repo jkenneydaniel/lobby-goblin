@@ -126,3 +126,61 @@ An older history review queued during that save cannot overwrite the new outcome
 A failed final save leaves an interrupted record and fences new setup until
 storage has been repaired and the retained host reviewed. That review does not
 rerun SSH, reconnect with retained credentials or rewrite the original result.
+
+## Worker ownership and collection
+
+A Docker worker being stopped does not establish that its owner has consumed its
+result. Instance-owned software and preview workers remain under their native
+workflow's cleanup/recovery rules. The host sweeper does not collect them from a
+worker label alone.
+
+Host storage and retained-storage requests reserve a `workerReceipts` entry in
+the active host job before container creation. It records the immutable container
+ID and moves to `collected` only after the owner has read its exit/result or
+failure. Background collection requires exactly one matching receipt in a
+finished succeeded/failed job, no required recovery, and the same exited
+container, name, instance and exit code. Created, active, replaced, ambiguous and
+unrecorded workers remain held for their owner's review. The sweeper never
+forces removal or deletes volumes. Explicit owner cleanup uses the immutable
+container ID. Older unrecorded helpers are not silently adopted.
+
+## Failure diagnostics
+
+`core/operation-errors.js` provides the public reason/action contract used by
+ordinary operations, migrations, storage workers and coordinated management
+updates. `core/management-errors.js` remains a compatibility facade. Explicit
+`OperationFailure` codes use fixed catalog messages. Existing local `HttpError`
+client rejections remain intentionally public, bounded and redacted; application
+authors must not put raw Docker output, credentials or private exception details
+in them. Known recovery outcomes use a public rejection with a separate private
+cause. Unknown exceptions use a fixed public fallback.
+
+Host/controller jobs retain a safe `failure` with a reference, phase and
+`retained` flag. Private details live under
+`operation-diagnostics/<source>-<reference>.json` in the owning management root.
+The directory is owner-only (0700), files are private (0600), and links/changed
+ownership are refused. Each record retains at most eight observations, preserving
+the first four and latest four, with at most four bounded causes per observation.
+Public operation/worker responses never contain these causes. Diagnostic storage
+failure is reported as `retained: false`; it does not replace the original public
+reason. Failed helper request evidence is kept if private retention fails.
+
+Storage-worker failure records keep the existing version/error fields for older
+owners. Additional reason and private-cause fields are owner-only transport; the
+owner saves diagnostic evidence before helper teardown. Interrupted operations
+still require their owning workflow's recovery review. Diagnostics do not infer
+success or authorize replay.
+
+If creation or teardown cannot be proven, the owning job retains a recovery guard
+and its request evidence. A later container removal does not itself acknowledge
+the operation's outcome. Successful owner teardown records `removed`; background
+collection can recover a missed teardown only from a completed `collected`
+receipt. Failed management inspections and metadata helpers also copy bounded
+worker output into private diagnostics before ordinary helper cleanup can remove
+its logs.
+
+Docker daemon and broker response failures retain a distinct transport error
+identity. Their upstream text remains private even for HTTP 404; it is not an
+intentional public application rejection. Public controller boundaries sanitize
+these errors before forwarding them over HTTP. Diagnostic appends use the shared
+writer lock so concurrent observers cannot overwrite earlier evidence.

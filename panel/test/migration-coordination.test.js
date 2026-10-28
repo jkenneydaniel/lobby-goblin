@@ -43,7 +43,7 @@ for(const game of ['factorio','rust'])for(const running of [true,false])test(`ho
 for(const boundary of ['create','start'])test('host migration resumes after child '+boundary+' interruption without another backup or world replacement',async t=>{
  const f=await managed(t,'rust',true);let once=true;
  f.fail((method,url,data)=>{if(once&&method==='POST'&&(boundary==='create'?url.includes('/containers/create')&&data.Env?.some(v=>v.startsWith('IMAGE_MIGRATION_BACKUP=')):url==='/containers/controller/start')){once=false;return true;}});
- await migrateFleet(f.manager);assert.equal(f.item.migration.state,'pending');assert.match(f.item.maintenance,/attention/);assert.equal(f.jobs.length,2);
+ await migrateFleet(f.manager);assert.equal(f.item.migration.state,'pending');assert.match(f.item.maintenance,/attention/);assert.equal(f.jobs.length,2);assert.equal(f.item.migration.failure.phase,'replace');assert.equal(f.item.migration.failure.reference,f.manager.state.jobs[0].id);assert.equal(f.item.migration.failure.retained,true);
  f.fail(null);await migrateFleet(f.manager);assert.equal(f.item.migration.state,'complete');assert.equal(f.containers.get('controller').State.Running,true);assert.equal(f.jobs.length,2);
 });
 function installation(root,game='factorio'){

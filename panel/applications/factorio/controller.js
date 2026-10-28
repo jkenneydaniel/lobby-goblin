@@ -114,7 +114,7 @@ async function switchWorld(params,job){
       if(oldCurrent)await fs.utimes(path.join(saves,oldCurrent),new Date(),new Date()).catch(()=>{});
     }
     if(wasRunning)await control('start').catch(()=>{});
-    throw new Error(`World switch failed. The previous saves were restored. ${error.message}`,{cause:error});
+    throw Object.assign(new HttpError(409,'World switch failed. The previous saves were restored.'),{cause:error});
   }
 }
 async function restoreBackup(params,job){
@@ -141,7 +141,7 @@ async function restoreBackup(params,job){
   }catch(error){
     if(moved.length){await control('stop').catch(()=>{});const failed=path.join(backups,`panel-failed-restore-${stamp()}`);await fs.mkdir(failed,{recursive:true});
       for(const subdir of moved){if(await fs.stat(path.join(data,subdir)).catch(()=>null))await fs.rename(path.join(data,subdir),path.join(failed,subdir));await fs.rename(path.join(archive,subdir),path.join(data,subdir));}}
-    if(wasRunning)await control('start').catch(()=>{});throw new Error(`Restore failed; previous data was recovered. ${error.message}`,{cause:error});
+    if(wasRunning)await control('start').catch(()=>{});throw Object.assign(new HttpError(409,'Restore failed; previous data was recovered.'),{cause:error});
   }
 }
 const EXPORT_LUA='/silent-command local original = helpers.parse_map_exchange_string(game.get_map_exchange_string()); local difficulty = original.map_settings.difficulty_settings; original.map_settings.difficulty_settings = nil; local function plain(template,live) local out = {}; for key,value in pairs(template) do if type(value) == "table" then out[key] = plain(value,live[key]) else out[key] = live[key] end end; return out end; local settings = plain(original.map_settings,game.map_settings); settings.difficulty_settings = plain(difficulty,game.difficulty_settings); helpers.write_file("export-settings.json",helpers.table_to_json({map_gen_settings=game.surfaces["nauvis"].map_gen_settings,map_settings=settings})); rcon.print("Settings exported.")';

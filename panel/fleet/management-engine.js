@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import {ManagementFailure} from '../core/management-errors.js';
+import {managementSocketKind, verifyManagementSocket} from '../core/management-socket.js';
 import {assert, sleep} from '../common.js';
 import {docker, demultiplex} from '../core/docker.js';
 import {
@@ -12,6 +14,11 @@ import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet';
+const privateOutput = output => {
+  if (!Buffer.isBuffer(output)) return 'Worker diagnostic output was unavailable.';
+  const text = demultiplex(output);
+  return text.length <= 2000 ? text : text.slice(0,1000) + ' … ' + text.slice(-990);
+};
 const endpoint = (id, tail) =>
   '/containers/' + encodeURIComponent(id) + '/' + tail;
 const environment = (info) =>
@@ -63,6 +70,7 @@ const config = (info) =>
       .filter((key) => info.Config[key] !== undefined)
       .map((key) => [key, info.Config[key]]),
   );
+const mountsHash = mounts => managementHash(mounts.map(mount => managementHash(mount)).sort());
 const originalHash = (info) =>
   managementHash({
     config: config(info),
@@ -137,6 +145,7 @@ export class ManagementEngine {
       'The selected Docker engine changed or is not a Linux engine.',
       409,
     );
+    this.engineInfo = info;
     return info.ID;
   }
   async inspect(id, {optional = false} = {}) {
@@ -160,12 +169,9 @@ export class ManagementEngine {
       {raw: true},
     );
     const result = await this.request('GET', '/exec/' + command.Id + '/json');
-    assert(
-      !result.Running && result.ExitCode === 0,
-      'A management inspection or publication failed. Retain the operator record for recovery.',
-      409,
-    );
-    return JSON.parse(demultiplex(output));
+    if (result.Running || result.ExitCode !== 0) throw new ManagementFailure('management-inspection-failed', {cause: new Error(privateOutput(output))});
+    try { return JSON.parse(demultiplex(output)); }
+    catch (cause) { throw new ManagementFailure('management-inspection-failed', {cause}); }
   }
   async readFile(id, file) {
     return archiveFile(
@@ -274,7 +280,7 @@ export class ManagementEngine {
       host.Config.Labels?.[fleetKey] === fleet &&
         host.Config.Labels?.[roleKey] === 'host-controller' &&
         (profile === 'brokered' ? environment(host).DOCKER_BROKER_SOCKET === '/broker/socket/docker.sock' :
-          !environment(host).DOCKER_BROKER_SOCKET && host.Mounts.some(m => m.Type === 'bind' && m.Source === '/var/run/docker.sock' && m.Destination === '/var/run/docker.sock')),
+          !environment(host).DOCKER_BROKER_SOCKET && host.Mounts.some(m => managementSocketKind(m))),
       'The management transport no longer matches its reviewed profile.',
       409,
     );
@@ -288,6 +294,8 @@ export class ManagementEngine {
         registry.servers.length <= 64,
       'Invalid fleet registry.',
     );
+    if (Array.isArray(registry.jobs) && new Set(registry.jobs.map(job => job.id)).size !== registry.jobs.length)
+      throw new ManagementFailure('duplicate-operation-identity');
     const instances = registry.servers.filter(
       (item) => item.state !== 'removed',
     );
@@ -338,7 +346,7 @@ export class ManagementEngine {
     ]);
     for (const [name, role] of expected) {
       const info = name === hostName ? host : await this.inspect(name);
-      assert(
+      const supported =
         info.Config.Labels?.[fleetKey] === fleet &&
           info.Config.Labels[roleKey] === role &&
           info.State.Running &&
@@ -350,13 +358,9 @@ export class ManagementEngine {
             (mount) =>
               (mount.Type === 'volume' && allowedVolumes.has(mount.Name)) ||
               ((role === 'docker-broker' || profile === 'legacy' && ['host-controller', 'instance-controller'].includes(role)) &&
-                mount.Type === 'bind' &&
-                mount.Source === '/var/run/docker.sock' &&
-                mount.Destination === '/var/run/docker.sock'),
-          ),
-        'Custom or unavailable management services require operator review.',
-        409,
-      );
+                managementSocketKind(mount)),
+          );
+      if (!supported) throw new ManagementFailure('management-service-custom');
       assert(
         JSON.stringify(info.Config.Entrypoint) ===
           JSON.stringify(runtime.Config.Entrypoint) &&
@@ -365,6 +369,7 @@ export class ManagementEngine {
         'Custom management commands require manual review.',
         409,
       );
+      await verifyManagementSocket(info, this.engineInfo, (id, script) => this.exec(id, script));
       services.push({
         id: info.Id,
         name,
@@ -539,6 +544,7 @@ export class ManagementEngine {
     await this.request('DELETE', '/containers/' + claim.Id);
   }
   async verifyOriginals(plan) {
+    await this.identity();
     for (const service of plan.services) {
       const info = await this.inspect(service.id);
       assert(
@@ -550,6 +556,8 @@ export class ManagementEngine {
         'The original management service changed.',
         409,
       );
+      if (mountsHash(info.Mounts) !== mountsHash(service.info.Mounts)) throw new ManagementFailure('management-mounts-changed');
+      await verifyManagementSocket(info, this.engineInfo, (id, script) => this.exec(id, script));
     }
   }
   async stopOriginal(service) {
@@ -707,11 +715,10 @@ export class ManagementEngine {
       await this.request('POST', endpoint(helper.Id, 'start'));
     await this.wait(async () => !(await this.inspect(helper.Id)).State.Running);
     const final = await this.inspect(helper.Id);
-    assert(
-      final.State.ExitCode === 0,
-      'Metadata helper failed. Keep management stopped and preserve the private snapshot.',
-      409,
-    );
+    if (final.State.ExitCode !== 0) {
+      const logs = await this.request('GET', endpoint(helper.Id,'logs?') + new URLSearchParams({stdout:'1',stderr:'1',tail:'100'}), undefined, {raw:true}).catch(() => null);
+      throw new ManagementFailure(final.State.OOMKilled ? 'storage-worker-out-of-memory' : 'management-inspection-failed', {cause:new Error(privateOutput(logs))});
+    }
     return this.storageResult(helper.Id, plan, operation, manifestHash);
   }
   async storageResult(id, plan, operation, manifestHash) {

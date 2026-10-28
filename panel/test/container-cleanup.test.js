@@ -25,7 +25,7 @@ test('historical update workers require matching labels, job, root and bind; fai
  job.state='failed';job.finished=new Date(Date.now()-1000).toISOString();await writeJSON(path.join(root,job.id+'.json'),job);assert.equal(await cleanupUpdateWorkers({docker,root,jobs:[job]}),0);
  job.finished=new Date(0).toISOString();await writeJSON(path.join(root,job.id+'.json'),job);assert.equal(await cleanupUpdateWorkers({docker,root,jobs:[job]}),1);assert.match((await readJSON(path.join(root,job.id+'.json'))).workerLog,/bounded failure/);assert.ok(removed.every(route=>!route.includes('?')));
 });
-test('fleet sweeping removes only its stopped helpers and completed migration originals; interrupted migrations remain recoverable',async t=>{
+test('fleet sweeping retains unrecorded helpers and interrupted migrations while collecting completed migration originals',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'lg-fleet-cleanup-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));const fleet='a'.repeat(32),id='b'.repeat(32),other='c'.repeat(32),item={id,container:'current',volume:'owned-volume',image:'pinned-image',game:'rust',state:'installed'},removed=[];
  const labels={'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.instance':id},containers=new Map([
  ['helper',{Id:'helper',Config:{Labels:{...labels,'io.lobby-goblin.worker':'true'}},State:stopped}],
@@ -35,6 +35,6 @@ test('fleet sweeping removes only its stopped helpers and completed migration or
  ]);
  const manager={root,fleet,state:{servers:[item]},active:null,assertHost:async()=>{},ownedContainer:async()=>({Id:'new',Image:'immutable-image',Config:{Image:item.image}}),docker:async(method,route)=>{if(route.startsWith('/containers/json?'))return [...containers.values()];const key=route.split('/')[2];if(method==='GET')return structuredClone(containers.get(key)||missing());removed.push(key);containers.delete(key);}};
  const journal={phase:'verify',backup:'verified.tar.gz',originalId:'old',retain:'current-pre-lg034',target:item.image,imageId:'immutable-image'};await writeJSON(path.join(root,'migrations',id+'.json'),journal);
- assert.equal((await cleanupFleetContainers(manager)).removed,1);assert.ok(containers.has('old'));assert.ok(containers.has('neighbor'));assert.ok(containers.has('active-helper'));
- journal.phase='complete';await writeJSON(path.join(root,'migrations',id+'.json'),journal);assert.equal((await cleanupFleetContainers(manager)).removed,1);assert.deepEqual(removed,['helper','old']);manager.active={};assert.equal((await cleanupFleetContainers(manager)).removed,0);
+ assert.equal((await cleanupFleetContainers(manager)).removed,0);assert.ok(containers.has('helper'));assert.ok(containers.has('old'));assert.ok(containers.has('neighbor'));assert.ok(containers.has('active-helper'));
+ journal.phase='complete';await writeJSON(path.join(root,'migrations',id+'.json'),journal);assert.equal((await cleanupFleetContainers(manager)).removed,1);assert.deepEqual(removed,['old']);manager.active={};assert.equal((await cleanupFleetContainers(manager)).removed,0);
 });

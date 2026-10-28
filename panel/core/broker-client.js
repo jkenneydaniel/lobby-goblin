@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import {assert, HttpError} from '../common.js';
+import {assert} from '../common.js';
+import {DockerTransportError} from './docker-transport-error.js';
 
 export const BROKER_PROTOCOL = 1;
 export const brokerSocket = '/broker/socket/docker.sock';
@@ -52,7 +53,7 @@ export function brokerClient({socketPath, tokenFile}) {
                 message = JSON.parse(buffer).error;
               } catch {}
               reject(
-                new HttpError(
+                new DockerTransportError(
                   res.statusCode,
                   message || 'The Docker broker refused this request.',
                 ),

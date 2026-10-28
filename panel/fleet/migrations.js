@@ -1,4 +1,6 @@
 import path from 'node:path';
+import {retainOperationDiagnostic} from '../core/operation-diagnostics.js';
+import {imageMigrationAttempt} from '../core/migration-history.js';
 import {assert,readJSON,writeJSON,sleep} from '../common.js';
 import {migrationImage,ownedImage,ownedImages} from '../core/game-images.js';
 import {migrateImage,replacementSpec} from '../core/image-migration.js';
@@ -17,7 +19,7 @@ export async function migrateFleet(manager){
  const candidates=manager.state.servers.filter(item=>item.state!=='removed'&&definition(item).managed.legacyMigration&&(!ownedImage(item.game,item.image)||migrationImage(item.game,item.image)||item.migration?.state==='pending'));
  if(!candidates.length)return;
  assert(!manager.active,'Another host operation is running.',409);
- const job={id:'migration-034',action:'image-migration',actor:'system',state:'running',started:new Date().toISOString(),message:'Migrating existing game images…'};
+ const job={...imageMigrationAttempt(),action:'image-migration',actor:'system',state:'running',started:new Date().toISOString(),message:'Migrating existing game images…'};
  const previousJobs=manager.state.jobs;manager.active=job;manager.state.jobs=[job,...previousJobs];
  try{await manager.persist();}catch(error){manager.state.jobs=previousJobs;manager.active=null;throw error;}
  try{for(const item of candidates){
@@ -41,7 +43,8 @@ export async function migrateFleet(manager){
     },
     ready:async()=>{for(let n=0;n<900;n++){try{if((await manager.request(item,'/status')).ready)return;}catch{}await sleep(2000);}throw Error('The migrated game did not report readiness. Its backup and original stopped container were retained.');}
    });item.migration={state:'complete'};item.state='installed';
-  }catch{item.migration={state:'pending',message:'Image migration needs attention. Its backup and storage were preserved. Restart the manager to resume after resolving the failure.'};item.state='attention';job.state='failed';}
+  }catch(error){let phase='preflight';try{const journal=await readJSON(path.join(manager.root,'migrations',item.id+'.json'),null);if(['backup','replace','verify','complete'].includes(journal?.phase))phase=journal.phase;}catch{}
+   const failure=await retainOperationDiagnostic(manager.root,error,{id:job.id,source:'image-migration-'+item.id,phase,fallback:'image-migration-failed'});item.migration={state:'pending',message:failure.message+' '+failure.action,failure};item.state='attention';job.state='failed';job.failure=failure;}
   finally{if(item.migration.state==='complete')delete item.maintenance;else item.maintenance='Image migration needs attention';await manager.persist();}
- }}finally{if(job.state==='running')job.state='succeeded';job.message=job.state==='succeeded'?'Game image migrations completed.':'An image migration needs attention. Stored data was preserved.';job.finished=new Date().toISOString();manager.active=null;await manager.persist();}
+ }}finally{if(job.state==='running')job.state='succeeded';job.message=job.state==='succeeded'?'Game image migrations completed.':job.failure?job.failure.message+' '+job.failure.action:'An image migration needs attention. Stored data was preserved.';job.finished=new Date().toISOString();manager.active=null;await manager.persist();}
 }

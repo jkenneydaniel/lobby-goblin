@@ -1,3 +1,4 @@
+import {publicOperationDiagnostic} from './operation-errors.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -80,6 +81,7 @@ export class ManagementPanel {
       image: result?.plan?.image || null, phase: result?.plan?.operation?.phase || null,
       committed: result?.plan?.commit === true, cleanupRequired: result?.plan?.cleanupRequired === true,
       services: result?.services || null,
+      ...(!running && (result?.diagnostic || result?.plan?.diagnostic) && {diagnostic: publicOperationDiagnostic(result.diagnostic || result.plan.diagnostic)}),
       message: running ? (job.action === 'plan' ? 'Preparing the management review…' : 'Updating management services. Waiting for the panel to reconnect…') :
         interrupted ? (this.canReset(current) ? 'The review coordinator never started. Reset this failed review to try again.' : 'The coordinator stopped before reporting completion. Inspect recovery before retrying.') : result.message,
       actions: running ? [] : state === 'reviewed' ? ['apply', 'cancel'] :

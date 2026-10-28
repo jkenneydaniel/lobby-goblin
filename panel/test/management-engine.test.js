@@ -208,3 +208,31 @@ test('replacement configuration keeps application-specific values while adopting
     /service changed/,
   );
 });
+
+test('pre-cutover mount verification ignores Docker inspect order while rejecting changed mounts',async()=>{
+  const {managementHash}=await import('../core/management-installation.js');
+  const info={Id:'owned-host',Name:'/owned-host',Config:{Env:[],Labels:{}},HostConfig:{RestartPolicy:{Name:'unless-stopped'}},State:{Running:true},Mounts:[
+    {Type:'volume',Name:'state',Destination:'/fleet'},{Type:'bind',Source:'/var/run/docker.sock',Destination:'/var/run/docker.sock'},
+  ]};
+  const service={id:info.Id,name:'owned-host',info:structuredClone(info),hash:managementHash({config:info.Config,host:{...info.HostConfig,RestartPolicy:null}})};
+  const driver=new ManagementEngine({socket:'/unused-fixture.sock',engine:engineId,request:async(method,route)=>{
+    assert.equal(method,'GET');if(route==='/info')return {ID:engineId,OSType:'linux'};return info;
+  }});
+  info.Mounts.reverse();await driver.verifyOriginals({services:[service]});
+  info.Mounts[0].Source='/tmp/foreign.sock';
+  await assert.rejects(driver.verifyOriginals({services:[service]}),/mounts changed after review/);
+});
+
+test('failed inspection retains bounded private worker output while public errors remain fixed',async()=>{
+ const {managementFailure}=await import('../core/management-errors.js');
+ const driver=new ManagementEngine({socket:'/unused-fixture.sock',engine:engineId,request:async(method,route)=>{
+  if(route.endsWith('/exec'))return {Id:'inspection'};
+  if(route.endsWith('/start'))return Buffer.from('Unsupported registry. private-controller-value '+ 'x'.repeat(10000));
+  return {Running:false,ExitCode:1};
+ }});
+ await assert.rejects(driver.exec('owned-service','fixed script'),error=>{
+  assert.equal(managementFailure(error).code,'management-inspection-failed');
+  assert.doesNotMatch(JSON.stringify(managementFailure(error)),/private-controller-value/);
+  assert.match(error.cause.message,/Unsupported registry/);assert.ok(error.cause.message.length<=2000);return true;
+ });
+});

@@ -14,3 +14,10 @@ test('storage failures expose actionable categories without raw filesystem error
   assert.match(storageWorkerMessage({version:1,error:'x'.repeat(10000)},{exitCode:7}),/exit 7/);
   assert.match(storageWorkerMessage({version:1,error:'injected\nline'}),/stopped/);
 });
+
+test('worker teardown preserves private causes through owner transport without exposing them in public messages',()=>{
+ const failure=storageWorkerFailure(Error('private-worker-cause /operator/token'));
+ const publicError=storageWorkerMessage(failure,{exitCode:1});
+ assert.doesNotMatch(publicError,/private-worker-cause|operator\/token/);
+ assert.equal(failure.privateCauses[0].message,'private-worker-cause /operator/token');
+});

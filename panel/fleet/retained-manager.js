@@ -1,10 +1,12 @@
 import fs from 'node:fs/promises';
+import {hostWorkerLifecycle} from './worker-lifecycle.js';
+import {retainOperationDiagnostic} from '../core/operation-diagnostics.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert, readJSON, writeJSON} from '../common.js';
 import {resources, labels, validateCreation} from './catalog.js';
 import {regularFile, parseStorageJSON} from '../core/storage/files.js';
-import {storageWorkerMessage} from './storage-worker.js';
+import {storageWorkerError} from './storage-worker.js';
 
 const digest = (value) =>
   crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -117,9 +119,11 @@ export class RetainedStorage {
     ];
     if (target)
       mounts.push({Type: 'volume', Source: target.volume, Target: '/instance'});
-    let created = false;
+    const lifecycle = await hostWorkerLifecycle(m,name,target?.id || item.id);
+    let createdId = null, retainRequest = false, creationAttempted = false;
     try {
-      await m.docker(
+      creationAttempted = true;
+      const reservation = await m.docker(
         'POST',
         '/containers/create?' + new URLSearchParams({name}),
         {
@@ -145,7 +149,8 @@ export class RetainedStorage {
           },
         },
       );
-      created = true;
+      await lifecycle.created(reservation.Id);
+      createdId = reservation.Id;
       await m.docker('POST', `/containers/${name}/start`);
       const result = await m.docker(
         'POST',
@@ -159,28 +164,30 @@ export class RetainedStorage {
         try {
           const bytes = await regularFile(
             path.join(directory, 'failure.json'),
-            {optional: true, max: 4096},
+            {optional: true, max: 65536},
           );
           if (bytes) failure = parseStorageJSON(bytes);
         } catch {}
-        assert(
-          false,
-          storageWorkerMessage(failure, {
-            oomKilled: worker.State?.OOMKilled,
-            exitCode: result.StatusCode,
-          }),
-          409,
-        );
+        await lifecycle.collected(result.StatusCode);
+        throw storageWorkerError(failure, {oomKilled: worker.State?.OOMKilled, exitCode: result.StatusCode});
       }
-      return await readJSON(path.join(directory, 'result.json'), null);
+      const output = await readJSON(path.join(directory, 'result.json'), null);
+      await lifecycle.collected(result.StatusCode);
+      return output;
+    } catch(error) {
+      const diagnostic = await retainOperationDiagnostic(m.root,error,{id:m.active.id,source:'host-operations',phase:m.active.phase||'executing'});
+      retainRequest = !diagnostic.retained;
+      throw error;
     } finally {
-      if (created) {
-        const worker = await m.ownedContainer(name, target?.id || item.id);
+      await lifecycle.teardown(async()=>{if (createdId) {
+        const worker = await m.ownedContainer(createdId, target?.id || item.id);
         if (worker.State?.Running)
-          await m.docker('POST', `/containers/${name}/stop?t=15`);
-        await m.docker('DELETE', `/containers/${name}`);
-      }
-      await fs.rm(directory, {recursive: true, force: true});
+          await m.docker('POST', `/containers/${createdId}/stop?t=15`);
+        await m.docker('DELETE', `/containers/${createdId}`);
+        await lifecycle.removed();
+      } else if (creationAttempted) {retainRequest = true;await lifecycle.review();}
+      });
+      if (!retainRequest) await fs.rm(directory, {recursive: true, force: true});
     }
   }
   async inspect(input, job) {

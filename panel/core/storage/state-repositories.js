@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {assertJobIdentities} from '../operation-identity.js';
 import {assert} from '../../common.js';
 import {DocumentRepository} from './document-repository.js';
 
@@ -111,6 +112,7 @@ export class JobsRepository extends DocumentRepository {
       schemaVersion: 1,
       empty: [],
       decode: jobHistory,
+      validateWrite: assertJobIdentities,
     });
   }
 }
@@ -124,6 +126,7 @@ export class RegistryRepository extends DocumentRepository {
       schemaVersion: 1,
       empty: {version: 1, servers: [], snapshots: [], jobs: []},
       decode: hostRegistry,
+      validateWrite: value => {assertJobIdentities(value.jobs); return value;},
     });
   }
 }
@@ -137,6 +140,7 @@ export class HostSetupRepository extends DocumentRepository {
       schemaVersion: 1,
       empty: [],
       decode: jobHistory,
+      validateWrite: assertJobIdentities,
     });
   }
 }

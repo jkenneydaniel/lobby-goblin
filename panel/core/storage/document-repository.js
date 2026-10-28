@@ -22,6 +22,7 @@ export class DocumentRepository {
       empty,
       decode = (value) => value,
       extension = null,
+      validateWrite = (value) => value,
     },
   ) {
     assert(
@@ -41,6 +42,7 @@ export class DocumentRepository {
       empty,
       decode,
       extension,
+      validateWrite,
     });
   }
   async read() {
@@ -90,7 +92,7 @@ export class DocumentRepository {
     );
   }
   async saveLocked(snapshot, value) {
-    value = this.decode(value);
+    value = this.validateWrite(this.decode(value));
     const selected = await selectedStorage(this.root);
     assert(
       selected === snapshot.store,
@@ -196,7 +198,7 @@ async function commitLocked(entries) {
     );
     store = selected;
     repository.assertExtension(selected);
-    const value = entry.delete ? null : repository.decode(entry.value);
+    const value = entry.delete ? null : repository.validateWrite(repository.decode(entry.value));
     changes.push({
       namespace: repository.namespace,
       key: repository.key,

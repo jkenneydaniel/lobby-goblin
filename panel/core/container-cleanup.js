@@ -1,3 +1,4 @@
+import {collectableHostWorker} from '../fleet/worker-lifecycle.js';
 import {assert,readJSON,writeJSON,redact} from '../common.js';
 import {daemonPath} from '../update-source.js';
 import {demultiplex} from './docker.js';
@@ -44,7 +45,8 @@ export async function cleanupFleetContainers(manager){
   const filters=encodeURIComponent(JSON.stringify({label:['io.lobby-goblin.fleet='+manager.fleet,'io.lobby-goblin.worker=true']}));
   for(const worker of await manager.docker('GET','/containers/json?all=1&filters='+filters)){
    if(manager.active)break;
-   if(await removeStoppedContainer(manager.docker,worker,info=>!manager.active&&info.Config?.Labels?.['io.lobby-goblin.fleet']===manager.fleet&&info.Config.Labels['io.lobby-goblin.worker']==='true'&&manager.state.servers.some(item=>item.id===info.Config.Labels['io.lobby-goblin.instance'])))removed++;
+   let receipt;
+   if(await removeStoppedContainer(manager.docker,worker,info=>!manager.active&&!!(receipt=collectableHostWorker(manager,info)))){receipt.phase='removed';await manager.persist();removed++;}
   }
   for(const item of manager.state.servers){
    if(manager.active)break;

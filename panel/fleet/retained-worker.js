@@ -192,21 +192,7 @@ if (
       await runRetainedWorker(await readJSON('/setup/request.json', null)),
     );
   } catch (error) {
-    const failures = {
-      ENOSPC:
-        'There is not enough free space for recovery. Original storage was kept.',
-      EDQUOT:
-        'The recovery storage quota was reached. Original storage was kept.',
-      EACCES: 'Retained storage access was denied. Review volume permissions.',
-      EPERM: 'Retained storage access was denied. Review volume permissions.',
-      EROFS:
-        'Recovery destination storage is read-only. Original storage was kept.',
-      ENOENT:
-        'Retained storage or recovery metadata is missing. Inspect storage again.',
-    };
-    const failure = failures[error?.code]
-      ? {version: 1, error: failures[error.code]}
-      : storageWorkerFailure(error);
+    const failure = storageWorkerFailure(error);
     await writeJSON('/setup/failure.json', failure).catch(() => {});
     console.error(failure.error);
     process.exitCode = 1;
