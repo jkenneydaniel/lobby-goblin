@@ -50,7 +50,7 @@ export class ManagementPanel {
     const interrupted = !running && (!result || ['running', 'planning'].includes(result.state));
     const state = running ? (job.action === 'plan' ? 'planning' : 'running') : interrupted ? 'attention' : result.state;
     return {supported: true, currentVersion: this.version, update: {
-      id: job.id, version: job.version, state, expires: job.expires,
+      id: job.id, requestId: job.requestId, action: job.action, version: job.version, state, expires: job.expires,
       image: result?.plan?.image || null, phase: result?.plan?.operation?.phase || null,
       committed: result?.plan?.commit === true, cleanupRequired: result?.plan?.cleanupRequired === true,
       services: result?.services || null,

@@ -21,8 +21,8 @@ test('review, confirm, survive a lost install response and reconnect to durable 
   await page.route('**/api/management-update', route => {
     if (route.request().method() === 'POST') {
       const input = route.request().postDataJSON(); writes.push(input);
-      if (input.action === 'plan') update = review();
-      else {expect(input).toMatchObject({action: 'apply', id, confirm: true}); update = {...update, state: 'running', phase: 'stopping', actions: [], message: 'Updating management services. Waiting for the panel to reconnect…'}; return route.abort('connectionreset');}
+      if (input.action === 'plan') update = {...review(), requestId: input.requestId, action: input.action};
+      else {expect(input).toMatchObject({action: 'apply', id, confirm: true}); update = {...update, requestId: input.requestId, action: input.action, state: 'running', phase: 'stopping', actions: [], message: 'Updating management services. Waiting for the panel to reconnect…'}; return route.abort('connectionreset');}
     } else if (update?.state === 'running' && ++reads > 1) update = {...update, state: 'complete', phase: 'complete', message: 'Management update complete. Application containers and storage were preserved.'};
     return route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update}});
   });
@@ -37,8 +37,17 @@ test('review, confirm, survive a lost install response and reconnect to durable 
   await page.getByRole('dialog').getByRole('button', {name: 'Install management update', exact: true}).click();
   await expect(page.getByText('Management update complete. Application containers and storage were preserved.', {exact: true})).toBeVisible();
   expect(writes.map(input => input.action)).toEqual(['plan', 'apply']);
+  await expect(page.getByRole('alert')).toHaveCount(0);
   expect(new Set(writes.map(input => input.requestId)).size).toBe(2);
   await page.reload(); await expect(page.getByText('Management update complete. Application containers and storage were preserved.', {exact: true})).toBeVisible();
+});
+test('a rejected management action remains visible after successful status reconciliation', async ({page}) => {
+  await page.route('**/api/management-update', route => route.request().method() === 'POST' ?
+    route.fulfill({status: 409, json: {error: 'Wait for the active application operation to finish.'}}) :
+    route.fulfill({json: {supported: true, currentVersion: '0.3.14-alpha', update: null}}));
+  await open(page); await page.getByRole('button', {name: 'Review management update to 99.0.0-alpha'}).click();
+  await expect(page.getByRole('alert')).toContainText('Wait for the active application operation to finish.');
+  await expect(page.getByRole('button', {name: 'Review management update to 99.0.0-alpha'})).toBeEnabled();
 });
 test('expired reviews allow cancellation and committed recovery offers only forward resume', async ({page}) => {
   let update = {...review(), expires: Date.now() - 60000};

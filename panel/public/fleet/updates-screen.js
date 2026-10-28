@@ -15,6 +15,7 @@ export function createUpdatesScreen({model, notice}) {
     managementHost = '',
     managementBusy = false,
     managementError = '',
+    managementActionError = null,
     managementTimer,
     managementGeneration = 0;
   const server = () =>
@@ -46,6 +47,7 @@ export function createUpdatesScreen({model, notice}) {
         managementHost = event.target.value;
         management = null;
         managementError = '';
+        managementActionError = null;
         await loadManagement(ctx);
       },
     );
@@ -148,7 +150,9 @@ export function createUpdatesScreen({model, notice}) {
       const value = await ctx.request(managementRoute());
       if (version !== managementGeneration || !ctx.isCurrent()) return;
       management = value;
-      managementError = '';
+      if (value.update?.requestId === managementActionError?.requestId)
+        managementActionError = null;
+      managementError = managementActionError?.message || '';
     } catch (error) {
       if (version !== managementGeneration || !ctx.isCurrent()) return;
       if (['planning', 'running'].includes(management?.update?.state))
@@ -184,6 +188,7 @@ export function createUpdatesScreen({model, notice}) {
         : {action, id: management.update.id, confirm: true, requestId};
     managementBusy = true;
     managementError = '';
+    managementActionError = null;
     management = {
       ...management,
       update: {
@@ -198,6 +203,7 @@ export function createUpdatesScreen({model, notice}) {
     } catch (error) {
       // A disconnected response may mean the fixed helper already started.
       // Read status; never automatically resubmit an install.
+      managementActionError = {requestId, message: error.message};
       managementError = error.message + ' Checking retained update status…';
     } finally {
       managementBusy = false;
