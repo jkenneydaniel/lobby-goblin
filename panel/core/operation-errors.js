@@ -70,7 +70,7 @@ const reasons = Object.freeze({
   ],
   'management-inspection-failed': [
     'A management inspection or publication failed.',
-    'Check the affected management service and its operation history. Retain the update ID before retrying recovery.',
+    'Open Updates to review the saved result and available recovery actions. If the panel is unavailable, use the host recovery guide.',
   ],
   'docker-unavailable': [
     'The local Docker connection is unavailable.',
@@ -78,7 +78,7 @@ const reasons = Object.freeze({
   ],
   'management-update-failed': [
     'The management coordinator could not complete this step.',
-    'Retain the update ID and recovery records. Check the recorded phase before resuming or rolling back.',
+    'Recovery details are saved automatically. Open Updates for the safe recovery actions, or use the host recovery guide if the panel is unavailable.',
   ],
 });
 export function operationReason(code) {

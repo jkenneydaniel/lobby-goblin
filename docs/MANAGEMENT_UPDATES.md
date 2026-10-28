@@ -16,14 +16,18 @@ unchanged; native ARM game support remains deferred.
 
 ## Updating from the panel
 
-In **Updates → Update management services**, choose the management host and
+In **Updates**, choose the management host when more than one is connected and
 review the displayed release. Review resolves the owned published runtime to an
 immutable digest, validates the installation and shows the number of management
-services and protected application containers. Confirm **Install management
-update** within fifteen minutes. An expired review can be cancelled and repeated.
+services and protected application containers. Confirm **Install update** within fifteen minutes. An expired review can be cancelled and repeated.
 
 The fixed coordinator runs independently of the broker, panel and controllers it
-replaces. The panel briefly disconnects and polls for reconnection. Sessions are
+replaces. The panel briefly disconnects and polls for reconnection. Browser navigation during
+maintenance shows a self-contained goblin page with automatic reconnection; API
+clients still receive the existing 503 JSON error. Readiness checks read the same
+page, never replay an update, and do not mistake the liveness endpoint for activation.
+After a longer wait, the page offers host recovery help while continuing to check.
+Sessions are
 held in memory, so sign in again after the panel restarts; reopen Updates to read
 the durable result. The same controls support paired remote hosts, including
 aligning an older agent to the panel's installed version.
@@ -51,11 +55,18 @@ Use the matching new release's operator command below once. This uses the offici
 image, without a local map-preview patch or image overlay. Later updates use the
 panel on Windows, macOS and Linux.
 
-Retain the displayed update ID. If management remains reachable after an
-interruption, use **Resume update**, or **Restore previous management** before
-activation is committed. A committed update offers forward resume only. If
+Recovery records, update references and metadata snapshots are saved on the host
+automatically. You do not need to copy an ID before installing or keep the browser
+open. Reopen **Updates** after an interruption to read its saved result and use
+**Resume update**, or **Restore previous version** before
+activation is committed. A committed update offers forward resume only: restoring
+an old snapshot after new management writers have been activated could overwrite
+newer data. Recovery pauses for inspection when an outcome is uncertain instead
+of blindly retrying a cutover or restoring metadata. If
 ingress or a held controller cannot reconnect, use the operator command below
-from the matching release with the same ID and fleet. Completed CLI recovery
+from the matching release with the saved update reference and fleet. References
+remain available under **Update details** for operator diagnostics; ordinary panel
+recovery selects the saved update automatically. Completed CLI recovery
 publishes a verified broker receipt after final cleanup so stale panel progress
 cannot keep application changes blocked. A killed coordinator may leave a filesystem
 lease requiring offline identity-bound inspection through `panel/storage.js`;
