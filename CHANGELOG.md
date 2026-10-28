@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.13-alpha — 2026-10-27
+
+- Add public curl/wget host-agent setup commands pinned to the panel release.
+  Validate downloaded source before running the existing installer; keep Docker
+  installation explicit and retain extracted-release and Windows setup support.
+- Add administrator-only retained storage inspection, confirmed permanent deletion
+  and recovery into an independent stopped server with fresh management credentials.
+  Preserve original volumes and shared snapshots unless explicitly deleted.
+- Preserve Factorio worlds, mods and presets, and Rust player progress, frameworks,
+  exact software records and private cache permissions during recovery. Refuse
+  interrupted changes, incomplete copies and unsafe metadata or storage links.
+- Keep registry, snapshot and historical updater formats compatible. Publishing
+  does not deploy installations or modify running servers or existing worlds.
+
 ## 0.3.12-alpha — 2026-10-27
 
 - Let administrators enable management release checks and choose the stable or

@@ -19,6 +19,8 @@ const test = base.extend({
       return route.abort();
     });
     await use(page);
+    // Finish in-flight response handlers before context teardown disposes them.
+    await page.unrouteAll({behavior: 'wait'});
     expect(errors, 'Uncaught browser errors').toEqual([]);
     expect(external, 'Unexpected external requests').toEqual([]);
   },

@@ -6,7 +6,7 @@ import path from 'node:path';
 import {spawnSync,execFileSync} from 'node:child_process';
 const unix=process.platform==='win32'?test.skip:test;
 const script=await fs.readFile(new URL('../../Install.sh',import.meta.url),'utf8');
-async function fixture(t,{tool='curl',version='0.3.12-alpha',link=false}={}){
+async function fixture(t,{tool='curl',version='0.3.13-alpha',link=false}={}){
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'goblin public bootstrap '));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const source=path.join(root,'archive/lobby-goblin-fixture'),bin=path.join(root,'bin'),temporary=path.join(root,'temporary');
  await fs.mkdir(path.join(source,'panel'),{recursive:true});await fs.mkdir(bin);await fs.mkdir(temporary);
@@ -20,13 +20,13 @@ async function fixture(t,{tool='curl',version='0.3.12-alpha',link=false}={}){
  const download='#!/bin/sh\noutput=""\nnext=no\nfor arg do\n if [ "$next" = yes ]; then output=$arg; next=no; fi\n case "$arg" in --output) next=yes ;; --output-document=*) output=${arg#--output-document=} ;; esac\ndone\nprintf "%s\\n" "$@" > "$BOOTSTRAP_DOWNLOAD"\ncp "$BOOTSTRAP_ARCHIVE" "$output"\n[ "${BOOTSTRAP_FAIL_DOWNLOAD:-0}" != 1 ] || exit 22\n';
  await fs.writeFile(path.join(bin,tool),download,{mode:0o755});
  const env={...process.env,PATH:bin,TMPDIR:temporary,BOOTSTRAP_ARCHIVE:archive,BOOTSTRAP_ARGS:path.join(root,'args'),BOOTSTRAP_DONE:path.join(root,'done'),BOOTSTRAP_DOWNLOAD:path.join(root,'download')};
- const run=(args=['--version','0.3.12-alpha','--host-agent','--prepare','--directory','new host'])=>spawnSync('/bin/bash',['-s','--',...args],{input:script,encoding:'utf8',cwd:root,env});
+ const run=(args=['--version','0.3.13-alpha','--host-agent','--prepare','--directory','new host'])=>spawnSync('/bin/bash',['-s','--',...args],{input:script,encoding:'utf8',cwd:root,env});
  return {root,temporary,env,run};
 }
 for(const tool of ['curl','wget'])unix(`piped ${tool} bootstrap downloads the selected tag, forwards exact arguments and cleans temporary source`,async t=>{
  const f=await fixture(t,{tool}),result=f.run();assert.equal(result.status,0,result.stderr);
  assert.deepEqual((await fs.readFile(f.env.BOOTSTRAP_ARGS,'utf8')).trim().split('\n'),['--host-agent','--prepare','--directory','new host']);
- assert.match(await fs.readFile(f.env.BOOTSTRAP_DOWNLOAD,'utf8'),/https:\/\/github.com\/jkenneydaniel\/lobby-goblin\/archive\/refs\/tags\/v0.3.12-alpha.tar.gz/);
+ assert.match(await fs.readFile(f.env.BOOTSTRAP_DOWNLOAD,'utf8'),/https:\/\/github.com\/jkenneydaniel\/lobby-goblin\/archive\/refs\/tags\/v0.3.13-alpha.tar.gz/);
  assert.deepEqual(await fs.readdir(f.temporary),[]);
 });
 unix('bootstrap rejects an invalid version before download and a source version mismatch before execution',async t=>{
