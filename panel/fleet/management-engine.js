@@ -14,6 +14,11 @@ import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet';
+const privateOutput = output => {
+  if (!Buffer.isBuffer(output)) return 'Worker diagnostic output was unavailable.';
+  const text = demultiplex(output);
+  return text.length <= 2000 ? text : text.slice(0,1000) + ' … ' + text.slice(-990);
+};
 const endpoint = (id, tail) =>
   '/containers/' + encodeURIComponent(id) + '/' + tail;
 const environment = (info) =>
@@ -164,8 +169,9 @@ export class ManagementEngine {
       {raw: true},
     );
     const result = await this.request('GET', '/exec/' + command.Id + '/json');
-    if (result.Running || result.ExitCode !== 0) throw new ManagementFailure('management-inspection-failed');
-    return JSON.parse(demultiplex(output));
+    if (result.Running || result.ExitCode !== 0) throw new ManagementFailure('management-inspection-failed', {cause: new Error(privateOutput(output))});
+    try { return JSON.parse(demultiplex(output)); }
+    catch (cause) { throw new ManagementFailure('management-inspection-failed', {cause}); }
   }
   async readFile(id, file) {
     return archiveFile(
@@ -709,11 +715,10 @@ export class ManagementEngine {
       await this.request('POST', endpoint(helper.Id, 'start'));
     await this.wait(async () => !(await this.inspect(helper.Id)).State.Running);
     const final = await this.inspect(helper.Id);
-    assert(
-      final.State.ExitCode === 0,
-      'Metadata helper failed. Keep management stopped and preserve the private snapshot.',
-      409,
-    );
+    if (final.State.ExitCode !== 0) {
+      const logs = await this.request('GET', endpoint(helper.Id,'logs?') + new URLSearchParams({stdout:'1',stderr:'1',tail:'100'}), undefined, {raw:true}).catch(() => null);
+      throw new ManagementFailure(final.State.OOMKilled ? 'storage-worker-out-of-memory' : 'management-inspection-failed', {cause:new Error(privateOutput(logs))});
+    }
     return this.storageResult(helper.Id, plan, operation, manifestHash);
   }
   async storageResult(id, plan, operation, manifestHash) {

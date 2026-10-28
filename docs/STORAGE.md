@@ -185,3 +185,11 @@ administrator checks and acknowledges their outcome in operation history. It
 never infers that an earlier interruption succeeded because a later attempt did.
 Unknown collisions, modified identities and ambiguous external references require
 operator review and are left unchanged. Repeating a completed repair is a no-op.
+
+Normal history writers enforce valid, unique operation IDs for controller jobs,
+host jobs and host setup history. JSON writes, SQLite writes and related-document
+transactions validate before publication; generated-ID collisions are also
+refused before reservation audit/effects. Read paths remain compatible with
+historical records so the documented repair can inspect them. Unknown duplicates
+cannot be resaved or silently renamed. These checks add no storage schema version
+or database migration and do not change idempotency/request-ID semantics.

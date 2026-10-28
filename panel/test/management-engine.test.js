@@ -222,3 +222,17 @@ test('pre-cutover mount verification ignores Docker inspect order while rejectin
   info.Mounts[0].Source='/tmp/foreign.sock';
   await assert.rejects(driver.verifyOriginals({services:[service]}),/mounts changed after review/);
 });
+
+test('failed inspection retains bounded private worker output while public errors remain fixed',async()=>{
+ const {managementFailure}=await import('../core/management-errors.js');
+ const driver=new ManagementEngine({socket:'/unused-fixture.sock',engine:engineId,request:async(method,route)=>{
+  if(route.endsWith('/exec'))return {Id:'inspection'};
+  if(route.endsWith('/start'))return Buffer.from('Unsupported registry. private-controller-value '+ 'x'.repeat(10000));
+  return {Running:false,ExitCode:1};
+ }});
+ await assert.rejects(driver.exec('owned-service','fixed script'),error=>{
+  assert.equal(managementFailure(error).code,'management-inspection-failed');
+  assert.doesNotMatch(JSON.stringify(managementFailure(error)),/private-controller-value/);
+  assert.match(error.cause.message,/Unsupported registry/);assert.ok(error.cause.message.length<=2000);return true;
+ });
+});

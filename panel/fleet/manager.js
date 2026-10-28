@@ -1,6 +1,8 @@
+import {hostWorkerLifecycle} from './worker-lifecycle.js';
+import {retainOperationDiagnostic} from '../core/operation-diagnostics.js';
 import {RetainedStorage} from './retained-manager.js';
 import {creationSeedRange} from '../core/managed-game.js';
-import {storageWorkerCapabilities,storageWorkerMessage} from './storage-worker.js';
+import {storageWorkerCapabilities,storageWorkerError} from './storage-worker.js';
 import {regularFile,parseStorageJSON} from '../core/storage/files.js';
 import {creationPreflight} from '../core/creation-preflight.js';
 import {publicSoftwareDelivery} from '../core/software-delivery.js';
@@ -36,7 +38,7 @@ export class FleetManager{
   assert(!this.broker||this.state.servers.every(item=>item.state==='removed'||item.isolationVersion===1),'Existing controllers require a reviewed broker upgrade; no resources were adopted.',409);
   for(const item of this.state.servers)delete item.maintenance;
   this.audit=new AuditLog(this.root);
-  this.operations=new Operations({record:event=>this.audit.append({...event,scope:'host:'+this.fleet}),getJobs:()=>this.state.jobs,setJobs:value=>{this.state.jobs=value;},getActive:()=>this.active,setActive:value=>{this.active=value;},
+  this.operations=new Operations({failure:(error,job)=>retainOperationDiagnostic(this.root,error,{id:job.id,source:'host-operations',phase:job.phase||'unknown'}),record:event=>this.audit.append({...event,scope:'host:'+this.fleet}),getJobs:()=>this.state.jobs,setJobs:value=>{this.state.jobs=value;},getActive:()=>this.active,setActive:value=>{this.active=value;},
    persist:()=>this.persist(),id:()=>crypto.randomBytes(16).toString('hex'),inspect:job=>this.inspectOperation(job)});
   await this.operations.init();
  }
@@ -133,13 +135,15 @@ export class FleetManager{
  }
  async helper(item,config,{write=false}={}){
   await this.ownedVolume(item.volume,item.id);const requestId=crypto.randomBytes(16).toString('hex'),directory=path.join(this.root,'requests',requestId);await fs.mkdir(directory,{recursive:true});await writeJSON(path.join(directory,'request.json'),{...config,fleet:this.fleet,id:item.id,game:item.game});
-  const name=`lobby-goblin-worker-${requestId}`;let created=false;
-  try{await this.docker('POST','/containers/create?'+new URLSearchParams({name}),{Image:this.runtimeImage||this.image,User:'0:0',Entrypoint:['node','/app/fleet/worker.js'],Labels:{...labels(this.fleet,item.id,item.game),'io.lobby-goblin.worker':'true'},HostConfig:{NetworkMode:'none',CapDrop:['ALL'],CapAdd:[...storageWorkerCapabilities],SecurityOpt:['no-new-privileges:true'],Memory:512*1024**2,NanoCpus:1000000000,Mounts:[{Type:'volume',Source:this.stateVolume,Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:item.volume,Target:'/instance',ReadOnly:!write},{Type:'volume',Source:this.libraryVolume,Target:'/library',ReadOnly:config.action!=='snapshot'}]}});created=true;await this.docker('POST',`/containers/${name}/start`);const result=await this.docker('POST',`/containers/${name}/wait?condition=not-running`,undefined,{timeout:1200000});if(result.StatusCode!==0){
+  const name=`lobby-goblin-worker-${requestId}`,lifecycle=await hostWorkerLifecycle(this,name,item.id);let createdId=null,retainRequest=false,creationAttempted=false;
+  try{creationAttempted=true;const reservation=await this.docker('POST','/containers/create?'+new URLSearchParams({name}),{Image:this.runtimeImage||this.image,User:'0:0',Entrypoint:['node','/app/fleet/worker.js'],Labels:{...labels(this.fleet,item.id,item.game),'io.lobby-goblin.worker':'true'},HostConfig:{NetworkMode:'none',CapDrop:['ALL'],CapAdd:[...storageWorkerCapabilities],SecurityOpt:['no-new-privileges:true'],Memory:512*1024**2,NanoCpus:1000000000,Mounts:[{Type:'volume',Source:this.stateVolume,Target:'/setup',VolumeOptions:{Subpath:'requests/'+requestId}},{Type:'volume',Source:item.volume,Target:'/instance',ReadOnly:!write},{Type:'volume',Source:this.libraryVolume,Target:'/library',ReadOnly:config.action!=='snapshot'}]}});await lifecycle.created(reservation.Id);createdId=reservation.Id;await this.docker('POST',`/containers/${name}/start`);const result=await this.docker('POST',`/containers/${name}/wait?condition=not-running`,undefined,{timeout:1200000});if(result.StatusCode!==0){
     const worker=await this.ownedContainer(name,item.id);let failure=null;
-    try{const bytes=await regularFile(path.join(directory,'failure.json'),{optional:true,max:4096});if(bytes)failure=parseStorageJSON(bytes);}catch{}
-    assert(false,storageWorkerMessage(failure,{oomKilled:worker.State?.OOMKilled,exitCode:result.StatusCode}),409);
-   }return await readJSON(path.join(directory,'result.json'),null);
-  }finally{if(created){const worker=await this.ownedContainer(name,item.id);if(worker.State?.Running)await this.docker('POST',`/containers/${name}/stop?t=15`);await this.docker('DELETE',`/containers/${name}`);}await fs.rm(directory,{recursive:true,force:true});}
+    try{const bytes=await regularFile(path.join(directory,'failure.json'),{optional:true,max:65536});if(bytes)failure=parseStorageJSON(bytes);}catch{}
+    await lifecycle.collected(result.StatusCode);
+    throw storageWorkerError(failure,{oomKilled:worker.State?.OOMKilled,exitCode:result.StatusCode});
+   }const output=await readJSON(path.join(directory,'result.json'),null);await lifecycle.collected(result.StatusCode);return output;
+  }catch(error){const diagnostic=await retainOperationDiagnostic(this.root,error,{id:this.active.id,source:'host-operations',phase:this.active.phase||'executing'});retainRequest=!diagnostic.retained;throw error;}
+  finally{await lifecycle.teardown(async()=>{if(createdId){const worker=await this.ownedContainer(createdId,item.id);if(worker.State?.Running)await this.docker('POST',`/containers/${createdId}/stop?t=15`);await this.docker('DELETE',`/containers/${createdId}`);await lifecycle.removed();}else if(creationAttempted){retainRequest=true;await lifecycle.review();}});if(!retainRequest)await fs.rm(directory,{recursive:true,force:true});}
  }
  preflight(input){return creationPreflight(this,input);}
  async inspectStorage(input,job){return this.retained.inspect(input,job);}

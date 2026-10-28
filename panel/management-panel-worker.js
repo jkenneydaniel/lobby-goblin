@@ -53,8 +53,8 @@ export async function runPanelUpdate({input, workflow, resolveImage, save}) {
         'The update was cancelled or rolled back. Previous management services were preserved.' :
         'Management update complete. Application containers and storage were preserved.');
   } catch (error) {
-    const diagnostic = managementFailure(error);
     plan = await workflow.status(input.id).catch(() => plan);
+    const diagnostic = workflow.failure ? await workflow.failure(error, input.id, plan?.operation?.phase || 'planning') : managementFailure(error);
     const recover = !!plan || input.action !== 'plan';
     await publish(recover ? 'attention' : 'failed', diagnostic.message + ' ' + diagnostic.action, undefined, diagnostic);
   }

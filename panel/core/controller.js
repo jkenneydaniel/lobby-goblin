@@ -1,3 +1,4 @@
+import {retainOperationDiagnostic} from './operation-diagnostics.js';
 import {ApplicationReleases} from './application-releases.js';
 import {managementMaintenance,assertManagementIdle} from './management-maintenance.js';
 import {dockerTransport} from './broker-client.js';
@@ -42,7 +43,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const persistJobs=()=>{const snapshot=structuredClone(jobs),next=jobWrites.then(()=>jobsRepository.save(jobsSnapshot,snapshot));jobWrites=next.catch(()=>{});return next;};
   const audit=new AuditLog(state);
   if(maintenance.held)await audit.list();
-  const operations=new Operations({record:event=>audit.append({...event,scope:env.FLEET_INSTANCE?'/servers/'+env.FLEET_INSTANCE:'standalone'}),getJobs:()=>jobs,setJobs:value=>{jobs=value;},getActive:()=>active,setActive:value=>{active=value;},persist:persistJobs,
+  const operations=new Operations({failure:(error,job)=>retainOperationDiagnostic(state,error,{id:job.id,source:'application-operations',phase:job.phase||'unknown'}),record:event=>audit.append({...event,scope:env.FLEET_INSTANCE?'/servers/'+env.FLEET_INSTANCE:'standalone'}),getJobs:()=>jobs,setJobs:value=>{jobs=value;},getActive:()=>active,setActive:value=>{active=value;},persist:persistJobs,
     retryable:job=>module.contract.actions[job.action]?.retry==='convergent',inspect:async job=>{
       if(game.inspectOperation)return game.inspectOperation(job);
       for(const source of game.operationSources||[]){const observation=await source.inspectJob?.(job);if(observation)return observation;}

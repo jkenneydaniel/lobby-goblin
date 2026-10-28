@@ -64,7 +64,7 @@ export async function operatorManagement(command, options, {docker, execute = ru
     const stopped = await docker('POST', '/containers/' + created.Id + '/wait?condition=not-running', undefined, {timeout: 1200000});
     const logs = await docker('GET', '/containers/' + created.Id + '/logs?stdout=1&stderr=0', undefined, {raw: true});
     const value = JSON.parse(demultiplex(logs).trim());
-    if (stopped.StatusCode !== 0 || value.error) throw new ManagementFailure(value.diagnostic?.code);
+    if (stopped.StatusCode !== 0 || value.error) throw ManagementFailure.fromDiagnostic(value.diagnostic);
     return value;
   } catch (error) {
     const diagnostic = managementFailure(error);

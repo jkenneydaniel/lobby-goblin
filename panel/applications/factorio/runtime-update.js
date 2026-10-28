@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {
   assert,
+  HttpError,
   readJSON,
   writeJSON,
   existingFile,
@@ -257,11 +258,8 @@ export class RuntimeUpdates {
       await this.control('stop').catch(() => {});
       record.phase = 'recovery-required';
       await writeJSON(this.file, record);
-      throw new Error(
-        'Factorio software update needs recovery. The server was left stopped; its previous release and backup were retained. ' +
-          error.message,
-        {cause: error},
-      );
+      throw Object.assign(new HttpError(409,
+        'Factorio software update needs recovery. The server was left stopped; its previous release and backup were retained.'), {cause:error});
     }
   }
   async recover({confirm}, job) {

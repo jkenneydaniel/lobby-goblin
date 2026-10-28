@@ -9,7 +9,7 @@ import {createRustModLibrary} from './mod-library.js';
 import {modLibraryRoutes,validateLibraryAction} from '../../core/mod-library.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {assert,json,sleep,requestJSON} from '../../common.js';
+import {HttpError,assert,json,sleep,requestJSON} from '../../common.js';
 import {ownedImage} from '../../core/game-images.js';
 import {demultiplex} from '../../core/docker.js';
 import {createWebRcon,sanitizeLogs} from './transport.js';
@@ -67,7 +67,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       assert(current.State?.Running&&!current.State?.Restarting&&!current.State?.OOMKilled&&(current.RestartCount||0)===restarts,'Rust exited or restarted before becoming ready. Check its logs and host resources before retrying.');
       await sleep(pollInterval);
     }while(Date.now()<deadline);
-    throw Error('Rust did not become ready in time. It may still be loading; check status and logs before retrying.');
+    throw new HttpError(409,'Rust did not become ready in time. It may still be loading; check status and logs before retrying.');
   }
   const mods=createModManager({root:config.installRoot,state:config.state,mutableStores:createRustModStores(config),getActive:()=>ctx.active,fetcher:modFetcher,assertStopped:async()=>{assert(!(await owned()).State?.Running,'Stop Rust before changing mod files.',409);},command:async value=>{assert(started(await owned(),await serverInfo()),'Wait for Rust to finish startup.',409);return command(value);}});
   async function rememberProtocol(){
@@ -106,7 +106,7 @@ export async function createRust(ctx,{rcon=createWebRcon(),readyTimeout=600000,p
       assert(!(await owned()).State?.Running,'Rust restarted during backup; snapshot discarded.');
       await verifyArchive(target);
     }catch(error){originalError=error;}
-    if(stopped){try{await start();}catch(error){throw Error((originalError?'Backup failed. ':'Snapshot copying finished, but the backup was not published. ')+'Rust could not be resumed; check status and start it manually.',{cause:error});}}
+    if(stopped){try{await start();}catch(error){throw Object.assign(new HttpError(409,(originalError?'Backup failed. ':'Snapshot copying finished, but the backup was not published. ')+'Rust could not be resumed; check status and start it manually.'),{cause:error});}}
     if(originalError)throw originalError;
   }
   async function status(){

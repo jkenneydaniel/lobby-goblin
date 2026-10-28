@@ -313,7 +313,9 @@ test('real isolated helper reports bounded storage failures and cleans only its 
   }
   return original(method,route,data,...rest);
  };
+ const {job:workerJob}=await f.manager.operations.reserve({action:'publish',actor:'administrator',input:{}});
  await assert.rejects(FleetManager.prototype.helper.call(f.manager,item,{action:'snapshot'}),/Storage is full/);
+ const retained=await readJSON(path.join(f.manager.root,'operation-diagnostics','host-operations-'+workerJob.id+'.json'),null);assert.equal(retained.events[0].diagnostic.message,'Storage is full. Free space for the snapshot before retrying.');
  assert.deepEqual(await fs.readdir(path.join(f.manager.root,'requests')),[]);
  assert.ok(f.volumes.has(item.volume));assert.equal(f.containers.get(neighbor.container).State.Running,true);
  assert.ok(![...f.containers.keys()].some(name=>name.startsWith('lobby-goblin-worker-')));
@@ -321,7 +323,7 @@ test('real isolated helper reports bounded storage failures and cleans only its 
 test('requested snapshot failure blocks removal and preserves source storage and neighboring resources',async t=>{
  const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Keep source'}),neighbor=await f.submit({game:'factorio',name:'Neighbor'});
  f.containers.get(item.container).State.Running=false;
- f.manager.publish=async()=>{throw Object.assign(Error('Storage access was denied.'),{status:409});};
+ f.manager.publish=async()=>{throw Object.assign(Error('Storage access was denied.'),{code:'EACCES'});};
  const before=f.calls.length,job=await f.settled(await f.manager.submit('remove',{serverId:item.id,name:item.name,confirm:true,publishSnapshot:true}));
  assert.equal(job.state,'failed');assert.match(job.message,/access was denied/);
  assert.notEqual(item.state,'removed');assert.ok(f.volumes.has(item.volume));assert.ok(f.containers.has(item.container));assert.ok(f.containers.has(item.controller));assert.ok(f.networks.has(item.network));
@@ -374,4 +376,26 @@ test('retained recovery creates an independent stopped game without starting or 
  assert.equal(f.containers.get(recovered.container).State.Running,false);assert.equal(f.containers.get(recovered.controller).State.Running,true);assert.equal(f.containers.get(neighbor.container).State.Running,true);assert.equal(f.childRequests.length,childRequests);
  assert.ok(!f.calls.slice(before).some(c=>c.method==='POST'&&c.route===`/containers/${recovered.container}/start`));assert.equal(await fs.readFile(path.join(root,'data/saves/world.zip'),'utf8'),'synthetic retained world');
  assert.equal(await fs.readFile(path.join(f.instanceRoots.get(recovered.id),'data/saves/world.zip'),'utf8'),'synthetic retained world');
+});
+
+test('uncertain helper teardown preserves its recovery guard and original private failure',async t=>{
+ const f=await fakeManager(t),item=await f.submit({game:'factorio',name:'Recovery evidence'}),request=f.manager.docker;
+ let workerName;
+ f.manager.docker=async(method,route,data,...rest)=>{
+  if(route.includes('/wait?')){
+   const spec=f.calls.filter(call=>call.route.startsWith('/containers/create?')).at(-1).data;
+   workerName=new URL(route,'http://fixture').pathname.split('/')[2];
+   await writeJSON(path.join(f.manager.root,spec.HostConfig.Mounts[0].VolumeOptions.Subpath,'failure.json'),{version:1,error:'Storage is full. Free space for the snapshot before retrying.'});
+   Object.assign(f.containers.get(workerName).State,{Running:false,Status:'exited',ExitCode:1});return {StatusCode:1};
+  }
+  if(method==='DELETE'&&route.includes('lobby-goblin-worker-'))throw Object.assign(Error('private teardown cause'),{code:'ECONNREFUSED',syscall:'connect'});
+  return request(method,route,data,...rest);
+ };
+ const {job}=await f.manager.operations.reserve({action:'publish',actor:'administrator',input:{}});
+ await f.manager.operations.execute(job,{run:()=>FleetManager.prototype.helper.call(f.manager,item,{action:'snapshot'})});
+ assert.equal(job.recovery.required,true);assert.equal(job.workerReceipts[0].phase,'collected');assert.ok(f.containers.has(workerName));
+ const saved=await readJSON(path.join(f.manager.root,'operation-diagnostics','host-operations-'+job.id+'.json'),null);
+ assert.equal(saved.events[0].diagnostic.message,'Storage is full. Free space for the snapshot before retrying.');
+ assert.ok(saved.events.some(event=>event.causes.some(cause=>cause.message.includes('private teardown cause'))));
+ assert.doesNotMatch(JSON.stringify(f.manager.operations.status()),/private teardown cause/);
 });
