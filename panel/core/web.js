@@ -1,4 +1,5 @@
 import {managementMaintenance} from './management-maintenance.js';
+import {respondMaintenancePage} from './maintenance-page.js';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
@@ -64,6 +65,7 @@ export async function startWeb(module,{env=process.env,port=Number(env.PORT||808
     if(secureCookie)res.setHeader('strict-transport-security','max-age=31536000');
     if(req.url==='/health')return json(res,200,{ok:true});
     if(await maintenance.handle(req,res,new URL(req.url,'http://management'),{token}))return;
+    if(maintenance.held&&await respondMaintenancePage(req,res))return;
     maintenance.assertAvailable();
     checkOrigin(req,allowedHosts,origin);const url=new URL(req.url,origin||`http://${req.headers.host}`);
     if(req.method==='POST'&&url.pathname.includes('/api/')&&!req.auditContext){const principal=await session(req);return auditedResponse(audit,req,res,{...auditRequest(url.pathname,module.id==='fleet'?'panel':accessScope),actor:principal?.username||'anonymous'},buffered=>handle(req,buffered));}
