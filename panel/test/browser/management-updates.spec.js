@@ -17,6 +17,9 @@ async function open(page, user = 'Preview') {
 }
 const review = () => ({id, version: '99.0.0-alpha', state: 'reviewed', expires: Date.now() + 900000, image: 'ghcr.io/jkenneydaniel/lobby-goblin@sha256:' + 'a'.repeat(64), phase: 'planned', committed: false, actions: ['apply', 'cancel'], services: {management: 5, applications: 2}, message: 'Review complete. Management services will restart together; game containers keep running.'});
 test('review, confirm, survive a lost install response and reconnect to durable completion', async ({page}, info) => {
+  // Private LAN HTTP does not expose randomUUID. getRandomValues remains
+  // available there, so update confirmation must not require a secure context.
+  await page.addInitScript(() => Object.defineProperty(globalThis.crypto, 'randomUUID', {value: undefined}));
   let update = null, reads = 0; const writes = [];
   await page.route('**/api/management-update', route => {
     if (route.request().method() === 'POST') {

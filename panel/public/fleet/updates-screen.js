@@ -181,7 +181,10 @@ export function createUpdatesScreen({model, notice}) {
       ))
     )
       return;
-    const requestId = crypto.randomUUID().replaceAll('-', '');
+    const requestId = Array.from(
+      crypto.getRandomValues(new Uint8Array(16)),
+      (value) => value.toString(16).padStart(2, '0'),
+    ).join('');
     const body =
       action === 'plan'
         ? {action, version: targetVersion(), requestId}
