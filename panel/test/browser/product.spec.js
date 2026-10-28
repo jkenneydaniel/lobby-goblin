@@ -212,11 +212,12 @@ test('creation checks block failures and discard a late result after input chang
   expect(creates).toBe(0);
 });
 test('Factorio historical selection warns before a downgrade and never submits unlisted search text',async({page})=>{
-  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'2.1.23',software:{mode:'runtime',provider:'factorio-headless'},image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
+  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'Version: 2.1.23 (build 80123, linux64, headless)',software:{mode:'runtime',provider:'factorio-headless'},image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
   await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',stable:'2.1.23',choices:[{kind:'software',version:'2.1.23',channel:'stable'},{kind:'software',version:'2.0.77',channel:'archived'}]}}));
   const submissions=[];await page.route('**/api/jobs',route=>{if(route.request().method()==='POST')submissions.push(route.request().postDataJSON());return route.continue();});
   await factorio(page,'#settings/updates');
   const picker=page.getByRole('combobox',{name:'Factorio version',exact:true});
+  await expect(picker).toHaveAttribute('aria-autocomplete','list');
   await expect(picker).toHaveValue('2.1.23');
   await picker.fill('2.0.999');await page.locator('#software-update-form').evaluate(form=>form.requestSubmit());
   await expect(page.getByRole('dialog')).toHaveCount(0);expect(submissions).toEqual([]);
@@ -228,7 +229,7 @@ test('Factorio historical selection warns before a downgrade and never submits u
 });
 for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'recovery restores the paired backup':'selection reviews an explicit version') ,async({page},testInfo)=>{
   let recoveryState=recovery;
-  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),software:{mode:'runtime',provider:'factorio-headless'},softwareRecovery:recoveryState?{required:true,backup:'before-software-update.zip'}:null,image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
+  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'Version: 2.0.77',software:{mode:'runtime',provider:'factorio-headless'},softwareRecovery:recoveryState?{required:true,backup:'before-software-update.zip'}:null,image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
   await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',software:{mode:'runtime'},stable:'2.1.23',experimental:'2.1.24',choices:['2.1.24','2.1.23','2.0.78','2.0.77'].map(version=>({kind:'software',version,channel:version==='2.1.23'?'stable':version==='2.1.24'?'experimental':'archived',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#'+version}))}}));
   const submissions=[];await page.route('**/api/jobs',async route=>{if(route.request().method()!=='POST')return route.continue();submissions.push(route.request().postDataJSON());recoveryState=!recovery;await route.fulfill({status:202,json:{id:'synthetic-runtime-job',state:'queued'}});});
   await factorio(page,'#settings/updates');
@@ -240,6 +241,7 @@ for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'
     await page.getByRole('dialog').getByRole('button',{name:'Restore previous release',exact:true}).click();
   }else{
     const picker=page.getByRole('combobox',{name:'Factorio version',exact:true});
+    await expect(picker).toHaveAttribute('aria-autocomplete','list');
     await expect(picker).toHaveValue('2.0.77');
     await expect(page.getByRole('button',{name:'Review software update',exact:true})).toBeDisabled();
     await picker.fill('9.9.9');

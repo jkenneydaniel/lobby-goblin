@@ -1,6 +1,6 @@
 import {bindGameUpdate} from '../game-update.js';
 import {mountVersionPicker, versionLabel} from '../shared/version-picker.js';
-import {compareVersions} from '../shared/versions.js';
+import {compareVersions, reportedVersion} from '../shared/versions.js';
 
 export function createUpdateWorkflow({
   getState,
@@ -75,6 +75,7 @@ export function createUpdateWorkflow({
       });
     if (status.software?.mode === 'runtime') {
       const form = $('#software-update-form'),
+        installedVersion = reportedVersion(status.version),
         select = form?.elements.release,
         button = form?.querySelector('button');
       async function changeSoftware(action, version) {
@@ -82,8 +83,12 @@ export function createUpdateWorkflow({
         updateReviewPending = true;
         try {
           const recover = action === 'software-recover';
-          const older =
-            !recover && compareVersions(version, getState().status.version) < 0;
+          const current = reportedVersion(getState().status.version);
+          if (!recover && !current)
+            throw Error(
+              'The installed Factorio version is unavailable. Refresh the server status before changing software.',
+            );
+          const older = !recover && compareVersions(version, current) < 0;
           if (
             await ctx.confirm(
               recover
@@ -131,7 +136,7 @@ export function createUpdateWorkflow({
               ...choices.map(
                 (choice) =>
                   new Option(
-                    versionLabel(choice, status.version),
+                    versionLabel(choice, installedVersion),
                     choice.version,
                   ),
               ),
@@ -143,18 +148,20 @@ export function createUpdateWorkflow({
             // An update is always an explicit selection; never default to the
             // first (often experimental) release when loading the catalogue.
             select.value = choices.some(
-              (choice) => choice.version === status.version,
+              (choice) => choice.version === installedVersion,
             )
-              ? status.version
+              ? installedVersion
               : '';
             form.querySelector('[data-part=software-status]').textContent =
               data.error ||
-              'Factorio 2.x releases · Stable: ' +
-                data.stable +
-                (data.experimental
-                  ? ' · Experimental: ' + data.experimental
-                  : '') +
-                (data.console ? ' · Console: ' + data.console : '');
+              (!installedVersion
+                ? 'Waiting for Factorio to report its installed version before enabling changes.'
+                : 'Factorio 2.x releases · Stable: ' +
+                  data.stable +
+                  (data.experimental
+                    ? ' · Experimental: ' + data.experimental
+                    : '') +
+                  (data.console ? ' · Console: ' + data.console : ''));
             const choose = () => {
               const choice = choices.find(
                   (value) => value.version === select.value,
@@ -164,15 +171,17 @@ export function createUpdateWorkflow({
               if (choice) link.href = choice.notesUrl;
               button.disabled =
                 !choice ||
-                choice.version === status.version ||
+                !installedVersion ||
+                choice.version === installedVersion ||
                 !!status.activeJob;
             };
             listen(select, 'change', choose);
+            select.disabled = !choices.length;
             mountVersionPicker(select, {
               choices: choices.map((choice) => ({
                 value: choice.version,
                 display: choice.version,
-                label: versionLabel(choice, status.version),
+                label: versionLabel(choice, installedVersion),
               })),
               signal: AbortSignal.any([ctx.signal, controls.signal]),
             });

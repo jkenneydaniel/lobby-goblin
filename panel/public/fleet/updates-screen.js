@@ -1,5 +1,5 @@
 import {escapeHTML as esc, formatDate} from '../shared/view.js';
-import {version, compareVersions} from '../shared/versions.js';
+import {version, compareVersions, reportedVersion} from '../shared/versions.js';
 import {mountVersionPicker} from '../shared/version-picker.js';
 
 export function createUpdatesScreen({model, notice}) {
@@ -132,9 +132,9 @@ export function createUpdatesScreen({model, notice}) {
         if (choice) link.href = choice.notesUrl;
       });
     if (select && catalogue?.choices?.length) {
-      const installed = model.snapshot.live.get(
-        server()?.hostId + ':' + server()?.id,
-      )?.version;
+      const installed = reportedVersion(
+        model.snapshot.live.get(server()?.hostId + ':' + server()?.id)?.version,
+      );
       const current = catalogue.choices.find(
         (choice) => choice.version === installed,
       );
