@@ -1,6 +1,8 @@
 import {escapeHTML as esc, formatDate} from '../shared/view.js';
 
 export function createUpdatesScreen({model, notice}) {
+  const expanded = new Set();
+  let settingsDraft = null;
   let release = null,
     host = null,
     settings = null,
@@ -24,11 +26,33 @@ export function createUpdatesScreen({model, notice}) {
     );
   function paint(ctx) {
     if (!ctx.isCurrent()) return;
-    const item = server(),
-      latest = release?.latest;
+    for (const element of ctx.root.querySelectorAll(
+      '[data-update-disclosure]',
+    )) {
+      if (element.open) expanded.add(element.dataset.updateDisclosure);
+      else expanded.delete(element.dataset.updateDisclosure);
+    }
     ctx.render(
-      `<div class="heading"><div><h1>Updates</h1><p>Review management releases and application versions before making a change.</p></div><button data-check-updates ${checking || !settings?.enabled ? 'disabled' : ''}>${checking ? 'Checking…' : 'Check for updates'}</button></div>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<section class="card"><h2>Panel and controllers</h2><p class="version-path">Installed <strong>${esc(release?.current || host?.version || 'Checking…')}</strong>${latest ? ` → <strong>${esc(latest.tag)}</strong>` : ''}</p><p role="status">${esc(release?.error || (!release ? 'Checking releases…' : release.available ? 'A newer management release is available.' : release.state === 'disabled' ? 'Release checks are off. Enable them below to check GitHub for management releases.' : release.state === 'current' ? 'You have the newest release in this channel.' : 'No eligible release is available.'))}</p>${managementView()}${settings?.editable ? `<form data-release-settings><h3>Release checks</h3><label class="check"><input type="checkbox" name="enabled" ${settings.enabled ? 'checked' : ''} ${saving ? 'disabled' : ''}> Check GitHub for management releases</label><label>Release channel<select name="channel" ${saving ? 'disabled' : ''}><option value="stable" ${settings.channel === 'stable' ? 'selected' : ''}>Stable releases</option><option value="preview" ${settings.channel === 'preview' ? 'selected' : ''}>Preview and stable releases</option></select></label><p class="hint">Checks run every six hours while enabled. Saving these settings does not install an update or restart servers.</p><button type="submit" ${saving ? 'disabled' : ''}>${saving ? 'Saving…' : 'Save release settings'}</button></form>` : ''}<p class="hint">Channel: ${esc(release?.channel || '—')} · Last checked: ${esc(formatDate(release?.checkedAt))}</p>${latest ? `<a class="button" href="${esc(latest.url)}" target="_blank" rel="noopener noreferrer">Release notes and download</a><details><summary>What changed</summary><pre class="release-notes">${esc(latest.notes || 'Open the release notes for details.')}</pre></details>` : ''}<p><a href="/#hosts">Review connected host agents</a> · Agent alignment controls are available under Hosts.</p></section><section class="card"><h2>Application versions</h2><label>Server<select data-update-server><option value="">Choose a server</option>${model.snapshot.servers.map((value) => `<option value="${esc(value.hostId + ':' + value.id)}" ${selected === value.hostId + ':' + value.id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.hostName)}</option>`).join('')}</select></label>${loading ? '<p role="status">Checking published releases…</p>' : ''}<div data-application-releases>${applicationView(item, catalogue)}</div></section>`,
+      `<div class="heading updates-heading"><h1>Updates</h1><button data-check-updates ${checking || settings?.enabled === false ? 'disabled' : ''}>${checking ? 'Checking…' : 'Check for updates'}</button></div>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<section class="card updates-card" aria-label="Lobby Goblin updates">${managementView()}${settingsView()}${disclosure('help', 'Update help', '<p>If an update is interrupted, use its recovery actions above. If the panel stays unavailable, follow the host recovery guide.</p>' + guide('Open host recovery guide'))}</section><section class="card updates-card" aria-label="Game updates"><h2>Game servers</h2><label>Server<select data-update-server><option value="">Choose a server</option>${model.snapshot.servers.map((value) => `<option value="${esc(value.hostId + ':' + value.id)}" ${selected === value.hostId + ':' + value.id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.hostName)}</option>`).join('')}</select></label>${loading ? '<p role="status">Checking game releases…</p>' : ''}<div data-application-releases>${applicationView(server(), catalogue)}</div></section>`,
     );
+    for (const element of ctx.root.querySelectorAll('[data-update-disclosure]'))
+      ctx.on(element, 'toggle', () => {
+        if (element.open) expanded.add(element.dataset.updateDisclosure);
+        else expanded.delete(element.dataset.updateDisclosure);
+      });
+    const retry = ctx.root.querySelector('[data-retry-management]');
+    if (retry) ctx.on(retry, 'click', () => loadManagement(ctx));
+    const configure = ctx.root.querySelector('[data-open-update-settings]');
+    if (configure)
+      ctx.on(configure, 'click', () => {
+        const element = ctx.root.querySelector(
+          '[data-update-disclosure="settings"]',
+        );
+        if (element) {
+          element.open = true;
+          element.querySelector('input')?.focus();
+        }
+      });
     ctx.on(ctx.root.querySelector('[data-check-updates]'), 'click', () =>
       check(ctx, true),
     );
@@ -40,23 +64,29 @@ export function createUpdatesScreen({model, notice}) {
         await loadApplication(ctx);
       },
     );
-    ctx.on(
-      ctx.root.querySelector('[data-management-host]'),
-      'change',
-      async (event) => {
+    const hostPicker = ctx.root.querySelector('[data-management-host]');
+    if (hostPicker)
+      ctx.on(hostPicker, 'change', async (event) => {
         managementHost = event.target.value;
         management = null;
         managementError = '';
         managementActionError = null;
         await loadManagement(ctx);
-      },
-    );
+      });
     for (const button of ctx.root.querySelectorAll('[data-management-action]'))
       ctx.on(button, 'click', () =>
         managementAction(ctx, button.dataset.managementAction),
       );
     const form = ctx.root.querySelector('[data-release-settings]');
-    if (form)
+    if (form) {
+      ctx.on(form, 'change', () => {
+        const data = new FormData(form);
+        settingsDraft = {
+          enabled: data.has('enabled'),
+          channel: data.get('channel'),
+          revision: settingsDraft?.revision ?? settings.revision,
+        };
+      });
       ctx.on(form, 'submit', async (event) => {
         event.preventDefault();
         if (saving) return;
@@ -70,9 +100,10 @@ export function createUpdatesScreen({model, notice}) {
             body: {
               enabled: data.has('enabled'),
               channel: data.get('channel'),
-              revision: settings.revision,
+              revision: settingsDraft?.revision ?? settings.revision,
             },
           });
+          settingsDraft = null;
           release = await ctx.request(
             settings.enabled ? '/updates/check' : '/updates',
             settings.enabled ? {method: 'POST', body: {}} : {},
@@ -85,6 +116,7 @@ export function createUpdatesScreen({model, notice}) {
           paint(ctx);
         }
       });
+    }
     const select = ctx.root.querySelector('[data-release-choice]');
     if (select)
       ctx.on(select, 'change', () => {
@@ -103,37 +135,93 @@ export function createUpdatesScreen({model, notice}) {
   const targetVersion = () =>
     release?.latest?.tag?.replace(/^v/, '') ||
     (selectedHost()?.local ? '' : release?.current);
+  const guide = (label) =>
+    `<a href="https://github.com/jkenneydaniel/lobby-goblin/blob/main/docs/MANAGEMENT_UPDATES.md" target="_blank" rel="noopener noreferrer">${esc(label)}</a>`;
+  function disclosure(key, title, body) {
+    return `<details data-update-disclosure="${esc(key)}"${expanded.has(key) ? ' open' : ''}><summary>${esc(title)}</summary>${body}</details>`;
+  }
+  function settingsView() {
+    if (!settings) return '';
+    const draft = settingsDraft || settings;
+    return disclosure(
+      'settings',
+      'Update settings',
+      `${settings.editable ? `<form data-release-settings><label class="check"><input type="checkbox" name="enabled" ${draft.enabled ? 'checked' : ''} ${saving ? 'disabled' : ''}> Check for updates automatically</label><label>Release channel<select name="channel" ${saving ? 'disabled' : ''}><option value="stable" ${draft.channel === 'stable' ? 'selected' : ''}>Stable releases</option><option value="preview" ${draft.channel === 'preview' ? 'selected' : ''}>Preview and stable releases</option></select></label><p class="hint">Automatic checks run every six hours.</p><button type="submit" ${saving ? 'disabled' : ''}>${saving ? 'Saving…' : 'Save settings'}</button></form>` : '<p>Release checks are configured by the host administrator.</p>'}<p class="hint">Last checked: ${esc(formatDate(release?.checkedAt))}</p>`,
+    );
+  }
   function managementView() {
     const update = management?.update;
     const busy =
       managementBusy || ['planning', 'running'].includes(update?.state);
-    const label = {
-      apply: 'Install management update',
-      cancel: 'Cancel review',
-      resume: 'Resume update',
-      rollback: 'Restore previous management',
-      reset: 'Reset failed review',
-    };
+    const current =
+      management?.currentVersion ||
+      (selectedHost()?.local ? release?.current : selectedHost()?.version) ||
+      host?.version;
+    const target = targetVersion();
+    const available = target && current && target !== current;
+    const title =
+      {
+        planning: 'Preparing update…',
+        reviewed: 'Ready to install',
+        running: 'Updating Lobby Goblin…',
+        attention: 'Update needs attention',
+        complete: 'Update complete',
+        'rolled-back': 'Previous version restored',
+        failed: 'Review failed',
+      }[update?.state] ||
+      (release?.error
+        ? 'Could not check updates'
+        : available
+          ? 'Update available'
+          : release?.state === 'current'
+            ? 'Up to date'
+            : release?.state === 'disabled'
+              ? 'Release checks are off'
+              : checking || !release
+                ? 'Checking for updates…'
+                : 'No release available');
     const canReview =
       management?.supported &&
       !busy &&
       (!update ||
         ['complete', 'rolled-back', 'failed'].includes(update.state)) &&
-      targetVersion() &&
-      targetVersion() !== management.currentVersion;
-    return `<div class="management-update"><h3>Update management services</h3><label>Management host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label><p>Updates replace the panel, broker and registered controllers together, with recovery copies. Game containers keep running.</p>${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>` : ''}${management?.currentVersion ? `<p>Host management version: <strong>${esc(management.currentVersion)}</strong></p>` : ''}${
-      update
-        ? `<p role="status">${esc(update.message)}</p><p>Release <strong>${esc(update.version)}</strong>${update.phase ? ` · ${esc(update.phase)}` : ''}</p>${update.services ? `<p>${update.services.management} management services · ${update.services.applications} application containers preserved</p>` : ''}<p class="hint">Update ID: <code>${esc(update.id)}</code></p>${update.image ? `<details><summary>Verified runtime image</summary><p class="wrap">${esc(update.image)}</p></details>` : ''}${update.state === 'reviewed' ? `<p>Review expires ${esc(formatDate(update.expires))}. Installation temporarily disconnects the panel; sign in again after it reconnects.</p>` : ''}<div class="actions">${(
-            update.actions || []
-          )
-            .filter((action) => label[action])
-            .map(
-              (action) =>
-                `<button class="${action === 'apply' ? 'primary' : ''}" data-management-action="${esc(action)}" ${busy || (action === 'apply' && update.expires <= Date.now()) ? 'disabled' : ''}>${label[action]}</button>`,
-            )
-            .join('')}</div>`
-        : ''
-    }${canReview ? `<button class="primary" data-management-action="plan" ${busy ? 'disabled' : ''}>Review management update to ${esc(targetVersion())}</button>` : ''}${!management ? '<p role="status">Checking panel update support…</p>' : !management.supported ? '<p>This host needs one host-side upgrade to enable coordinated panel updates. Follow the host update guide for this installation.</p>' : ''}<details><summary>Host recovery and older installations</summary><p>If the panel cannot reconnect, retain the update ID and use the coordinated updater on the host to inspect, resume or roll back. After activation is committed, recovery proceeds forward. Windows, macOS and Linux use the same coordinated updater with Docker running Linux containers. Older versions need one host-side upgrade to enable it; custom layouts require review.</p><a href="https://github.com/jkenneydaniel/lobby-goblin/blob/main/docs/MANAGEMENT_UPDATES.md" target="_blank" rel="noopener noreferrer">Open host update guide</a></details></div>`;
+      available;
+    const label = {
+      apply: 'Install update',
+      cancel: 'Cancel review',
+      resume: 'Resume update',
+      rollback: 'Restore previous version',
+      reset: 'Reset failed review',
+    };
+    let explanation = '';
+    if (update?.state === 'reviewed')
+      explanation =
+        update.expires <= Date.now()
+          ? 'This review expired. Cancel it and review the update again.'
+          : 'The panel will restart briefly. Your game servers keep running.';
+    else if (update?.state === 'running')
+      explanation =
+        'The panel will reconnect automatically. You may need to sign in again.';
+    else if (update?.state === 'attention')
+      explanation = update.cleanupRequired
+        ? 'The update is installed. Resume to finish cleanup.'
+        : update.actions?.includes('reset')
+          ? 'The update did not start. Reset the review to try again.'
+          : 'The update was interrupted. Use the recovery actions below to continue.';
+    else if (update?.state === 'failed')
+      explanation =
+        'The release could not be reviewed. Try again or open Update help.';
+    return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && !update ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'attention' && update.id ? `<p class="hint">Update reference: <code>${esc(update.id)}</code></p>` : ''}<div class="actions updates-actions">${(
+      update?.actions || []
+    )
+      .filter((action) => label[action])
+      .map(
+        (action) =>
+          `<button class="${action === 'apply' ? 'primary' : ''}" data-management-action="${esc(action)}" ${busy || (action === 'apply' && update.expires <= Date.now()) ? 'disabled' : ''}>${label[action]}</button>`,
+      )
+      .join(
+        '',
+      )}${canReview ? `<button class="primary" data-management-action="plan">Review update</button>` : ''}${release?.latest ? `<a href="${esc(release.latest.url)}" target="_blank" rel="noopener noreferrer">Release notes</a>` : ''}${settings?.editable && !settings.enabled ? '<button class="quiet" data-open-update-settings>Configure release checks</button>' : ''}</div>${management?.supported === false ? `<p class="updates-setup">This host needs a one-time setup before panel updates can be installed. ${guide('Set up panel updates')}</p>` : !management && !managementError ? '<p class="hint">Checking update controls…</p>' : ''}${canReview ? '<p class="hint">Panel updates keep your game servers running.</p>' : ''}${update?.id ? disclosure('update', 'Update details', `<dl class="updates-details"><div><dt>Update reference</dt><dd><code>${esc(update.id)}</code></dd></div>${update.phase ? `<div><dt>Stage</dt><dd>${esc(update.phase)}</dd></div>` : ''}${update.services ? `<div><dt>Scope</dt><dd>${update.services.management} panel services · ${update.services.applications} game containers preserved</dd></div>` : ''}${update.state === 'reviewed' ? `<div><dt>Review expires</dt><dd>${esc(formatDate(update.expires))}</dd></div>` : ''}${update.image ? `<div><dt>Verified runtime image</dt><dd><code>${esc(update.image)}</code></dd></div>` : ''}</dl>${update.message ? `<p>${esc(update.message)}</p>` : ''}`) : ''}</div>`;
   }
   function pollManagement(ctx) {
     clearTimeout(managementTimer);
@@ -160,7 +248,7 @@ export function createUpdatesScreen({model, notice}) {
         managementError =
           'Waiting for management to reconnect. Keep this page open; you may need to sign in again. Use the host recovery guide if it stays unavailable.';
       else {
-        management = {supported: false, update: null};
+        management = null;
         managementError = error.message;
       }
     }
@@ -173,12 +261,20 @@ export function createUpdatesScreen({model, notice}) {
       action !== 'plan' &&
       !(await ctx.confirm(
         action === 'apply'
-          ? 'Install management update?'
+          ? 'Install Lobby Goblin update?'
           : action === 'cancel'
             ? 'Cancel this review?'
-            : 'Recover management update?',
-        'The panel, broker and controllers are managed together. Game containers and worlds are preserved. Keep the update ID for host recovery if the panel cannot reconnect.',
-        action === 'apply' ? 'Install management update' : 'Confirm',
+            : action === 'reset'
+              ? 'Reset this review?'
+              : 'Recover this update?',
+        action === 'apply'
+          ? 'The panel will restart briefly. Game servers keep running and their worlds are preserved.'
+          : action === 'cancel'
+            ? 'Review the release again when you are ready to install.'
+            : action === 'reset'
+              ? 'Clear the failed review so you can try again.'
+              : 'The panel may restart during recovery. Game servers and their worlds are preserved.',
+        action === 'apply' ? 'Install update' : 'Confirm',
       ))
     )
       return;
@@ -196,9 +292,9 @@ export function createUpdatesScreen({model, notice}) {
     management = {
       ...management,
       update: {
-        ...management?.update,
+        ...(action === 'plan' ? {version: body.version} : management?.update),
         state: action === 'plan' ? 'planning' : 'running',
-        message: 'Starting the management coordinator…',
+        message: 'Starting the update…',
       },
     };
     paint(ctx);
@@ -215,30 +311,45 @@ export function createUpdatesScreen({model, notice}) {
     }
   }
   function applicationView(item, data) {
-    if (!item)
-      return '<p>Choose a server to compare its installed version with published releases.</p>';
+    if (!item) return '';
     if (!['factorio', 'rust'].includes(item.game))
-      return '<p>This application has no configured release provider.</p>';
+      return '<p>This application has no published release catalogue.</p>';
     if (!data) return '';
-    if (data.stale) return `<p role="status">${esc(data.error)}</p>`;
     const status = model.snapshot.live.get(item.hostId + ':' + item.id);
     const current = status?.version || 'Not reported by the server';
-    const runtimeImage = item.image || status?.image || 'Unavailable';
-    const runtimeSoftware = data.software?.mode === 'runtime';
-    const introduction = `<p>Installed software: <strong>${esc(current)}</strong></p><p class="hint">Container image: <code>${esc(runtimeImage)}</code></p><p>${runtimeSoftware ? 'Software versions are managed independently of the container image.' : 'Software is bundled with the container image.'}</p><p class="hint">${esc(data.source)} · Checked ${esc(formatDate(data.checkedAt))}</p>`;
+    const controls = `<a class="button" href="${esc(item.manageUrl)}#settings/updates">Manage game updates</a>`;
+    if (data.stale) return `<p role="status">${esc(data.error)}</p>${controls}`;
+    const introduction = `<div class="updates-game-version"><p>Installed <strong>${esc(current)}</strong></p>${controls}</div>`;
+    const metadata = disclosure(
+      'application-details-' + item.hostId + ':' + item.id,
+      'Version details',
+      `<p class="hint">Container image: <code>${esc(item.image || status?.image || 'Unavailable')}</code></p><p class="hint">${esc(data.source)} · Checked ${esc(formatDate(data.checkedAt))}</p>`,
+    );
     if (item.game === 'rust')
       return (
         introduction +
-        `<p>${esc(data.message)}</p><p class="hint">Latest announcements describe the game; they are not a list of selectable dedicated-server builds.</p>${data.news.map((news) => `<article><h3><a href="${esc(news.url)}" target="_blank" rel="noopener noreferrer">${esc(news.title)}</a></h3><p class="hint">${esc(formatDate(news.published))}</p><p>${esc(news.text)}</p></article>`).join('')}`
+        disclosure(
+          'application-releases',
+          'Release news',
+          `<p>Review and install server builds in the server’s update controls.</p>${data.news.map((news) => `<article><h3><a href="${esc(news.url)}" target="_blank" rel="noopener noreferrer">${esc(news.title)}</a></h3><p class="hint">${esc(formatDate(news.published))}</p><p>${esc(news.text)}</p></article>`).join('')}`,
+        ) +
+        metadata
       );
-    if (runtimeSoftware)
-      return (
-        introduction +
-        `<p>Latest stable: <strong>${esc(data.stable)}</strong>${data.experimental ? ' · Experimental: ' + esc(data.experimental) : ''}</p><label>Available software version<select data-release-choice ${data.choices.length ? '' : 'disabled'}>${data.choices.map((choice) => `<option value="${esc(choice.version)}">${esc(choice.version)} · ${esc(choice.channel)}</option>`).join('')}</select></label><a class="button" data-version-notes href="${esc(data.choices[0]?.notesUrl || data.notesUrl)}" target="_blank" rel="noopener noreferrer">Version changes</a><p class="hint"><a class="button" href="${esc(item.manageUrl)}#settings/updates">Open software update controls</a> An independently installed version is stored in the application volume and preserved when the container is recreated. Open the server to review and install a software version, or recover a failed change.</p>`
-      );
+    const runtimeSoftware = data.software?.mode === 'runtime';
+    const choices = data.choices
+      .map(
+        (choice) =>
+          `<option value="${esc(runtimeSoftware ? choice.version : choice.image)}">${esc(choice.version)} · ${esc(choice.channel)}</option>`,
+      )
+      .join('');
     return (
       introduction +
-      `<p>Latest stable: <strong>${esc(data.stable)}</strong>${data.experimental ? ` · Experimental: ${esc(data.experimental)}` : ''}</p><label>Published server version<select data-release-choice ${data.choices.length ? '' : 'disabled'}>${data.choices.length ? data.choices.map((choice) => `<option value="${esc(choice.image)}">${esc(choice.version)} · image revision ${choice.imageRevision} · ${esc(choice.channel)}</option>`).join('') : '<option>No installable versions could be verified</option>'}</select></label><p>${esc(data.imageError || 'Only published Lobby Goblin 2.0.x images are listed. Newer upstream release lines require explicit compatibility support. Clients and mods must match the selected version.')}</p><div class="actions"><a class="button" data-version-notes href="${esc(data.choices[0]?.notesUrl || data.notesUrl)}" target="_blank" rel="noopener noreferrer">Version changes</a><a class="button" href="${esc(item.manageUrl)}#settings/updates">Open server update controls</a></div><p class="hint">Managed-server image installation is not supported by this release. The version catalogue is read-only; host management updates do not upgrade games.</p>`
+      disclosure(
+        'application-releases',
+        'Browse releases',
+        `<p>Latest stable: <strong>${esc(data.stable)}</strong>${data.experimental ? ' · Experimental: ' + esc(data.experimental) : ''}</p><label>${runtimeSoftware ? 'Available software version' : 'Published server version'}<select data-release-choice ${data.choices.length ? '' : 'disabled'}>${choices || '<option>No verified versions available</option>'}</select></label>${data.imageError ? `<p>${esc(data.imageError)}</p>` : ''}<a data-version-notes href="${esc(data.choices[0]?.notesUrl || data.notesUrl)}" target="_blank" rel="noopener noreferrer">Version changes</a><p class="hint">${runtimeSoftware ? 'Review and install a software version in the server’s update controls.' : 'This catalogue is read-only. Only verified compatible server images are listed.'}</p>`,
+      ) +
+      metadata
     );
   }
   async function loadApplication(ctx) {
@@ -283,10 +394,7 @@ export function createUpdatesScreen({model, notice}) {
         ctx.request('/status'),
         ctx.request('/updates/settings'),
       ]);
-      if (force && ctx.isCurrent())
-        notice(
-          'Release check complete. Checks within one minute reuse the latest result.',
-        );
+      if (force && ctx.isCurrent()) notice('Update check complete.');
     } catch (error) {
       if (ctx.isCurrent()) problem = error.message;
     } finally {
