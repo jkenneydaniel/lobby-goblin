@@ -443,3 +443,14 @@ test('a retained engine claim cannot replace a confirmed outcome with failure', 
   );
   await assertManagementStartAllowed(f.directory);
 });
+
+test('an interrupted update retains a safe reason and phase through restart without exposing its cause',async t=>{
+  const {ManagementFailure}=await import('../core/management-errors.js');
+  const f=await fixture(t,{at:async point=>{if(point==='backup')throw new ManagementFailure('docker-socket-unverified',{cause:Error('private-token /operator/secret')});}});
+  await assert.rejects(f.workflow.run(f.id,{confirm:true}),/needs recovery/);
+  const status=await f.workflow.status(f.id);
+  assert.equal(status.diagnostic.code,'docker-socket-unverified');
+  assert.doesNotMatch(JSON.stringify(status),/private-token|operator\/secret/);
+  assert.equal(status.operation.state,'interrupted');
+  assert.equal(status.operation.phase,'snapshot');
+});

@@ -131,3 +131,13 @@ test('an unfinished original-directory claim blocks enrollment before any storag
   await assert.rejects(operatorManagement('plan', {fleet, image}, f), /anchor changed/);
   assert.equal(f.calls.some(call => call.route === '/volumes/create'), false);
 });
+
+test('Windows Desktop bootstrap retains the exact proxy source and surfaces safe worker reasons',async()=>{
+  const f=fixture();f.containers.get('lobby-goblin-host-'+fleet).Mounts[0].Source='/run/host-services/docker.proxy.sock';
+  f.setResult({error:'private error must not escape',diagnostic:{code:'docker-socket-unverified',message:'secret'}});
+  await assert.rejects(operatorManagement('plan',{fleet,image},f),error=>{
+    assert.equal(error.diagnostic.code,'docker-socket-unverified');assert.match(error.message,/same engine/);assert.doesNotMatch(error.message,/private error|secret/);return true;
+  });
+  const helper=f.calls.filter(v=>v.route.startsWith('/containers/create')).at(-1).data;
+  assert.equal(helper.HostConfig.Mounts[0].Source,'/run/host-services/docker.proxy.sock');
+});

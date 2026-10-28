@@ -1,4 +1,5 @@
 import path from 'node:path';
+import {imageMigrationAttempt} from '../core/migration-history.js';
 import {assert,readJSON,writeJSON,sleep} from '../common.js';
 import {migrationImage,ownedImage,ownedImages} from '../core/game-images.js';
 import {migrateImage,replacementSpec} from '../core/image-migration.js';
@@ -17,7 +18,7 @@ export async function migrateFleet(manager){
  const candidates=manager.state.servers.filter(item=>item.state!=='removed'&&definition(item).managed.legacyMigration&&(!ownedImage(item.game,item.image)||migrationImage(item.game,item.image)||item.migration?.state==='pending'));
  if(!candidates.length)return;
  assert(!manager.active,'Another host operation is running.',409);
- const job={id:'migration-034',action:'image-migration',actor:'system',state:'running',started:new Date().toISOString(),message:'Migrating existing game images…'};
+ const job={...imageMigrationAttempt(),action:'image-migration',actor:'system',state:'running',started:new Date().toISOString(),message:'Migrating existing game images…'};
  const previousJobs=manager.state.jobs;manager.active=job;manager.state.jobs=[job,...previousJobs];
  try{await manager.persist();}catch(error){manager.state.jobs=previousJobs;manager.active=null;throw error;}
  try{for(const item of candidates){

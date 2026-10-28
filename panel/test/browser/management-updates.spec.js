@@ -220,3 +220,10 @@ test('a newer installed version is never offered an older release', async ({page
   await expect(page.getByRole('button', {name: 'Review update', exact: true})).toHaveCount(0);
   expect(await page.locator('#updates-view').innerText()).not.toContain('→');
 });
+
+test('a failed review shows the safe cause and next step without expanding technical details',async({page})=>{
+  await page.route('**/api/management-update',route=>route.fulfill({json:{supported:true,currentVersion:'0.3.16-alpha',update:{...review(),state:'failed',actions:[],diagnostic:{code:'duplicate-operation-identity',message:'Workflow history contains duplicate operation IDs.',action:'Repair the legacy migration history, then review each interrupted attempt before retrying.'}}}}));
+  await open(page);
+  await expect(page.getByText('Workflow history contains duplicate operation IDs. Repair the legacy migration history, then review each interrupted attempt before retrying.',{exact:true})).toBeVisible();
+  await expect(page.getByText('Last update details',{exact:true})).toBeVisible();
+});

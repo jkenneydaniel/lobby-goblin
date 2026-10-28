@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {ManagementFailure} from './management-errors.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert, equalSecret, json, requestJSON} from '../common.js';
@@ -174,6 +175,8 @@ export async function writeManagementActivation(root, id) {
 }
 
 export function assertManagementIdle(snapshot) {
+  if (snapshot?.sources?.some(source => source.available === false))
+    throw new ManagementFailure(snapshot.sources.some(source => source.reason === 'duplicate-operation-identity') ? 'duplicate-operation-identity' : 'workflow-history-unavailable');
   assert(
     snapshot?.version === 1 &&
       Array.isArray(snapshot.sources) &&
@@ -184,15 +187,12 @@ export function assertManagementIdle(snapshot) {
     'Every workflow history must be available before management activation.',
     409,
   );
-  assert(
-    snapshot.operations.every(
+  const idle = snapshot.operations.every(
       (operation) =>
         ['succeeded', 'failed', 'interrupted'].includes(operation.state) &&
         !operation.recovery?.required &&
         (operation.state !== 'interrupted' ||
           operation.recovery?.required === false),
-    ),
-    'Review active or interrupted workflows before management activation.',
-    409,
-  );
+    );
+  if (!idle) throw new ManagementFailure('workflow-not-idle');
 }

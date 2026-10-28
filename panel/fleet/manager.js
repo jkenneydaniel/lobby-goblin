@@ -13,6 +13,7 @@ import {selectedRuntime} from '../core/runtime-option.js';
 import {verifySnapshot} from './snapshots.js';
 import {AuditLog} from '../core/audit.js';
 import {Operations} from '../core/operations.js';
+import {repairMigrationHistory} from '../core/migration-history.js';
 import {RegistryRepository} from '../core/storage/state-repositories.js';
 const giB=1024**3;
 export class FleetManager{
@@ -29,6 +30,7 @@ export class FleetManager{
  async init(){
   await fs.mkdir(this.root,{recursive:true});await fs.mkdir(this.library,{recursive:true});
   for(const dir of [this.root,this.library]){assert(await fs.realpath(dir)===path.resolve(dir),'Host-manager storage cannot be a link.');const file=path.join(dir,'.fleet-owner.json'),owner=await readJSON(file,null);assert(!owner||owner.fleet===this.fleet,'Host-manager storage belongs to another installation.',409);if(!owner)await writeJSON(file,{fleet:this.fleet});}
+  await repairMigrationHistory(this.root);
   this.repository=new RegistryRepository(this.root);this.storageSnapshot=await this.repository.read();this.state=this.storageSnapshot.value;
   if(this.state.settings){assert(Number.isInteger(this.state.settings.memoryBudgetGiB)&&this.state.settings.memoryBudgetGiB>=2&&this.state.settings.memoryBudgetGiB<=128&&Number.isSafeInteger(this.state.settings.revision)&&this.state.settings.revision>=0,'Invalid persisted host settings.',409);this.memoryBudgetGiB=this.state.settings.memoryBudgetGiB;}
   assert(!this.broker||this.state.servers.every(item=>item.state==='removed'||item.isolationVersion===1),'Existing controllers require a reviewed broker upgrade; no resources were adopted.',409);

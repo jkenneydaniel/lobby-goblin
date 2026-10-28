@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {managementFailure, managementDiagnostic} from '../core/management-errors.js';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {assert} from '../common.js';
@@ -169,6 +170,7 @@ export class ManagementUpdate {
       image: record.image,
       commit: record.commit,
       pending: record.pending,
+      ...(record.state === 'interrupted' && record.failure && {diagnostic: managementDiagnostic(record.failure.code)}),
       operation: describeOperation(record, managementDescriptor(record)),
     };
   }
@@ -230,12 +232,13 @@ export class ManagementUpdate {
         else await this.forward(context);
         return this.release(plan, record);
       } catch (error) {
-        await this.checkpoint(context, {state: 'interrupted'}).catch(() => {});
+        const diagnostic = managementFailure(error);
+        await this.checkpoint(context, {state: 'interrupted', failure: diagnostic}).catch(() => {});
         // Do not expose original environment values or upstream Docker payloads.
         throw new Error(
           'Management update needs recovery. Keep the private record and snapshot; inspect update ' +
             id +
-            ' before resuming or rolling back.',
+            ' before resuming or rolling back. ' + diagnostic.message + ' ' + diagnostic.action + ' [' + diagnostic.code + ']',
           {cause: error},
         );
       } finally {

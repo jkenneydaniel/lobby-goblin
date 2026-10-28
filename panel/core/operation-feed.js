@@ -1,3 +1,4 @@
+import {ManagementFailure, managementFailure} from './management-errors.js';
 import {assert} from '../common.js';
 import {jobOperation, validateOperationView} from './operation-record.js';
 
@@ -45,6 +46,7 @@ export class OperationFeed {
               checked = [];
             for (const record of records) {
               validateOperationView(record, source.id);
+              if (ids.has(record.id)) throw new ManagementFailure('duplicate-operation-identity');
               assert(
                 record?.version === 1 &&
                   record.source === source.id &&
@@ -61,12 +63,14 @@ export class OperationFeed {
             }
             operations.push(...checked);
             return {id: source.id, label: source.label, available: true};
-          } catch {
+          } catch (error) {
+            const diagnostic = managementFailure(error);
             return {
               id: source.id,
               label: source.label,
               available: false,
-              message:
+              reason: diagnostic.code === 'duplicate-operation-identity' ? diagnostic.code : 'workflow-history-unavailable',
+              message: diagnostic.code === 'duplicate-operation-identity' ? diagnostic.message + ' ' + diagnostic.action :
                 'This workflow history is unavailable. Its outcome has not been inferred.',
             };
           }

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {ManagementFailure, managementFailure} from './management-errors.js';
 import {assert} from '../common.js';
 import {run} from '../install.js';
 import {docker as dockerAPI, demultiplex} from './docker.js';
@@ -63,10 +64,11 @@ export async function operatorManagement(command, options, {docker, execute = ru
     const stopped = await docker('POST', '/containers/' + created.Id + '/wait?condition=not-running', undefined, {timeout: 1200000});
     const logs = await docker('GET', '/containers/' + created.Id + '/logs?stdout=1&stderr=0', undefined, {raw: true});
     const value = JSON.parse(demultiplex(logs).trim());
-    assert(stopped.StatusCode === 0 && !value.error, (value.error || 'Management recovery needs inspection.') + (input.id ? ' Update ID: ' + input.id : ''), 409);
+    if (stopped.StatusCode !== 0 || value.error) throw new ManagementFailure(value.diagnostic?.code);
     return value;
   } catch (error) {
-    throw Object.assign(new Error('Management recovery needs inspection. Coordinator: ' + name + (input.id ? '. Update ID: ' + input.id : '') + '. Preserve its records.', {cause: error}), {status: 409});
+    const diagnostic = managementFailure(error);
+    throw Object.assign(new Error(diagnostic.message + ' ' + diagnostic.action + ' [' + diagnostic.code + '] Coordinator: ' + name + (input.id ? '. Update ID: ' + input.id : ''), {cause: error}), {status: 409, diagnostic});
   } finally {
     if (created) {
       const current = await inspect(created.Id);

@@ -213,6 +213,8 @@ export function createUpdatesScreen({model, notice}) {
     else if (update?.state === 'failed')
       explanation =
         'The release could not be reviewed. Try again or open Update help.';
+    if (['attention', 'failed'].includes(update?.state) && update.diagnostic)
+      explanation = update.diagnostic.message + ' ' + update.diagnostic.action;
     return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && (!update || terminal) ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'attention' && update.id ? `<p class="hint">Update reference: <code>${esc(update.id)}</code></p>` : ''}<div class="actions updates-actions">${(
       update?.actions || []
     )

@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {managementFailure} from './core/management-errors.js';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {assert} from './common.js';
@@ -24,9 +25,9 @@ export async function resolvePanelRuntime(engine, version) {
 
 export async function runPanelUpdate({input, workflow, resolveImage, save}) {
   let plan;
-  const publish = async (state, message, services) => {
+  const publish = async (state, message, services, diagnostic) => {
     plan = await workflow.status(input.id).catch(() => plan);
-    await save({state, message, ...(plan && {plan}), ...(services && {services})});
+    await save({state, message, ...(plan && {plan}), ...(services && {services}), ...(diagnostic && {diagnostic})});
   };
   try {
     if (input.action === 'plan') {
@@ -51,12 +52,11 @@ export async function runPanelUpdate({input, workflow, resolveImage, save}) {
       'Management services are available. Finish retained coordinator cleanup before another update.' : rollback ?
         'The update was cancelled or rolled back. Previous management services were preserved.' :
         'Management update complete. Application containers and storage were preserved.');
-  } catch {
+  } catch (error) {
+    const diagnostic = managementFailure(error);
     plan = await workflow.status(input.id).catch(() => plan);
     const recover = !!plan || input.action !== 'plan';
-    await publish(recover ? 'attention' : 'failed', recover ?
-      'The management update needs recovery. Keep the retained update ID and recovery records.' :
-      'The management review failed. Check the selected release and installation using the host update guide.');
+    await publish(recover ? 'attention' : 'failed', diagnostic.message + ' ' + diagnostic.action, undefined, diagnostic);
   }
 }
 
@@ -101,4 +101,4 @@ export async function main() {
   });
 }
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]))
-  main().catch(() => { console.error('The scoped management coordinator stopped. Preserve its records for operator recovery.'); process.exitCode = 1; });
+  main().catch(error => { console.error(JSON.stringify({diagnostic: managementFailure(error)})); process.exitCode = 1; });

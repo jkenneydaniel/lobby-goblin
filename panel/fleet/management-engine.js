@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import {ManagementFailure} from '../core/management-errors.js';
+import {managementSocketKind, verifyManagementSocket} from '../core/management-socket.js';
 import {assert, sleep} from '../common.js';
 import {docker, demultiplex} from '../core/docker.js';
 import {
@@ -137,6 +139,7 @@ export class ManagementEngine {
       'The selected Docker engine changed or is not a Linux engine.',
       409,
     );
+    this.engineInfo = info;
     return info.ID;
   }
   async inspect(id, {optional = false} = {}) {
@@ -160,11 +163,7 @@ export class ManagementEngine {
       {raw: true},
     );
     const result = await this.request('GET', '/exec/' + command.Id + '/json');
-    assert(
-      !result.Running && result.ExitCode === 0,
-      'A management inspection or publication failed. Retain the operator record for recovery.',
-      409,
-    );
+    if (result.Running || result.ExitCode !== 0) throw new ManagementFailure('management-inspection-failed');
     return JSON.parse(demultiplex(output));
   }
   async readFile(id, file) {
@@ -274,7 +273,7 @@ export class ManagementEngine {
       host.Config.Labels?.[fleetKey] === fleet &&
         host.Config.Labels?.[roleKey] === 'host-controller' &&
         (profile === 'brokered' ? environment(host).DOCKER_BROKER_SOCKET === '/broker/socket/docker.sock' :
-          !environment(host).DOCKER_BROKER_SOCKET && host.Mounts.some(m => m.Type === 'bind' && m.Source === '/var/run/docker.sock' && m.Destination === '/var/run/docker.sock')),
+          !environment(host).DOCKER_BROKER_SOCKET && host.Mounts.some(m => managementSocketKind(m))),
       'The management transport no longer matches its reviewed profile.',
       409,
     );
@@ -288,6 +287,8 @@ export class ManagementEngine {
         registry.servers.length <= 64,
       'Invalid fleet registry.',
     );
+    if (Array.isArray(registry.jobs) && new Set(registry.jobs.map(job => job.id)).size !== registry.jobs.length)
+      throw new ManagementFailure('duplicate-operation-identity');
     const instances = registry.servers.filter(
       (item) => item.state !== 'removed',
     );
@@ -338,7 +339,7 @@ export class ManagementEngine {
     ]);
     for (const [name, role] of expected) {
       const info = name === hostName ? host : await this.inspect(name);
-      assert(
+      const supported =
         info.Config.Labels?.[fleetKey] === fleet &&
           info.Config.Labels[roleKey] === role &&
           info.State.Running &&
@@ -350,13 +351,9 @@ export class ManagementEngine {
             (mount) =>
               (mount.Type === 'volume' && allowedVolumes.has(mount.Name)) ||
               ((role === 'docker-broker' || profile === 'legacy' && ['host-controller', 'instance-controller'].includes(role)) &&
-                mount.Type === 'bind' &&
-                mount.Source === '/var/run/docker.sock' &&
-                mount.Destination === '/var/run/docker.sock'),
-          ),
-        'Custom or unavailable management services require operator review.',
-        409,
-      );
+                managementSocketKind(mount)),
+          );
+      if (!supported) throw new ManagementFailure('management-service-custom');
       assert(
         JSON.stringify(info.Config.Entrypoint) ===
           JSON.stringify(runtime.Config.Entrypoint) &&
@@ -365,6 +362,7 @@ export class ManagementEngine {
         'Custom management commands require manual review.',
         409,
       );
+      await verifyManagementSocket(info, this.engineInfo, (id, script) => this.exec(id, script));
       services.push({
         id: info.Id,
         name,
@@ -539,6 +537,7 @@ export class ManagementEngine {
     await this.request('DELETE', '/containers/' + claim.Id);
   }
   async verifyOriginals(plan) {
+    await this.identity();
     for (const service of plan.services) {
       const info = await this.inspect(service.id);
       assert(
@@ -550,6 +549,8 @@ export class ManagementEngine {
         'The original management service changed.',
         409,
       );
+      assert(managementHash(info.Mounts) === managementHash(service.info.Mounts), 'The original management mounts changed.', 409);
+      await verifyManagementSocket(info, this.engineInfo, (id, script) => this.exec(id, script));
     }
   }
   async stopOriginal(service) {
