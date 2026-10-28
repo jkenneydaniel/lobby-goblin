@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.16-alpha — 2026-10-28
+
+- Simplify Updates to one installed version, one status and the relevant update
+  action. Keep settings, help and technical details collapsed; show the host
+  picker only when multiple hosts are connected.
+- Keep game release browsing optional beside a direct link to server update
+  controls. Preserve update confirmation, interrupted-update recovery and remote
+  host scoping without changing updater protocols or application storage.
+- Keep expanded details and unsaved settings during polling, preserve stale-save
+  protection, and offer retry for temporary failures. Show newer releases over
+  completed update history and avoid offering older releases to newer hosts.
+
 ## 0.3.15-alpha — 2026-10-28
 
 - Support coordinated panel updates on Windows, macOS and Linux using private
