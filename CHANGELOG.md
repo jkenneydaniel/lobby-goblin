@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.17-alpha — 2026-10-28
+
+- Give automatic image-migration attempts unique operation IDs while preserving
+  their migration correlation. Offer a guarded repair path for known legacy
+  duplicate migration records without discarding history or replaying changes.
+- Recognize the verified Docker Desktop proxy socket used by existing Windows
+  installations. Retain ownership, engine-identity and management-mount checks,
+  and continue rejecting arbitrary custom socket paths.
+- Require durable evidence from the owning job before background worker cleanup.
+  Keep unknown workers and interrupted operations available for inspection.
+- Reject duplicate operation IDs before storage writes or reserved side effects,
+  including related JSON and SQLite document writes. Keep legacy reads available
+  for inspection and explicit repair.
+- Show safe, actionable operation errors and keep bounded private diagnostic
+  evidence, including original and cleanup failures. Keep Docker and broker
+  transport details private and serialize concurrent diagnostic appends.
+- Preserve updater/archive protocols, state contracts, pinned software providers
+  and application images. Publishing does not deploy installations, restart
+  servers or modify worlds.
+
 ## 0.3.16-alpha — 2026-10-28
 
 - Simplify Updates to one installed version, one status and the relevant update
