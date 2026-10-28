@@ -415,6 +415,7 @@ export async function startDockerBroker({
           );
           result = await change(async () => {
             if (req.url === '/v1/management-update') return management.handle(input);
+            assert(!management.blocksChanges(await management.current()), 'Recover the coordinated management update before changing broker capabilities.', 409);
             if (req.url === '/v1/grants') return grant(input);
             assert(
               input &&
@@ -477,8 +478,7 @@ export async function startDockerBroker({
             };
           if (input.method !== 'GET') {
             const update = await management.current();
-            const blocking = update && update.job.action !== 'plan' &&
-              (update.running || management.view(update).update.state === 'attention');
+            const blocking = management.blocksChanges(update);
             // Held controllers reconnect only their own existing networks during
             // activation. The existing policy still validates that exact shape.
             const reconnect = principal.role === 'host' && /^\/networks\/[^/]+\/connect$/.test(input.route);

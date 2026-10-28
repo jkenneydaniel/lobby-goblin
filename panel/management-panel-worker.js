@@ -52,7 +52,8 @@ export async function runPanelUpdate({input, workflow, resolveImage, save}) {
         'Management update complete. Application containers and storage were preserved.');
   } catch {
     plan = await workflow.status(input.id).catch(() => plan);
-    await publish(plan ? 'attention' : 'failed', plan ?
+    const recover = !!plan || input.action !== 'plan';
+    await publish(recover ? 'attention' : 'failed', recover ?
       'The management update needs recovery. Keep the retained update ID and recovery records.' :
       'The management review failed. Check the selected release and installation using the host update guide.');
   }

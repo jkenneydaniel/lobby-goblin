@@ -92,12 +92,25 @@ test('untrusted parameters, altered helper authority and expired reviews fail cl
 });
 test('recovery actions follow the durable commit point and uncertain stops retain authority', async t => {
   const f = await fixture(t); await f.panel.handle(f.request);
-  const job = await f.finish('attention', {plan: {commit: true, operation: {phase: 'activating'}}});
+  const job = await f.finish('attention', {plan: {id: (await f.panel.current()).job.id, commit: true, operation: {phase: 'activating'}}});
   assert.deepEqual((await f.panel.handle({action: 'status'})).update.actions, ['resume']);
   await assert.rejects(f.panel.handle({action: 'rollback', id: job.id, requestId: 'e'.repeat(32), confirm: true}), /unavailable/);
   await f.panel.handle({action: 'resume', id: job.id, requestId: 'e'.repeat(32), confirm: true});
   const current = await f.panel.current(); f.containers.get(current.worker.Id).State.Running = false;
   assert.equal((await f.panel.handle({action: 'status'})).update.state, 'attention');
+  await assert.rejects(f.panel.handle({...f.request, requestId: 'f'.repeat(32)}), /Finish or cancel/);
+});
+for (const removed of [false, true]) test(`stopped coordinator progress becomes interrupted and keeps mutations blocked (${removed ? 'auto-removed' : 'exited'})`, async t => {
+  const f = await fixture(t); await f.panel.handle(f.request); const reviewed = await f.finish();
+  await f.panel.handle({action: 'apply', id: reviewed.id, requestId: 'e'.repeat(32), confirm: true});
+  await f.finish('running', {plan: {id: reviewed.id, commit: false, operation: {phase: 'replacing'}}});
+  if (removed) {
+    const current = await f.panel.current(); f.containers.delete(current.job.name); f.containers.delete(current.worker.Id);
+  }
+  const current = await f.panel.current(), view = f.panel.view(current);
+  assert.equal(view.update.state, 'attention'); assert.match(view.update.message, /stopped before reporting/);
+  assert.deepEqual(view.update.actions, ['resume', 'rollback']);
+  assert.equal(f.panel.blocksChanges(current), true);
   await assert.rejects(f.panel.handle({...f.request, requestId: 'f'.repeat(32)}), /Finish or cancel/);
 });
 test('worker delegates planning, install and recovery to the coordinated workflow without leaking errors', async () => {
@@ -114,4 +127,10 @@ test('worker delegates planning, install and recovery to the coordinated workflo
   await runPanelUpdate({...options, input: {id, action: 'resume'}});
   assert.equal(publications.at(-1).state, 'attention');
   assert.equal(JSON.stringify(publications).includes('private-password'), false);
+});
+
+test('an unreadable retained update never reports a safe failed install or releases recovery authority', async () => {
+  const values = [];
+  await runPanelUpdate({input: {id: 'e'.repeat(32), action: 'resume'}, workflow: {status: async () => {throw Error('engine identity changed');}}, save: async value => values.push(value)});
+  assert.equal(values.at(-1).state, 'attention');
 });

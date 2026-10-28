@@ -36,6 +36,9 @@ export class ManagementPanel {
     const worker = await this.inspect(job.name);
     if (worker) assertPanelWorker(worker, job.spec, job.name);
     const result = await read(path.join(this.root, job.attempt, 'result.json'));
+    assert(!result || (['planning', 'running', 'reviewed', 'attention', 'complete', 'rolled-back', 'failed'].includes(result.state) &&
+      typeof result.message === 'string' && result.message.length <= 1200 &&
+      (!result.plan || result.plan.id === job.id)), 'The coordinator result changed. Preserve its records for review.', 409);
     const running = !!worker?.State?.Running;
     // The result can be durably published just before the helper exits. Do not
     // admit another helper until Docker confirms that the first has stopped.
@@ -44,17 +47,22 @@ export class ManagementPanel {
   view(current) {
     if (!current) return {supported: true, currentVersion: this.version, update: null};
     const {job, result, running} = current;
-    const state = running ? (job.action === 'plan' ? 'planning' : 'running') : result?.state || 'attention';
+    const interrupted = !running && (!result || ['running', 'planning'].includes(result.state));
+    const state = running ? (job.action === 'plan' ? 'planning' : 'running') : interrupted ? 'attention' : result.state;
     return {supported: true, currentVersion: this.version, update: {
       id: job.id, version: job.version, state, expires: job.expires,
       image: result?.plan?.image || null, phase: result?.plan?.operation?.phase || null,
       committed: result?.plan?.commit === true, cleanupRequired: result?.plan?.cleanupRequired === true,
       services: result?.services || null,
       message: running ? (job.action === 'plan' ? 'Preparing the management review…' : 'Updating management services. Waiting for the panel to reconnect…') :
-        result?.message || 'The coordinator stopped before reporting completion. Inspect recovery before retrying.',
+        interrupted ? 'The coordinator stopped before reporting completion. Inspect recovery before retrying.' : result.message,
       actions: running ? [] : state === 'reviewed' ? ['apply', 'cancel'] :
         state === 'attention' ? (result?.plan ? ['resume', ...(!result.plan.commit ? ['rollback'] : [])] : ['inspect']) : [],
     }};
+  }
+  blocksChanges(current) {
+    return !!current && current.job.action !== 'plan' &&
+      (current.running || this.view(current).update.state === 'attention');
   }
   async handle(input) {
     assert(input && typeof input === 'object' && !Array.isArray(input), 'Invalid management update request.');
