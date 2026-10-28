@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
 import {respondMaintenancePage} from '../core/maintenance-page.js';
-import {watchMaintenance} from '../public/maintenance-reconnect.js';
+import {watchMaintenance,checkMaintenancePage} from '../public/maintenance-reconnect.js';
 
 test('maintenance documents are self-contained, private, uncacheable and protected by exact CSP hashes', async t => {
   const server = http.createServer((req, res) => void respondMaintenancePage(req, res).then(handled => {
@@ -63,4 +63,28 @@ test('a connection failure keeps checking without resubmitting any update',async
   let task, checks=0;
   const watcher=watchMaintenance({check:async()=>{checks++;throw Error('connection reset');},ready:()=>assert.fail('Not ready'),slow:()=>{},schedule:fn=>{task=fn;},cancel:()=>{}});
   await task();await task();assert.equal(checks,2);watcher.stop();
+});
+
+test('local and remote server session redirects reconnect only through the fixed same-origin sign-in page',async()=>{
+  for(const scope of ['/servers/'+'a'.repeat(32)+'/', '/hosts/'+'b'.repeat(32)+'/servers/'+'a'.repeat(32)+'/']){
+    const calls=[];
+    const result=await checkMaintenancePage('http://panel.test'+scope+'?view=panel#updates',async(url,options)=>{
+      calls.push({url,options});
+      return calls.length===1?{status:0,type:'opaqueredirect'}:{status:200,headers:new Headers({'content-type':'text/html'})};
+    });
+    assert.equal(result.signIn,true);assert.equal(result.status,200);
+    assert.deepEqual(calls.map(x=>x.url),['http://panel.test'+scope+'?view=panel','http://panel.test/']);
+    assert.deepEqual(calls.map(x=>x.options.redirect),['manual','error']);
+    assert.ok(calls.every(x=>x.options.method==='GET'&&x.options.credentials==='same-origin'));
+  }
+});
+test('non-server redirects are not followed and an unavailable sign-in page cannot signal readiness',async()=>{
+  let calls=0;
+  const result=await checkMaintenancePage('http://panel.test/',async()=>{calls++;return {type:'opaqueredirect',status:0};});
+  assert.equal(calls,1);assert.equal(result.status,0);
+  const scoped=await checkMaintenancePage('http://panel.test/servers/'+'a'.repeat(32)+'/',async(url)=>{
+    assert.ok(url.startsWith('http://panel.test/'));
+    return url==='http://panel.test/'?{status:503,headers:new Headers({'content-type':'text/html'})}:{status:302,headers:new Headers({location:'https://untrusted.example/'})};
+  });
+  assert.equal(scoped.status,503);
 });

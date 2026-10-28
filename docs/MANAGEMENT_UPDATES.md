@@ -26,6 +26,8 @@ replaces. The panel briefly disconnects and polls for reconnection. Browser navi
 maintenance shows a self-contained goblin page with automatic reconnection; API
 clients still receive the existing 503 JSON error. Readiness checks read the same
 page, never replay an update, and do not mistake the liveness endpoint for activation.
+If a server page redirects an expired session, reconnection checks only the fixed
+same-origin sign-in page rather than following the supplied redirect destination.
 After a longer wait, the page offers host recovery help while continuing to check.
 Sessions are
 held in memory, so sign in again after the panel restarts; reopen Updates to read

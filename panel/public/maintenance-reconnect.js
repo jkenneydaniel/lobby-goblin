@@ -1,5 +1,32 @@
-// Reconnection only reads the original page. It never retries an update, signs
-// in, follows a redirect or uses /health (which is healthy even while held).
+// Never follow a supplied redirect URL. Scoped pages with expired sessions can
+// reconnect through the known same-origin sign-in page instead.
+export async function checkMaintenancePage(pageURL, fetcher = fetch) {
+  const url = new URL(pageURL);
+  const read = (target, redirect) =>
+    fetcher(target, {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      redirect,
+      headers: {accept: 'text/html'},
+      signal: AbortSignal.timeout(5000),
+    });
+  const response = await read(url.origin + url.pathname + url.search, 'manual');
+  if (
+    (response.type === 'opaqueredirect' ||
+      (response.status >= 300 && response.status < 400)) &&
+    /^(?:\/hosts\/[a-f0-9]{32})?\/servers\/[a-f0-9]{32}(?:\/.*)?$/.test(
+      url.pathname,
+    )
+  ) {
+    const signIn = await read(url.origin + '/', 'error');
+    return {status: signIn.status, headers: signIn.headers, signIn: true};
+  }
+  return response;
+}
+
+// Reconnection only reads documents. It never retries an update, signs in or
+// uses /health (which is healthy even while management is held).
 export function watchMaintenance({
   check,
   ready,
@@ -27,7 +54,7 @@ export function watchMaintenance({
         /^text\/html(?:;|$)/i.test(response.headers.get('content-type') || '')
       ) {
         stopped = true;
-        ready();
+        ready(response);
       }
     } catch {
       // Management ingress can be absent briefly while it is replaced.
@@ -58,18 +85,11 @@ if (
 ) {
   const status = document.querySelector('[data-maintenance-status]');
   const watcher = watchMaintenance({
-    check: () =>
-      fetch(location.pathname + location.search, {
-        method: 'GET',
-        credentials: 'same-origin',
-        cache: 'no-store',
-        redirect: 'error',
-        headers: {accept: 'text/html'},
-        signal: AbortSignal.timeout(5000),
-      }),
-    ready: () => {
+    check: () => checkMaintenancePage(location.href),
+    ready: (response) => {
       status.textContent = 'Your panel is ready. Bringing you back…';
-      location.reload();
+      if (response.signIn) location.assign('/');
+      else location.reload();
     },
     slow: () => {
       status.textContent = 'Still waiting for your panel. We’ll keep checking.';
