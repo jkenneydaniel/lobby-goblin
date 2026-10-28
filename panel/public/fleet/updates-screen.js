@@ -1,9 +1,11 @@
 import {escapeHTML as esc, formatDate} from '../shared/view.js';
-import {version, compareVersions} from '../shared/versions.js';
+import {version, compareVersions, reportedVersion} from '../shared/versions.js';
+import {mountVersionPicker} from '../shared/version-picker.js';
 import {maintenanceView} from '../shared/maintenance-view.js';
 
 export function createUpdatesScreen({model, notice}) {
   const expanded = new Set();
+  let releasePicker;
   let settingsDraft = null;
   let release = null,
     host = null,
@@ -28,6 +30,8 @@ export function createUpdatesScreen({model, notice}) {
     );
   function paint(ctx) {
     if (!ctx.isCurrent()) return;
+    releasePicker?.dispose();
+    releasePicker = null;
     for (const element of ctx.root.querySelectorAll(
       '[data-update-disclosure]',
     )) {
@@ -128,6 +132,23 @@ export function createUpdatesScreen({model, notice}) {
           link = ctx.root.querySelector('[data-version-notes]');
         if (choice) link.href = choice.notesUrl;
       });
+    if (select && catalogue?.choices?.length) {
+      const installed = reportedVersion(
+        model.snapshot.live.get(server()?.hostId + ':' + server()?.id)?.version,
+      );
+      const current = catalogue.choices.find(
+        (choice) => choice.version === installed,
+      );
+      select.value = current ? current.image || current.version : '';
+      releasePicker = mountVersionPicker(select, {
+        choices: catalogue.choices.map((choice, index) => ({
+          value: choice.image || choice.version,
+          display: choice.version,
+          label: select.options[index].textContent,
+        })),
+        signal: ctx.signal,
+      });
+    }
   }
   const selectedHost = () =>
     model.snapshot.hosts.find((value) => value.id === managementHost) ||
@@ -426,6 +447,7 @@ export function createUpdatesScreen({model, notice}) {
       }
     },
     dispose() {
+      releasePicker?.dispose();
       generation++;
       managementGeneration++;
       clearTimeout(managementTimer);

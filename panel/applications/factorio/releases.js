@@ -1,6 +1,7 @@
 import {assert} from '../../common.js';
 import {boundedJSON} from '../../core/release-fetch.js';
 import {compareVersions} from '../../updates.js';
+import {headlessChecksums} from './headless-releases.js';
 const repository = 'jkenneydaniel/factorio-server';
 const imagePrefix = 'ghcr.io/' + repository + ':';
 const exactVersion = (value) =>
@@ -22,21 +23,21 @@ export async function factorioReleases({fetcher, software}) {
       'Unsupported Factorio software provider.',
       503,
     );
-    const channels = new Map();
-    if (exactVersion(latest.experimental?.headless))
-      channels.set(latest.experimental.headless, 'experimental');
-    channels.set(latest.stable.headless, 'stable');
+    const inventory = await headlessChecksums(fetcher);
+    const consoleVersion = exactVersion(latest.console?.headless) ? latest.console.headless : null;
     return {
       game: 'factorio',
       stable: latest.stable.headless,
       experimental: exactVersion(latest.experimental?.headless)
         ? latest.experimental.headless
         : null,
-      choices: [...channels]
-        .map(([version, channel]) => ({
+      console: consoleVersion && inventory.has(consoleVersion) ? consoleVersion : null,
+      choices: [...inventory.keys()]
+        .map(version => ({
           kind: 'software',
           version,
-          channel,
+          channel: version === latest.stable.headless ? 'stable' : version === latest.experimental?.headless ? 'experimental' : 'archived',
+          channels: [version === latest.stable.headless && 'stable', version === latest.experimental?.headless && 'experimental', version === consoleVersion && 'console'].filter(Boolean),
           provider: 'factorio-headless',
           downloadUrl:
             'https://factorio.com/get-download/' +
@@ -50,7 +51,7 @@ export async function factorioReleases({fetcher, software}) {
         }))
         .sort((a, b) => compareVersions(b.version, a.version)),
       news: [],
-      source: 'Wube release API',
+      source: 'Wube release API and official Linux headless checksums',
       notesUrl: 'https://factorio.com/download',
       requiresImageChange: false,
     };

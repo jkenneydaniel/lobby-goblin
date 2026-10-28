@@ -1,6 +1,8 @@
 import {applicationAssets} from './application-web.js';
 export const sharedAssets = Object.freeze({
   ...applicationAssets,
+  '/shared/version-picker.js':['shared/version-picker.js','text/javascript; charset=utf-8'],
+  '/shared/version-picker.css':['shared/version-picker.css','text/css; charset=utf-8'],
   '/maintenance.css':['maintenance.css','text/css; charset=utf-8'],
   '/shared/maintenance-view.js':['shared/maintenance-view.js','text/javascript; charset=utf-8'],
   '/mod-library.js':['mod-library.js','text/javascript; charset=utf-8'],

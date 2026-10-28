@@ -20,7 +20,7 @@ if [ ! -f "$config" ]; then
  umask 077
  cat > "$config" <<EOF
 FLEET_ID=$id
-FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.17-alpha
+FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.18-alpha
 FLEET_ADDRESS=$address
 FLEET_PANEL_PORT=${FLEET_PANEL_PORT:-8082}
 FLEET_PANEL_BIND=0.0.0.0
@@ -62,7 +62,7 @@ fi
 if [ -z "$listed" ]; then
 if sed -n '/^FLEET_IMAGE=local\/lobby-goblin-host:/p' "$config" | grep -q .; then
  task_fleet_tmp=$(mktemp "$config.XXXXXX")
- sed 's|^FLEET_IMAGE=local/lobby-goblin-host:.*|FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.17-alpha|' "$config" > "$task_fleet_tmp"
+ sed 's|^FLEET_IMAGE=local/lobby-goblin-host:.*|FLEET_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin:0.3.18-alpha|' "$config" > "$task_fleet_tmp"
  mv "$task_fleet_tmp" "$config"
 fi
 fi

@@ -35,9 +35,22 @@ or volume merely to try the new mode.
 
 ## Version changes and recovery
 
-Open the server's **Settings → Updates**. The picker shows Wube's stable and
-experimental releases and links their change history. Confirming a change starts
-an operation with the `images.change` permission. The controller records the
+Open the server's **Settings → Updates**. The searchable picker lists every
+available supported Factorio 2.x Linux headless
+release in Wube’s official checksum inventory, with stable/experimental labels and
+change-history links. Search by exact version or channel; the installed version
+is selected initially and never triggers a change. Typing unrecognized text
+cannot submit a software version.
+
+For console cross-play, match the exact version shown by the console. The latest
+stable PC release can be newer. Wube’s public latest-release feed does not
+currently identify the console branch, so the panel does not guess that alias
+or equate it with stable. A console label is shown only when official metadata
+provides it and a matching headless checksum exists. Older releases remain
+selectable with a warning that newer saves may not load. Historical 1.x releases
+are outside this application’s existing 2.x runtime contract.
+
+Confirming a change starts an operation with the `images.change` permission. The controller records the
 previous full receipt, stops Factorio cleanly, creates and verifies a complete
 backup, writes an exact version/checksum request, and starts the runtime installer.
 The game must report the requested version over RCON. A previously stopped server

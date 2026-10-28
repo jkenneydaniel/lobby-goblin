@@ -4,11 +4,13 @@ import {
   ApplicationReleases,
   boundedJSON,
 } from '../core/application-releases.js';
+import {parseHeadlessChecksums, headlessChecksums} from '../applications/factorio/headless-releases.js';
 
 const json = (value) =>
   new Response(JSON.stringify(value), {
     headers: {'content-type': 'application/json'},
   });
+const checksums = (...versions) => new Response(versions.map(version => 'a'.repeat(64) + '  factorio-headless_linux_' + version + '.tar.xz').join('\n'), {headers:{'content-type':'text/plain'}});
 test('Factorio separates latest upstream versions from published supported images and sorts revisions', async () => {
   const calls = [];
   const service = new ApplicationReleases({
@@ -141,6 +143,7 @@ test('runtime-installed Factorio discovers software versions independently of im
     service = new ApplicationReleases({
       fetcher: async (url) => {
         calls.push(url);
+        if (url === 'https://factorio.com/download/sha256sums/') return checksums('2.0.76','2.0.77','2.1.23','2.1.24');
         assert.ok(url.includes('factorio.com/api/latest-releases'));
         return json({
           stable: {headless: '2.1.23'},
@@ -157,12 +160,13 @@ test('runtime-installed Factorio discovers software versions independently of im
     updates: 'manual',
   };
   const value = await service.read('factorio', software);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.equal(value.software.updateKind, 'software');
   assert.equal(value.requiresImageChange, false);
+  assert.equal(value.console, null, 'Stable is never inferred to be the console release.');
   assert.deepEqual(
     value.choices.map((choice) => choice.version),
-    ['2.1.24', '2.1.23'],
+    ['2.1.24', '2.1.23', '2.0.77', '2.0.76'],
   );
   assert.ok(
     value.choices.every(
@@ -176,7 +180,7 @@ test('runtime-installed Factorio discovers software versions independently of im
 test('image and runtime delivery have separate caches and equal stable/experimental versions are not duplicated', async () => {
   const service = new ApplicationReleases({
     fetcher: async (url) =>
-      url.includes('latest-releases')
+      url.includes('sha256sums') ? checksums('2.1.23') : url.includes('latest-releases')
         ? json({
             stable: {headless: '2.1.23'},
             experimental: {headless: '2.1.23'},
@@ -201,4 +205,18 @@ test('image and runtime delivery have separate caches and equal stable/experimen
   assert.equal(runtime.choices.length, 1);
   assert.equal(runtime.choices[0].channel, 'stable');
   assert.equal(runtime.choices[0].version, '2.1.23');
+});
+
+test('console metadata is independent of stable and labels only an officially listed headless release',async()=>{
+  const service=new ApplicationReleases({fetcher:async url=>url.includes('sha256sums')?checksums('2.0.77','2.1.23'):json({stable:{headless:'2.1.23'},console:{headless:'2.0.77'}})});
+  const value=await service.read('factorio',{version:1,mode:'runtime',provider:'factorio-headless',initial:{channel:'stable'},storage:'application-volume',updates:'manual'});
+  assert.equal(value.console,'2.0.77');
+  assert.deepEqual(value.choices.find(choice=>choice.version==='2.0.77').channels,['console']);
+  assert.deepEqual(value.choices.find(choice=>choice.version==='2.1.23').channels,['stable']);
+});
+test('headless inventory excludes unrelated binaries and unsupported releases; ambiguous inventories fail closed',async()=>{
+  const sha='a'.repeat(64),line=version=>sha+'  factorio-headless_linux_'+version+'.tar.xz';
+  assert.deepEqual([...parseHeadlessChecksums([line('2.0.77'),sha+'  factorio_linux_2.1.23.tar.xz',line('1.1.110')].join('\n')).keys()],['2.0.77']);
+  for(const body of [line('2.0.77')+'\n'+line('2.0.77'),'invalid  factorio-headless_linux_2.0.77.tar.xz','<html>not checksums</html>'])assert.throws(()=>parseHeadlessChecksums(body));
+  for(const response of [new Response('unavailable',{status:503}),new Response(line('2.0.77'),{headers:{'content-type':'text/html'}}),new Response('x'.repeat(2*1024**2+1),{headers:{'content-type':'text/plain'}})])await assert.rejects(headlessChecksums(async(_url,options)=>{assert.equal(options.redirect,'error');return response;}));
 });

@@ -12,6 +12,7 @@ import {
 import {zipEntries} from '../../core/archive.js';
 import {validateBackup} from './backup.js';
 import {readScopedJSON} from '../../core/helper-workspace.js';
+import {headlessChecksums, headlessVersion} from './headless-releases.js';
 import {
   installedRuntime,
   runtimeDirectory,
@@ -83,34 +84,12 @@ export async function restoreRuntimeBackup({
 
 export async function headlessSelection(version, fetcher = fetch) {
   assert(
-    /^2\.\d{1,3}\.\d{1,4}$/.test(version),
+    headlessVersion(version),
     'Choose an exact Factorio 2.x release.',
   );
-  const response = await fetcher('https://factorio.com/download/sha256sums/', {
-    redirect: 'error',
-    signal: AbortSignal.timeout(10000),
-  });
+  const releases = await headlessChecksums(fetcher);
   assert(
-    response.ok &&
-      /text\/plain/i.test(response.headers.get('content-type') || ''),
-    'Official release checksums are unavailable.',
-    503,
-  );
-  let size = 0;
-  const chunks = [];
-  for await (const chunk of response.body) {
-    size += chunk.length;
-    assert(size <= 2 * 1024 ** 2, 'Oversized checksum response.', 503);
-    chunks.push(chunk);
-  }
-  const filename = 'factorio-headless_linux_' + version + '.tar.xz';
-  const matches = Buffer.concat(chunks)
-    .toString()
-    .split('\n')
-    .map((line) => line.trim().split(/\s+/))
-    .filter((parts) => parts.length === 2 && parts[1] === filename);
-  assert(
-    matches.length === 1 && /^[a-f0-9]{64}$/.test(matches[0][0]),
+    releases.has(version),
     'This release has no official Linux headless checksum.',
     409,
   );
@@ -118,7 +97,7 @@ export async function headlessSelection(version, fetcher = fetch) {
     version: 1,
     provider: 'factorio-headless',
     softwareVersion: version,
-    sha256: matches[0][0],
+    sha256: releases.get(version),
   };
 }
 

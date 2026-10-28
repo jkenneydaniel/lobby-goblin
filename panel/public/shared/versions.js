@@ -1,4 +1,14 @@
 // Shared release ordering for discovery and presentation. Installation policy stays server-side.
+// Game status can contain a human-readable RCON response or an image revision.
+// Normalize reported status only; release selections still require exact IDs.
+export function reportedVersion(value) {
+  const match =
+    typeof value === 'string' &&
+    value.match(
+      /^\s*(?:(?:Version:|Factorio)\s*)?(v?\d+\.\d+\.\d+)(?=$|[\s(-])/i,
+    );
+  return match && version(match[1]) ? match[1].replace(/^v/i, '') : null;
+}
 export function version(value) {
   const match = String(value).match(
     /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/,
