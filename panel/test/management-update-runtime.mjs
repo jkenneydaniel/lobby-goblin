@@ -264,12 +264,19 @@ if (process.env.ACCEPTANCE_PANEL === 'true') {
   assert.equal((await inspect(item.container)).State.Running, true);
   assert.notEqual((await inspect(host)).Id, originalHost);
   await wait(async () => !(await docker('GET', '/containers/json?all=1')).some(value => value.Labels?.['io.lobby-goblin.fleet'] === fleet && value.Labels?.['io.lobby-goblin.role'] === 'management-panel-worker'));
+  // Model a lost final worker publication. The authoritative private workflow
+  // is complete, but broker progress still reports running after helper exit.
+  const broker = await inspect('lobby-goblin-docker-broker-' + fleet);
+  await driver.exec(broker.Id, "import fs from 'node:fs/promises';const root='/broker-state/panel-updates',job=JSON.parse(await fs.readFile(root+'/current.json','utf8'));const file=root+'/'+job.attempt+'/result.json';const value=JSON.parse(await fs.readFile(file,'utf8'));value.state='running';await fs.writeFile(file+'.fixture',JSON.stringify(value),{mode:0o600});await fs.rename(file+'.fixture',file);console.log('{}');");
+  assert.equal((await request('/management-update')).update.state, 'attention');
+  await updateCLI(['resume', ...options, '--id', id, '--confirm'], {log: () => {}});
+  assert.equal((await request('/management-update')).update.state, 'complete');
   // A panel update must not leave a helper which breaks the existing operator
   // planner's strict stray-container guard. Prove the fallback remains usable.
   const operatorReview = await updateCLI(['plan', ...options, '--image', next], {log: () => {}});
   await updateCLI(['rollback', ...options, '--id', operatorReview.id, '--confirm'], {log: () => {}});
   await preserved();
-  await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
+  await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, operatorRecovery: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
   console.log('Panel-triggered detached management update passed with operator-owned records, broker reconnection and unchanged application/world identity.');
   process.exit(0);
 }

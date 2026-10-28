@@ -973,4 +973,12 @@ export class ManagementEngine {
       ],
     );
   }
+  async reconcilePanelUpdate(result) {
+    assert((await this.identity()) === result.engine, 'Operator recovery engine changed.', 409);
+    const info = await this.inspect('lobby-goblin-docker-broker-' + result.fleet);
+    assert(info.Config.Labels?.[fleetKey] === result.fleet && info.Config.Labels?.[roleKey] === 'docker-broker' && info.State.Running, 'Recovered broker ownership changed.', 409);
+    return this.exec(info.Id,
+      "import fs from 'node:fs/promises';let supported=true;try{await fs.access('/app/core/management-panel.js');}catch(error){if(error.code!=='ENOENT')throw error;supported=false;}let result={supported};if(supported){const {publishPanelRecovery}=await import('./core/management-panel.js');result=await publishPanelRecovery(process.env.BROKER_STATE||'/broker-state',JSON.parse(process.argv[1]));}console.log(JSON.stringify(result));",
+      [JSON.stringify(result)]);
+  }
 }

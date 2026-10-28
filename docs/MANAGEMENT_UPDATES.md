@@ -42,7 +42,9 @@ Retain the displayed update ID. If management remains reachable after an
 interruption, use **Resume update**, or **Restore previous management** before
 activation is committed. A committed update offers forward resume only. If
 ingress or a held controller cannot reconnect, use the operator command below
-with the same ID and directory. A killed coordinator may leave a filesystem
+from the matching release with the same ID and directory. Completed CLI recovery
+publishes a verified broker receipt after final cleanup so stale panel progress
+cannot keep application changes blocked. A killed coordinator may leave a filesystem
 lease requiring offline identity-bound inspection through `panel/storage.js`;
 the panel never deletes that lease or retries an uncertain install automatically.
 Progress journals under the private broker's `panel-updates` directory survive

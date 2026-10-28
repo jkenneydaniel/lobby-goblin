@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {ManagementPanel} from '../core/management-panel.js';
+import {ManagementPanel, publishPanelRecovery} from '../core/management-panel.js';
 import {saveManagementJSON} from '../core/management-installation.js';
 import {runPanelUpdate, resolvePanelRuntime} from '../management-panel-worker.js';
 import {assertPanelWorker} from '../core/management-panel-contract.js';
@@ -133,4 +133,23 @@ test('an unreadable retained update never reports a safe failed install or relea
   const values = [];
   await runPanelUpdate({input: {id: 'e'.repeat(32), action: 'resume'}, workflow: {status: async () => {throw Error('engine identity changed');}}, save: async value => values.push(value)});
   assert.equal(values.at(-1).state, 'attention');
+});
+for (const rollback of [false, true]) test(`verified operator ${rollback ? 'rollback' : 'resume'} reconciles a stale panel guard only after terminal cleanup`, async t => {
+  const f = await fixture(t); await f.panel.handle(f.request); const job = await f.finish();
+  await f.panel.handle({action: 'apply', id: job.id, requestId: 'e'.repeat(32), confirm: true});
+  await f.finish('running');
+  assert.equal(f.panel.blocksChanges(await f.panel.current()), true);
+  const result = {id: job.id, fleet, engine: 'fixture-engine', image: runtimeImage, commit: !rollback, pending: null,
+    operation: {phase: rollback ? 'rolled-back' : 'complete', state: rollback ? 'failed' : 'succeeded'}};
+  const root = path.dirname(f.panel.root);
+  await assert.rejects(publishPanelRecovery(root, {...result, pending: 'cleanup'}), /completed operator/);
+  await assert.rejects(publishPanelRecovery(root, {...result, cleanupRequired: true}), /completed operator/);
+  await assert.rejects(publishPanelRecovery(root, {...result, engine: 'foreign-engine'}), /scope/);
+  await assert.rejects(publishPanelRecovery(root, {...result, fleet: 'f'.repeat(32)}), /scope/);
+  assert.equal((await publishPanelRecovery(root, {...result, id: 'f'.repeat(32)})).updated, false);
+  assert.equal(f.panel.blocksChanges(await f.panel.current()), true);
+  await publishPanelRecovery(root, result);
+  const current = await f.panel.current();
+  assert.equal(f.panel.view(current).update.state, rollback ? 'rolled-back' : 'complete');
+  assert.equal(f.panel.blocksChanges(current), false);
 });

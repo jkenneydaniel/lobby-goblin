@@ -13,6 +13,23 @@ async function read(file) {
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
 }
 
+// Called only by the operator CLI through an ownership-checked Docker exec,
+// after run() has durably completed and released its private workflow lease.
+// There is deliberately no broker HTTP/RPC route for publishing this receipt.
+export async function publishPanelRecovery(root, result) {
+  assert(result && idOK(result.id) && idOK(result.fleet) && result.pending === null &&
+    !result.cleanupRequired && ((result.operation?.phase === 'complete' && result.operation.state === 'succeeded') ||
+      (result.operation?.phase === 'rolled-back' && result.operation.state === 'failed')), 'Only completed operator recovery can release the panel guard.', 409);
+  const directory = path.join(root, 'panel-updates'), job = await read(path.join(directory, 'current.json'));
+  if (!job || job.id !== result.id) return {updated: false};
+  assert(job.fleet === result.fleet && job.engine === result.engine, 'Operator recovery scope changed.', 409);
+  const plan = {id: result.id, fleet: result.fleet, engine: result.engine, image: result.image, commit: result.commit, pending: null, operation: result.operation};
+  await saveManagementJSON(path.join(directory, 'operator-' + job.id + '.json'), {version: 1, id: job.id, fleet: job.fleet, engine: job.engine, result: {
+    plan, state: result.operation.phase === 'complete' ? 'complete' : 'rolled-back', message: 'Operator recovery completed. Management changes are available again.',
+  }});
+  return {updated: true};
+}
+
 // This RPC accepts release versions and retained review IDs, never Docker
 // requests, host paths, mounts, commands or arbitrary image references.
 export class ManagementPanel {
@@ -35,7 +52,13 @@ export class ManagementPanel {
     assert(job.fleet === this.fleet && idOK(job.id) && idOK(job.attempt), 'Management update identity changed.', 409);
     const worker = await this.inspect(job.name);
     if (worker) assertPanelWorker(worker, job.spec, job.name);
-    const result = await read(path.join(this.root, job.attempt, 'result.json'));
+    let result = await read(path.join(this.root, job.attempt, 'result.json'));
+    const operator = await read(path.join(this.root, 'operator-' + job.id + '.json'));
+    if (operator) {
+      assert(operator.version === 1 && operator.id === job.id && operator.fleet === this.fleet && operator.engine === job.engine &&
+        ['complete', 'rolled-back'].includes(operator.result?.state), 'Operator recovery receipt changed.', 409);
+      if (!worker?.State?.Running) result = operator.result;
+    }
     assert(!result || (['planning', 'running', 'reviewed', 'attention', 'complete', 'rolled-back', 'failed'].includes(result.state) &&
       typeof result.message === 'string' && result.message.length <= 1200 &&
       (!result.plan || result.plan.id === job.id)), 'The coordinator result changed. Preserve its records for review.', 409);
@@ -109,7 +132,7 @@ export class ManagementPanel {
     const scope = path.join(this.root, attempt);
     await fs.mkdir(scope, {mode: 0o700});
     const spec = panelWorkerSpec({fleet: this.fleet, attempt, image: own.Image, directory, socket: socket[0].Source, volume: state[0].Name, subpath: 'panel-updates/' + attempt});
-    const job = {id, fleet: this.fleet, attempt, name, spec, requestId: input.requestId, action, version: targetVersion, expires: action === 'plan' ? this.now() + 15 * 60000 : current.job.expires};
+    const job = {id, fleet: this.fleet, engine: engine.ID, attempt, name, spec, requestId: input.requestId, action, version: targetVersion, expires: action === 'plan' ? this.now() + 15 * 60000 : current.job.expires};
     await saveManagementJSON(path.join(scope, 'input.json'), {version: 1, fleet: this.fleet, id, action, targetVersion, directory, engine: engine.ID, spec, name});
     // Intent is saved before create/start; a lost response is never permission
     // to launch another socket-owning coordinator.

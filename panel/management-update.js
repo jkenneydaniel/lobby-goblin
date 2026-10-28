@@ -90,6 +90,8 @@ export async function main(
             confirm: options['--confirm'] === true,
             rollback: command === 'rollback',
           });
+  if (!['plan', 'status'].includes(command) && !result.cleanupRequired && result.pending === null)
+    await workflow.engine.reconcilePanelUpdate?.(result);
   log(JSON.stringify(result, null, 2));
   return result;
 }
