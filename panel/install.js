@@ -89,7 +89,7 @@ export function run(command,args,{cwd,inherit=false,env=process.env}={}){
 }
 
 export async function checkHost({execute=run,env=process.env}={}){
-  const endpoint=env.DOCKER_HOST||await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}']);
+  const endpoint=env.DOCKER_CONTEXT?await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}','--',env.DOCKER_CONTEXT]):env.DOCKER_HOST||await execute('docker',['context','inspect','--format','{{.Endpoints.docker.Host}}']);
   insist(endpoint.startsWith('unix://')||process.platform==='win32'&&endpoint.startsWith('npipe://'),'Run the installer on the target machine using its local Docker engine. Remote Docker contexts are not supported.');
   const info=JSON.parse(await execute('docker',['info','--format','{{json .}}']));
   insist(info.OSType==='linux','Use Docker with Linux containers.');

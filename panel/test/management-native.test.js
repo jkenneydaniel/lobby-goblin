@@ -20,6 +20,10 @@ test('local contexts resolve Unix sockets and Windows named pipes without accept
   let called = false;
   await assert.rejects(nativeDocker({env: {DOCKER_BROKER_SOCKET: '/broker'}, execute: async () => {called = true;}}), /outside/);
   assert.equal(called, false);
+  const docker = await nativeDocker({env: {DOCKER_HOST: 'tcp://unselected.example:2375', DOCKER_CONTEXT: 'desktop-linux'},
+    execute: async (_file, args) => {assert.deepEqual(args.slice(-2), ['--', 'desktop-linux']); return 'unix:///selected-local.sock';},
+    api: async (_method, _route, _body, options) => options.socketPath});
+  assert.equal(await docker('GET', '/info'), '/selected-local.sock');
 });
 test('native Docker API really uses the current OS local IPC transport', async t => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lgb-ipc-'));

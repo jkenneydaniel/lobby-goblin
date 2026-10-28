@@ -14,7 +14,8 @@ export function localDockerSocket(endpoint, platform = process.platform) {
 }
 export async function nativeDocker({execute = run, env = process.env, platform = process.platform, api = dockerAPI} = {}) {
   assert(env.DOCKER_BROKER_SOCKET === undefined && env.DOCKER_BROKER_TOKEN_FILE === undefined, 'Run operator recovery outside application and broker credentials.');
-  const endpoint = env.DOCKER_HOST || (await execute('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])).trim();
+  const endpoint = env.DOCKER_CONTEXT ? (await execute('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}', '--', env.DOCKER_CONTEXT])).trim() :
+    env.DOCKER_HOST || (await execute('docker', ['context', 'inspect', '--format', '{{.Endpoints.docker.Host}}'])).trim();
   const socketPath = localDockerSocket(endpoint, platform);
   return (method, route, body, options) => api(method, route, body, {...options, socketPath});
 }
