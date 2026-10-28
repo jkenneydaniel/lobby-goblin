@@ -1,6 +1,7 @@
 import {escapeHTML as esc, formatDate} from '../shared/view.js';
 import {version, compareVersions, reportedVersion} from '../shared/versions.js';
 import {mountVersionPicker} from '../shared/version-picker.js';
+import {maintenanceView} from '../shared/maintenance-view.js';
 
 export function createUpdatesScreen({model, notice}) {
   const expanded = new Set();
@@ -38,7 +39,7 @@ export function createUpdatesScreen({model, notice}) {
       else expanded.delete(element.dataset.updateDisclosure);
     }
     ctx.render(
-      `<div class="heading updates-heading"><h1>Updates</h1><button data-check-updates ${checking || settings?.enabled === false ? 'disabled' : ''}>${checking ? 'Checking…' : 'Check for updates'}</button></div>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<section class="card updates-card" aria-label="Lobby Goblin updates">${managementView()}${settingsView()}${disclosure('help', 'Update help', '<p>If an update is interrupted, use its recovery actions above. If the panel stays unavailable, follow the host recovery guide.</p>' + guide('Open host recovery guide'))}</section><section class="card updates-card" aria-label="Game updates"><h2>Game servers</h2><label>Server<select data-update-server><option value="">Choose a server</option>${model.snapshot.servers.map((value) => `<option value="${esc(value.hostId + ':' + value.id)}" ${selected === value.hostId + ':' + value.id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.hostName)}</option>`).join('')}</select></label>${loading ? '<p role="status">Checking game releases…</p>' : ''}<div data-application-releases>${applicationView(server(), catalogue)}</div></section>`,
+      `<div class="heading updates-heading"><h1>Updates</h1><button data-check-updates ${checking || settings?.enabled === false ? 'disabled' : ''}>${checking ? 'Checking…' : 'Check for updates'}</button></div>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}<section class="card updates-card" aria-label="Lobby Goblin updates">${managementView()}${settingsView()}${disclosure('help', 'Update help', '<p>Recovery details and copies are saved on the host automatically. If an update is interrupted, return here for its recovery actions. You don’t need to write down an update ID.</p><p>Before activation, a failed update can restore the previous management version and its saved metadata. After activation, recovery finishes the new version so it cannot overwrite newer data. If the panel stays unavailable, use the host recovery guide.</p>' + guide('Open host recovery guide'))}</section><section class="card updates-card" aria-label="Game updates"><h2>Game servers</h2><label>Server<select data-update-server><option value="">Choose a server</option>${model.snapshot.servers.map((value) => `<option value="${esc(value.hostId + ':' + value.id)}" ${selected === value.hostId + ':' + value.id ? 'selected' : ''}>${esc(value.name)} · ${esc(value.hostName)}</option>`).join('')}</select></label>${loading ? '<p role="status">Checking game releases…</p>' : ''}<div data-application-releases>${applicationView(server(), catalogue)}</div></section>`,
     );
     for (const element of ctx.root.querySelectorAll('[data-update-disclosure]'))
       ctx.on(element, 'toggle', () => {
@@ -221,22 +222,28 @@ export function createUpdatesScreen({model, notice}) {
       explanation =
         update.expires <= Date.now()
           ? 'This review expired. Cancel it and review the update again.'
-          : 'The panel will restart briefly. Your game servers keep running.';
+          : 'The panel will restart briefly. Your game servers keep running. Recovery copies are saved automatically.';
     else if (update?.state === 'running')
-      explanation =
-        'The panel will reconnect automatically. You may need to sign in again.';
+      explanation = ''; // The maintenance view owns the reconnecting state.
     else if (update?.state === 'attention')
       explanation = update.cleanupRequired
         ? 'The update is installed. Resume to finish cleanup.'
         : update.actions?.includes('reset')
           ? 'The update did not start. Reset the review to try again.'
-          : 'The update was interrupted. Use the recovery actions below to continue.';
+          : update.actions?.includes('rollback')
+            ? 'The update paused before activation. Resume it or restore the previous version using the recovery copy.'
+            : update.actions?.includes('resume')
+              ? 'The new version has been activated. Resume to finish recovery without overwriting newer panel data.'
+              : 'The coordinator stopped before its outcome could be confirmed. The host administrator must inspect the saved recovery records before retrying.';
+    else if (update?.state === 'rolled-back')
+      explanation =
+        'The previous management version and its metadata were restored. Your game servers and worlds were left alone.';
     else if (update?.state === 'failed')
       explanation =
         'The release could not be reviewed. Try again or open Update help.';
     if (['attention', 'failed'].includes(update?.state) && update.diagnostic)
       explanation = update.diagnostic.message + ' ' + update.diagnostic.action;
-    return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && (!update || terminal) ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'attention' && update.id ? `<p class="hint">Update reference: <code>${esc(update.id)}</code></p>` : ''}<div class="actions updates-actions">${(
+    return `<div class="management-update"><div class="updates-summary"><div><h2>Lobby Goblin</h2><p class="updates-version">${current ? `Installed ${esc(current)}` : 'Reading installed version…'}${available && (!update || terminal) ? ` <span>→ ${esc(target)}</span>` : update?.version && !['complete', 'rolled-back'].includes(update.state) ? ` <span>→ ${esc(update.version)}</span>` : ''}</p></div><p class="status ${busy || available || ['attention', 'failed'].includes(update?.state) ? 'attention' : ''}" role="status">${esc(title)}</p></div>${model.snapshot.hosts.length > 1 ? `<label class="updates-host">Host<select data-management-host ${managementBusy ? 'disabled' : ''}>${model.snapshot.hosts.map((value) => `<option value="${esc(value.id)}" ${selectedHost()?.id === value.id ? 'selected' : ''}>${esc(value.name)}</option>`).join('')}</select></label>` : ''}${managementError ? `<p class="error" role="alert">${esc(managementError)}</p>${!management ? '<button data-retry-management>Retry update controls</button>' : ''}` : ''}${release?.error ? `<p class="error" role="alert">${esc(release.error)}</p>` : ''}${explanation ? `<p>${esc(explanation)}</p>` : ''}${update?.state === 'running' ? maintenanceView({updating: true}) : ''}${update?.state === 'attention' ? '<p class="hint">Your recovery details are saved on the host. You don’t need to write down an update ID.</p>' : ''}${update?.actions?.includes('inspect') ? guide('Open host recovery guide') : ''}<div class="actions updates-actions">${(
       update?.actions || []
     )
       .filter((action) => label[action])
@@ -270,8 +277,7 @@ export function createUpdatesScreen({model, notice}) {
     } catch (error) {
       if (version !== managementGeneration || !ctx.isCurrent()) return;
       if (['planning', 'running'].includes(management?.update?.state))
-        managementError =
-          'Waiting for the panel to reconnect. You may need to sign in again.';
+        managementError = ''; // Expected disconnect; keep the goblin progress view.
       else {
         management = null;
         managementError = error.message;
@@ -293,7 +299,7 @@ export function createUpdatesScreen({model, notice}) {
               ? 'Reset this review?'
               : 'Recover this update?',
         action === 'apply'
-          ? 'The panel will restart briefly. Game servers keep running and their worlds are preserved.'
+          ? 'The panel will restart briefly. Game servers keep running and their worlds are preserved. Recovery copies and progress are saved automatically; if interrupted, return to Updates for the safe recovery actions.'
           : action === 'cancel'
             ? 'Review the release again when you are ready to install.'
             : action === 'reset'

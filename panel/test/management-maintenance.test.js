@@ -235,6 +235,10 @@ test('held controller/web instances expose only local authenticated maintenance 
   assert.equal(initialized, 0);
   assert.equal(started, 0);
   assert.equal(ticks, 0);
+  const navigation = await fetch('http://127.0.0.1:' + web.address().port + '/', {headers:{accept:'text/html'}});
+  assert.equal(navigation.status, 503);
+  assert.match(await navigation.text(), /A little goblin upkeep/);
+  assert.deepEqual(fixture.events, [], 'Rendering maintenance cannot contact Docker or start a game.');
   for (const server of [controller, web]) {
     assert.equal(
       (await request(server, '/health', {authorized: false})).status,
