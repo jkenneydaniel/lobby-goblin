@@ -54,7 +54,12 @@
   margin: 8px 0 0;
   color: #b8c7bd;
 }
-.version-picker :focus-visible {
+.version-picker-control:focus-within {
   outline: 2px solid #e4b86e;
   outline-offset: 2px;
+  border-radius: 6px;
+}
+.version-picker-control input:focus-visible,
+.version-picker-control button:focus-visible {
+  outline: none;
 }

@@ -149,7 +149,7 @@ export function createUpdateWorkflow({
               : '';
             form.querySelector('[data-part=software-status]').textContent =
               data.error ||
-              'All available Factorio 2.x headless releases. Stable: ' +
+              'Factorio 2.x releases · Stable: ' +
                 data.stable +
                 (data.experimental
                   ? ' · Experimental: ' + data.experimental
