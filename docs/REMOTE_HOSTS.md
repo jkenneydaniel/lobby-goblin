@@ -147,7 +147,15 @@ docker compose -f ./lobby-goblin-host/host.compose.json exec fleet-controller no
 ## Keep the agent aligned
 
 Hosts show their agent version beside the main panel version. For an older
-agent-only host, **Update agent** reviews the exact panel version and requires
+broker-enabled host, open **Updates → Update management services**, choose that
+host and review its coordinated update. This replaces the broker, host, agent web
+and registered controllers together. Versions before v0.3.14-alpha need one
+host-side coordinated upgrade to enable the broker capability. See
+[management updates and recovery](MANAGEMENT_UPDATES.md).
+
+### Legacy socket-bearing agents
+
+For a legacy agent-only host, **Update agent** reviews the exact panel version and requires
 administrator confirmation. Version mismatches block game changes until aligned.
 Updates use the agent connection; SSH credentials are not required or retained.
 They never run unattended. If an agent is newer, update the main panel first;

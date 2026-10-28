@@ -166,8 +166,10 @@ Fresh managed hosts use a local Docker broker; neither the host manager nor an
 instance controller mounts the daemon socket. Credentials and instance
 permissions are enforced outside game controllers. Existing installations retain
 their historical definitions until an explicit reviewed upgrade. Broker-enabled
-hosts require operator-reviewed management updates instead of the legacy
-socket-bearing agent helper. See [the isolation and upgrade contract](ISOLATION.md).
+hosts use the coordinated management updater from **Updates**, with command-line
+recovery available. Older versions need one host-side upgrade to enable the panel
+capability. See [management updates and recovery](MANAGEMENT_UPDATES.md) and
+[the isolation and upgrade contract](ISOLATION.md).
 
 ## Snapshot library and removed servers
 
@@ -194,7 +196,7 @@ the owning host; collection reads remain available to read-only accounts. New
 inspection/deletion routes require an updated host agent.
 
 These are saved-world snapshots. Private management-update recovery metadata is
-managed by the [operator update workflow](MANAGEMENT_UPDATES.md).
+managed by the [coordinated update workflow](MANAGEMENT_UPDATES.md).
 
 New Factorio servers can explicitly choose runtime software installation in the
 creation dialog. The bundled image remains the compatible default. Runtime
