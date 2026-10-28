@@ -1,4 +1,6 @@
 import {bindGameUpdate} from '../game-update.js';
+import {mountVersionPicker, versionLabel} from '../shared/version-picker.js';
+import {compareVersions} from '../shared/versions.js';
 
 export function createUpdateWorkflow({
   getState,
@@ -80,6 +82,8 @@ export function createUpdateWorkflow({
         updateReviewPending = true;
         try {
           const recover = action === 'software-recover';
+          const older =
+            !recover && compareVersions(version, getState().status.version) < 0;
           if (
             await ctx.confirm(
               recover
@@ -87,7 +91,10 @@ export function createUpdateWorkflow({
                 : 'Install Factorio ' + version + '?',
               recover
                 ? 'Restore the recorded pre-update world, settings, mods and previous Factorio release. Current data is retained in the recovery library.'
-                : 'Stop Factorio, create a backup, install the checksum-verified release and check startup. Players disconnect; clients and mods must match. The server returns to its previous running or stopped state.',
+                : (older
+                    ? 'This is an older release. Worlds saved by a newer version may not load. Recovery restores the pre-change software and data together. '
+                    : '') +
+                    'Stop Factorio, create a backup, install the checksum-verified release and check startup. Players disconnect; clients and mods must match. The server returns to its previous running or stopped state.',
               recover ? 'Restore previous release' : 'Install software',
             )
           ) {
@@ -118,14 +125,13 @@ export function createUpdateWorkflow({
           .then((data) => {
             if (!ctx.isCurrent() || !form.isConnected) return;
             const choices = (data.stale ? [] : data.choices).filter(
-              (choice) =>
-                choice.kind === 'software' && choice.version !== status.version,
+              (choice) => choice.kind === 'software',
             );
             select.replaceChildren(
               ...choices.map(
                 (choice) =>
                   new Option(
-                    choice.version + ' · ' + choice.channel,
+                    versionLabel(choice, status.version),
                     choice.version,
                   ),
               ),
@@ -134,8 +140,21 @@ export function createUpdateWorkflow({
               select.append(
                 new Option('No other verified release available', ''),
               );
+            // An update is always an explicit selection; never default to the
+            // first (often experimental) release when loading the catalogue.
+            select.value = choices.some(
+              (choice) => choice.version === status.version,
+            )
+              ? status.version
+              : '';
             form.querySelector('[data-part=software-status]').textContent =
-              data.error || 'Latest stable: ' + data.stable;
+              data.error ||
+              'All available Factorio 2.x headless releases. Stable: ' +
+                data.stable +
+                (data.experimental
+                  ? ' · Experimental: ' + data.experimental
+                  : '') +
+                (data.console ? ' · Console: ' + data.console : '');
             const choose = () => {
               const choice = choices.find(
                   (value) => value.version === select.value,
@@ -143,10 +162,21 @@ export function createUpdateWorkflow({
                 link = form.querySelector('[data-part=software-notes]');
               link.hidden = !choice;
               if (choice) link.href = choice.notesUrl;
+              button.disabled =
+                !choice ||
+                choice.version === status.version ||
+                !!status.activeJob;
             };
             listen(select, 'change', choose);
+            mountVersionPicker(select, {
+              choices: choices.map((choice) => ({
+                value: choice.version,
+                display: choice.version,
+                label: versionLabel(choice, status.version),
+              })),
+              signal: AbortSignal.any([ctx.signal, controls.signal]),
+            });
             choose();
-            button.disabled = !choices.length || !!status.activeJob;
           })
           .catch((error) => {
             if (ctx.isCurrent())
@@ -155,7 +185,7 @@ export function createUpdateWorkflow({
           });
         listen(form, 'submit', (event) => {
           event.preventDefault();
-          if (select.value)
+          if (select.value && !button.disabled)
             void changeSoftware('software-update', select.value);
         });
       }

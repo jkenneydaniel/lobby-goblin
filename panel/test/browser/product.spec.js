@@ -211,10 +211,25 @@ test('creation checks block failures and discard a late result after input chang
   await expect(page.locator('#creation-checks')).toContainText('Insufficient host capacity');
   expect(creates).toBe(0);
 });
+test('Factorio historical selection warns before a downgrade and never submits unlisted search text',async({page})=>{
+  await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'2.1.23',software:{mode:'runtime',provider:'factorio-headless'},image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
+  await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',stable:'2.1.23',choices:[{kind:'software',version:'2.1.23',channel:'stable'},{kind:'software',version:'2.0.77',channel:'archived'}]}}));
+  const submissions=[];await page.route('**/api/jobs',route=>{if(route.request().method()==='POST')submissions.push(route.request().postDataJSON());return route.continue();});
+  await factorio(page,'#settings/updates');
+  const picker=page.getByRole('combobox',{name:'Factorio version',exact:true});
+  await expect(picker).toHaveValue('2.1.23');
+  await picker.fill('2.0.999');await page.locator('#software-update-form').evaluate(form=>form.requestSubmit());
+  await expect(page.getByRole('dialog')).toHaveCount(0);expect(submissions).toEqual([]);
+  await picker.fill('2.0.77');await picker.press('Enter');
+  await page.getByRole('button',{name:'Review software update',exact:true}).click();
+  await expect(page.getByRole('dialog')).toContainText('older release');
+  await expect(page.getByRole('dialog')).toContainText('may not load');
+  await page.getByRole('dialog').getByRole('button',{name:'Cancel',exact:true}).click();expect(submissions).toEqual([]);
+});
 for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'recovery restores the paired backup':'selection reviews an explicit version') ,async({page},testInfo)=>{
   let recoveryState=recovery;
   await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),software:{mode:'runtime',provider:'factorio-headless'},softwareRecovery:recoveryState?{required:true,backup:'before-software-update.zip'}:null,image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
-  await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',software:{mode:'runtime'},stable:'2.0.78',choices:[{kind:'software',version:'2.0.78',channel:'stable',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#2.0.78'}]}}));
+  await page.route('**/api/application-releases',route=>route.fulfill({json:{game:'factorio',software:{mode:'runtime'},stable:'2.1.23',experimental:'2.1.24',choices:['2.1.24','2.1.23','2.0.78','2.0.77'].map(version=>({kind:'software',version,channel:version==='2.1.23'?'stable':version==='2.1.24'?'experimental':'archived',notesUrl:'https://wiki.factorio.com/Version_history/2.0.0#'+version}))}}));
   const submissions=[];await page.route('**/api/jobs',async route=>{if(route.request().method()!=='POST')return route.continue();submissions.push(route.request().postDataJSON());recoveryState=!recovery;await route.fulfill({status:202,json:{id:'synthetic-runtime-job',state:'queued'}});});
   await factorio(page,'#settings/updates');
   await expect(page.getByRole('heading',{name:'Factorio software',exact:true})).toBeVisible();
@@ -224,7 +239,18 @@ for(const recovery of [false,true])test('Factorio runtime software '+(recovery?'
     await expect(page.getByRole('dialog')).toContainText('pre-update world, settings, mods and previous Factorio release');
     await page.getByRole('dialog').getByRole('button',{name:'Restore previous release',exact:true}).click();
   }else{
-    await expect(page.getByRole('combobox',{name:'Factorio version',exact:true})).toHaveValue('2.0.78');
+    const picker=page.getByRole('combobox',{name:'Factorio version',exact:true});
+    await expect(picker).toHaveValue('2.0.77');
+    await expect(page.getByRole('button',{name:'Review software update',exact:true})).toBeDisabled();
+    await picker.fill('9.9.9');
+    await expect(page.getByRole('option')).toHaveCount(0);
+    await expect(page.getByText(/No versions match/)).toBeVisible();
+    await expect(page.getByRole('button',{name:'Review software update',exact:true})).toBeDisabled();
+    await picker.fill('stable');
+    await expect(page.getByRole('option')).toHaveText(['2.1.23 · stable']);
+    await picker.fill('2.0.78');
+    await picker.press('ArrowDown');await picker.press('Enter');
+    await expect(picker).toHaveValue('2.0.78');
     await page.getByRole('button',{name:'Review software update',exact:true}).click();
     await expect(page.getByRole('dialog')).toContainText('2.0.78');
     await expect(page.getByRole('dialog')).toContainText('backup');

@@ -1,0 +1,60 @@
+.version-picker {
+  margin: 14px 0;
+  min-width: 0;
+}
+.version-picker label {
+  display: block;
+  margin-bottom: 6px;
+}
+.version-picker-control {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+.version-picker-control input {
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  border-radius: 6px 0 0 6px;
+}
+.version-picker-control button {
+  margin: 0;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 0 6px 6px 0;
+}
+.version-picker-options {
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 6px;
+  border: 1px solid #61766b;
+  border-radius: 6px;
+  background: #10221b;
+  color: #eff3e9;
+}
+.version-picker-option {
+  padding: 11px 14px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid #31463b;
+}
+.version-picker-option[aria-selected='true'] {
+  color: #f2c66d;
+  font-weight: 650;
+}
+.version-picker-option:hover,
+.version-picker-option[data-active] {
+  background: #345342;
+}
+.version-picker [hidden] {
+  display: none;
+}
+.version-picker .version-picker-count {
+  font-size: 13px;
+  margin: 8px 0 0;
+  color: #b8c7bd;
+}
+.version-picker :focus-visible {
+  outline: 2px solid #e4b86e;
+  outline-offset: 2px;
+}
