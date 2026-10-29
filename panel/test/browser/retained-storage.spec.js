@@ -263,3 +263,23 @@ test('a completed check without fresh details offers recovery instead of waiting
   await expect(card(page).locator('[data-delete-storage]')).toHaveCount(0);
   expect(fixture.requests).toHaveLength(1);
 });
+
+test('a published review is not treated as an error while its job snapshot is still running', async ({page}) => {
+  const item = removed(), fixture = await mockStorage(page, item, {delay: true});
+  await open(page);
+  const entry = card(page);
+  await entry.getByRole('button', {name: 'Delete data', exact: true}).click();
+  await expect(entry.getByText(/Checking storage size/)).toBeVisible();
+  fixture.complete();
+  Object.assign(fixture.jobs[0], {state: 'running', message: 'Inspecting retained storage without changing its contents…'});
+  await page.getByRole('button', {name: 'Refresh', exact: true}).click();
+  const form = entry.locator('[data-delete-storage]');
+  await expect(form.getByRole('textbox')).toBeVisible();
+  await expect(entry.getByRole('alert')).toHaveCount(0);
+  await expect(form.getByRole('button', {name: 'Permanently delete data'})).toBeDisabled();
+  fixture.jobs[0].state = 'succeeded';
+  await page.getByRole('button', {name: 'Refresh', exact: true}).click();
+  await expect(form.getByRole('button', {name: 'Permanently delete data'})).toBeEnabled();
+  await expect(entry.getByRole('alert')).toHaveCount(0);
+  expect(fixture.requests.map(request => request.path.split('/').at(-1))).toEqual(['inspect']);
+});

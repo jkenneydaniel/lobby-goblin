@@ -392,7 +392,7 @@ export function createStorageScreen({model, notice}) {
             key,
             'The check finished, but fresh storage details are unavailable. Check storage again before continuing.',
           );
-        if (job && job.state !== 'succeeded')
+        if (job && !['queued', 'running', 'succeeded'].includes(job.state))
           errors.set(
             key,
             job.message ||

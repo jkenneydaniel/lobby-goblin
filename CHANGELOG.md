@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.19-alpha — 2026-10-28
+
+- Replace Retained storage with Server storage: browse registered server volumes
+  across hosts, filter by host or storage status, search and view deleted history.
+- Put Recover, Delete data and View details on retained entries. Run the existing
+  safety check inside the chosen action, show progress and preserve form edits
+  and keyboard focus during refreshes. Keep offline inventory clearly marked.
+- Avoid treating a successful inspection as a failure when its fresh review
+  arrives before the operation list reports completion. Keep confirmation
+  available without repeating the inspection.
+- Preserve storage ownership and confirmation guards, updater compatibility,
+  release formats, game images and existing worlds. Publication does not deploy
+  or change running installations.
+
 ## 0.3.18-alpha — 2026-10-28
 
 - Show a self-contained goblin maintenance screen during panel activation, with
