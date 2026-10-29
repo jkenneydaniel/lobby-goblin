@@ -23,7 +23,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
             )}</tbody></table></div>${details.manifest.files.length > 200 ? '<p>Showing the first 200 files. Download the manifest for the full inventory.</p>' : ''}</details><button data-manifest>Download manifest</button></section>`
         : '';
     ctx.render(
-      `<p class="hint">Inspect a saved world, create an independent server from it, or delete a snapshot you no longer need.</p>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}${loading ? '<p role="status">Verifying snapshot files…</p>' : ''}${detail}<div class="grid">${snapshotCards(model.snapshot, admin())}</div>${admin() ? '<section class="retained-storage"><h2>Removed server data</h2><p>Inspect retained volumes, recover an independent server or permanently delete data in <a href="#storage">Storage</a>.</p></section>' : ''}`,
+      `<p class="hint">Inspect a saved world, create an independent server from it, or delete a snapshot you no longer need.</p>${problem ? `<p class="error" role="alert">${esc(problem)}</p>` : ''}${loading ? '<p role="status">Verifying snapshot files…</p>' : ''}${detail}<div class="grid">${snapshotCards(model.snapshot, admin())}</div>${admin() ? '<section class="retained-storage"><h2>Removed server data</h2><p>View all server storage, recover retained data or permanently delete it in <a href="#storage">Server storage</a>.</p></section>' : ''}`,
     );
     ctx.on(ctx.root, 'click', async (event) => {
       const button = event.target.closest('button');

@@ -175,7 +175,7 @@ capability. See [management updates and recovery](MANAGEMENT_UPDATES.md) and
 
 Removed servers leave the active server list. Their registry identity and original
 volume are retained for operator recovery and are listed separately under
-**Snapshot library → Removed servers · retained storage**. Removing a server never
+**Server storage → Retained after removal**. Removing a server never
 purges that volume. Old removed records also disappear from the active list after
 upgrading the panel.
 
@@ -185,7 +185,7 @@ publishes and verifies its snapshot, then removes the server containers and netw
 prevents removal and leaves the server stopped, with its resources intact. For an incomplete installation or a server that cannot publish a
 cloneable snapshot, an administrator can uncheck this option and retain the
 original volume for inspection, recovery into a new stopped server, or explicit
-permanent deletion in **Storage**. See [Retained server storage](RETAINED_STORAGE.md). Historical API clients that omit
+permanent deletion in **Server storage**. See [Server storage](RETAINED_STORAGE.md). Historical API clients that omit
 `publishSnapshot` retain the previous removal behavior.
 
 Administrators can inspect a snapshot's verified inventory and hashes, download

@@ -14,7 +14,7 @@ let session = null;
 const navigation = [
   {id: 'servers', label: 'Servers'},
   {id: 'library', label: 'Snapshot library', ownerOnly: true},
-  {id: 'storage', label: 'Storage', adminOnly: true},
+  {id: 'storage', label: 'Server storage', adminOnly: true},
   {id: 'updates', label: 'Updates', adminOnly: true},
   {id: 'hosts', label: 'Hosts', ownerOnly: true},
   {id: 'host', label: 'Host settings', ownerOnly: true},
