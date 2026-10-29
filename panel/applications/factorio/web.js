@@ -89,6 +89,7 @@ export const web = {
     '/game-update.js': ['game-update.js', 'text/javascript; charset=utf-8'],
     '/map.js': ['map.js', 'text/javascript; charset=utf-8'],
     '/map-spatial.js': ['map-spatial.js', 'text/javascript; charset=utf-8'],
+    '/map-lod.js': ['map-lod.js', 'text/javascript; charset=utf-8'],
     '/onboarding.js': ['onboarding.js', 'text/javascript; charset=utf-8'],
     '/style.css': ['style.css', 'text/css; charset=utf-8'],
     '/world-editor.js': ['world-editor.js', 'text/javascript; charset=utf-8'],

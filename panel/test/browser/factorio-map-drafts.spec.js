@@ -82,7 +82,7 @@ test('a rejected draft cancellation retains the editor and saved draft',async({p
   await expect(page.getByRole('textbox',{name:/^World name/})).toHaveValue('Keep this draft');
   expect(store.setups.draft.name).toBe('Keep this draft');await expect(page.locator('#create-form')).not.toHaveAttribute('inert');
 });
-test('large saved-map rendering preserves inspection, zoom, layers and one terrain atlas',async({page},info)=>{
+test('large saved-map rendering preserves inspection, zoom, layers and a terrain atlas plus cached base',async({page},info)=>{
   await page.addInitScript(()=>{const create=globalThis.document.createElement.bind(globalThis.document);globalThis.mapAtlasCount=0;globalThis.document.createElement=function(name,...args){if(name==='canvas')globalThis.mapAtlasCount++;return create(name,...args);};});
   await page.route('**/api/map',async route=>{
     const response=await route.fetch(),value=await response.json(),map=value.snapshot;
@@ -99,7 +99,7 @@ test('large saved-map rendering preserves inspection, zoom, layers and one terra
   await page.getByLabel('Enemies & bases',{exact:true}).uncheck();
   await page.getByRole('button',{name:'Zoom in',exact:true}).click();
   await page.getByRole('button',{name:'Fit map',exact:true}).click();
-  expect(await page.evaluate(()=>globalThis.mapAtlasCount)).toBe(1);
+  expect(await page.evaluate(()=>globalThis.mapAtlasCount)).toBe(2);
   await page.screenshot({path:info.outputPath('large-map-'+info.project.name+'.png'),fullPage:true});
 });
 test('a submitted world operation disables draft cancellation',async({page})=>{

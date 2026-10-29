@@ -68,14 +68,20 @@ export function createMapViews(getState, ui) {
           ),
         ),
       );
+    const refresh = getState().canAction('refresh-map')
+      ? actionButton('Refresh map', 'refresh-map', true)
+      : null;
+    if (refresh) {
+      const button = refresh.querySelector('button');
+      delete button.dataset.action;
+      button.dataset.mapRefresh = '';
+    }
     return fragment(
       heading(
         'YOUR SHARED WORLD',
         'A view of the factory.',
         'Explore your saved world without joining the game.',
-        getState().canAction('refresh-map')
-          ? actionButton('Refresh map', 'refresh-map', true)
-          : null,
+        refresh,
       ),
       readonly(),
       view,

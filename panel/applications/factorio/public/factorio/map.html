@@ -1,5 +1,6 @@
 <template id="map">
   <p id="map-refresh-state" class="form-note" role="status"></p>
+  <p id="map-manual-state" class="form-note" role="status"></p>
   <div data-part="map-settings"></div>
   <div data-part="banners"></div>
   <div class="warning" data-part="stale">
@@ -78,6 +79,7 @@
   </section>
   <p class="hint">
     Drag to pan · Scroll or pinch to zoom · Tap objects or players for details.
+    Zoom in for individual resources and buildings; distant objects are grouped.
     Red diamonds mark enemy bases, circles mark worms, and small dots mark enemy
     units. Enemies reflect the saved snapshot, including explored areas under
     fog of war; they are not live positions.<span data-part="older">
@@ -143,6 +145,7 @@
 </template>
 <template id="map-empty"
   ><p id="map-refresh-state" class="form-note" role="status"></p>
+  <p id="map-manual-state" class="form-note" role="status"></p>
   <div data-part="map-settings"></div>
   <div data-part="banners"></div>
   <div data-part="empty"></div
@@ -165,7 +168,8 @@
           required
       /></label>
       <p class="hint">
-        0 refreshes after every completed save. Choose 1–1440 to limit
+        15 minutes is recommended for background refresh. Existing settings are
+        kept. 0 refreshes after every completed save. Choose 1–1440 to limit
         background work. Only completed saves are used; this does not change
         game autosaves. Turning this off leaves any refresh already running to
         finish.

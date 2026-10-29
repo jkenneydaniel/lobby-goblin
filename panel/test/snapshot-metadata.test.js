@@ -40,3 +40,13 @@ test('invalid snapshots and filesystem failures never silently reuse old metadat
   problem=Object.assign(new Error('denied'),{code:'EACCES'});await assert.rejects(reader.read(),/denied/);
   problem=null;assert.equal((await reader.read()).world,'Recovered.zip');
 });
+
+test('map delivery skips unchanged payloads and returns pins scope metadata without retaining the full document', async () => {
+  let revision=1, reads=0;
+  const reader=new SnapshotMetadata('fixture',{stat:async()=>({dev:1,ino:revision,size:100,mtimeMs:revision,ctimeMs:revision}),readFile:async()=>{reads++;return JSON.stringify({world:'Factory.zip',seed:revision,created:String(revision),entities:[{large:'payload'}]});}});
+  const first=await reader.document();assert.equal(first.snapshot.seed,1);assert.match(first.revision,/^[a-f0-9]{64}$/);assert.equal(reads,1);
+  const second=await reader.document(first.revision);assert.equal(second.unchanged,true);assert.equal(second.snapshot,undefined);assert.equal(reads,1);assert.equal(reader.seed,1);assert.equal(reader.value.entities,undefined);
+  revision=2;await reader.read();assert.equal(reader.seed,2);
+  const third=await reader.document(first.revision);assert.equal(third.snapshot.seed,2);assert.notEqual(third.revision,first.revision);
+  assert.equal((await reader.document(third.revision)).unchanged,true);
+});

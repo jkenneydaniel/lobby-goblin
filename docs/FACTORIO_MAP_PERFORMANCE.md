@@ -59,10 +59,101 @@ compatible. This change does not claim larger saves fit the one-GiB helper.
 The exporter still enumerates and sorts all charted chunks, samples terrain,
 classifies entities, and makes sequential 16-chunk RCON batches in an isolated
 world copy. Full JSON is transferred and parsed when a new snapshot arrives.
-The browser still paints every visible object at overview zoom. Larger export
+The earlier renderer still painted every visible object at overview zoom; the follow-up below addresses resource/building overviews. Larger export
 limits should follow disposable Factorio measurements of helper peak memory,
 export duration, JSON size/parse cost and mobile frame timing at representative
 density. Useful subsequent work is bounded overview aggregation and measuring
 engine-side entity filtering or batch size, with modded-object and enemy-priority
 fixtures. A browser index microbenchmark alone is insufficient evidence to raise
 the export limits.
+
+
+## Focused rendering and fetch follow-up
+
+The primary activity is browsing a saved factory: pan/zoom stays responsive,
+objects remain inspectable, player movement does not redraw the whole factory,
+and requesting a fresh export is an explicit, rate-limited operation.
+
+### Review findings and changes
+
+1. `map.js` redrew terrain and all visible entities whenever a live-player response
+   arrived, including disabled/unchanged tracking. Cache the static base in one
+   additional canvas. Only redraw that base for camera, size or relevant layer
+   changes. Player/pin overlays reuse it; identical player data schedules no frame.
+   Cap the drawing pixel ratio at two to bound high-density mobile canvas costs.
+2. The existing spatial index helps close views, but an overview includes the
+   whole object list. At less than half a pixel per tile, group resources and
+   buildings into occupied visual cells. Keep at most two derived levels cached.
+   Exact source objects remain the authority for selection. Enemies, rails and
+   oversized objects stay exact; this is not sampling or deleting snapshot data.
+3. Pin edits and unrelated completed operations fetched the full JSON, destroyed
+   the canvas and rebuilt indexes/terrain. Optional revision requests now return
+   only current metadata and pins when the file is unchanged. Pin changes keep
+   the renderer and form state. Revisiting the page reuses one session-scoped
+   snapshot in browser memory. The controller coalesces full reads but retains
+   only small metadata after delivery; no shared or persistent browser cache is used.
+4. Map-status polling follows its own 30-second budget, independent of the shared
+   application's five-second status/job checks. Known running map operations use
+   five-second progress checks. Live positions poll every five seconds, with a
+   shared controller cache of 4.5 seconds; disabled tracking checks once a minute.
+   Hidden tabs skip map/player polling. Player rows use delegated actions instead
+   of retaining fresh listeners on every telemetry response.
+5. The existing **Refresh map** button now shows a two-minute countdown. The
+   controller reserves that budget durably before saving/exporting, and recent
+   automatic exports count toward it. The budget survives restart and applies
+   across users. Browser timing is presentation only. Manual refresh still saves
+   current progress; automatic refresh uses completed saves without an extra save.
+6. New automatic-refresh settings default to 15 minutes. Existing saved intervals,
+   including explicit every-save refresh, remain unchanged. Save detection polls
+   every five seconds and skips log work while automatic refresh is disabled.
+
+### Browser measurement
+
+A loopback-only harness imported the actual before/after renderer modules into
+Chromium at 1440 × 1000. It generated deterministic, unique object coordinates,
+uniform terrain and a 90% resources / 10% buildings mix. Each run used a fresh
+canvas/control set, 15 alternating pans (first three excluded), and five identical
+player updates. The values below are medians of three runs on the same machine.
+Timers measure JavaScript callback work, not GPU presentation, network load,
+Factorio export duration, tick rate or guaranteed frame rate.
+
+| Snapshot | First draw before → after | Pan callback before → after | Rectangle fill calls per pan before → after |
+| --- | ---: | ---: | ---: |
+| 80,000 objects / 2,048 chunks | 40.3 → 28.0 ms | 23.8 → 21.3 ms | 80,001 → 80,001 |
+| 320,000 objects / 8,192 chunks | 947.4 → 112.2 ms | 144.8 → 20.6 ms | 320,001 → 41,581 |
+
+Five unchanged player updates previously caused five complete draws; afterward
+there were zero scheduled draws. A moving marker now copies the cached base
+instead of traversing all terrain/objects. Terrain draw calls still scale with
+visible chunks. The larger synthetic case demonstrates roughly seven times less
+pan callback time, not support for exporting that map from a real game yet.
+
+The fixture JSON measured 9.1 MB and 36.7 MB respectively. JSON transfer/parse
+remains a first-load cost. The larger model exceeds the current 24 MiB export
+budget, so increasing the actual export caps is deliberately outside this PR.
+
+### Next work before larger real exports
+
+Keep the current 2,048 chunks / 80,000 objects / 24 MiB validation and one-GiB
+isolated helper guard. The exporter still copies/loads the save, enumerates and
+sorts every charted chunk before truncation, queries entities it later discards,
+and uses sequential 16-chunk batches. It also maintains a seen-object table past
+the output cap. Those game-side costs were not measured by this browser harness.
+
+The next focused step should combine a compact/versioned payload (deduplicated
+prototype strings/colors or tiled delivery) with disposable native Factorio
+measurements of export time, helper peak memory and payload size. Measure native
+entity filtering and bounded chunk selection there before increasing caps.
+Consider progressively fetched tiles or background parsing only after profiling
+the resulting first load. Preserve enemy priority, modded extents, source
+identity and old snapshot readers. Enemy/rail-dominated scenes may need different
+LOD treatment; the resource/building benchmark does not establish their throughput.
+
+To repeat the browser measurement, run
+`node panel/test/map-render-benchmark.mjs v0.3.19-alpha`, open
+`http://127.0.0.1:41740/` and choose **Run measurements**. The same harness at
+`/legacy/` uses the exact baseline renderer modules from Git. Keep the browser,
+viewport, device-pixel ratio and object mix the same; alternate run order when
+collecting more samples. The harness replaces its canvas and controls between
+runs so old event handlers cannot contaminate the comparison. The 320,000-object
+case intentionally tests renderer capacity beyond the supported export payload.
