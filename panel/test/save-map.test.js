@@ -54,3 +54,14 @@ test('refresh preferences preserve legacy defaults and coalesce newer saves acro
 test('refresh preferences reject unknown keys, coercions and unbounded intervals',()=>{
   for(const value of [null,[],{}, {enabled:'false',intervalMinutes:0},{enabled:true,intervalMinutes:-1},{enabled:true,intervalMinutes:1441},{enabled:true,intervalMinutes:0.5},{enabled:true,intervalMinutes:'5'},{enabled:true,intervalMinutes:0,source:'another.zip'}])assert.throws(()=>mapRefreshSettings(value),/Choose automatic refresh/);
 });
+
+test('manual cooldown survives restart, shares recent automatic work, and is reserved before effects', () => {
+  const queue=new SaveMapQueue({}, {manualCooldownMs:120000});
+  queue.claimManual(1000);assert.equal(queue.manualStatus(1001).availableAt,121000);
+  assert.throws(()=>queue.claimManual(120999),error=>error.status===429);
+  const restarted=new SaveMapQueue(queue.toJSON());assert.throws(()=>restarted.claimManual(1002),/cooling down/);
+  restarted.claimManual(121000);
+  const automatic=new SaveMapQueue({lastStartedAt:200000});assert.throws(()=>automatic.claimManual(200001),/cooling down/);
+  automatic.claimManual(320000);
+  assert.throws(()=>new SaveMapQueue({}, {manualCooldownMs:NaN}),/Invalid manual/);
+});

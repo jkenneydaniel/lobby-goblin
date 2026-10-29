@@ -14,7 +14,7 @@ async function until(check){for(let i=0;i<160;i++){const value=await check();if(
 
 test('save-triggered exports use the completed autosave, coalesce saves, and never save recursively',{timeout:20000},async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'factorio-auto-map-')),data=path.join(root,'data'),state=path.join(root,'state'),backups=path.join(root,'backups');
-  for(const dir of ['saves','mods','config'])await fs.mkdir(path.join(data,dir),{recursive:true});await fs.mkdir(state);
+  for(const dir of ['saves','mods','config'])await fs.mkdir(path.join(data,dir),{recursive:true});await fs.mkdir(state);await fs.writeFile(path.join(state,'map-refresh.json'),JSON.stringify({enabled:true,intervalMinutes:0}));
   const world=value=>makeZip([{name:'Factory/level.dat0',data:Buffer.from(value)}]);
   await fs.writeFile(path.join(data,'saves/Factory.zip'),world('original'));await fs.writeFile(path.join(data,'mods/mod-list.json'),'{}');
   await fs.writeFile(path.join(data,'config/server-settings.json'),'{"name":"Test","description":""}');
@@ -62,7 +62,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
   });
   await new Promise(resolve=>engine.listen(socket,resolve));
   const portProbe=http.createServer();await new Promise(resolve=>portProbe.listen(0,'127.0.0.1',resolve));const port=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
-  const controller=spawn(process.execPath,['server.js'],{cwd:project,env:{...process.env,MODE:'controller',PORT:String(port),CONTROLLER_TOKEN_FILE:tokenFile,DOCKER_SOCKET:socket,FACTORIO_DATA:data,BACKUPS_DIR:backups,STATE_DIR:state,UPDATE_STATE_DIR:path.join(root,'updates'),MAP_SAVE_POLL_MS:'25',MAP_SAVE_DEBOUNCE_MS:'75'},stdio:'pipe'});
+  const controller=spawn(process.execPath,['server.js'],{cwd:project,env:{...process.env,MODE:'controller',PORT:String(port),CONTROLLER_TOKEN_FILE:tokenFile,DOCKER_SOCKET:socket,FACTORIO_DATA:data,BACKUPS_DIR:backups,STATE_DIR:state,UPDATE_STATE_DIR:path.join(root,'updates'),MAP_MANUAL_REFRESH_COOLDOWN_MS:'0',MAP_SAVE_POLL_MS:'25',MAP_SAVE_DEBOUNCE_MS:'75'},stdio:'pipe'});
   let errors='';controller.stderr.on('data',chunk=>errors+=chunk);
   t.after(async()=>{holdFirst=false;controller.kill();await new Promise(resolve=>controller.once('close',resolve));await new Promise(resolve=>engine.close(resolve));await fs.rm(root,{recursive:true,force:true});});
   async function api(route,body){const result=await fetch(`http://127.0.0.1:${port}`+route,{method:body===undefined?'GET':'POST',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});assert.ok(result.ok,await result.clone().text());return result.json();}

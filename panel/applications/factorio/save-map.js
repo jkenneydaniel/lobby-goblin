@@ -24,12 +24,23 @@ export function mapRefreshSettings(value){
 // There is one pending slot: newer saves replace it while a worker is busy.
 // Keep that slot in persistent state until the corresponding export succeeds.
 export class SaveMapQueue {
-  constructor(saved={}, {debounceMs=2000,retryMs=60000}={}){
+  constructor(saved={}, {debounceMs=2000,retryMs=60000,manualCooldownMs=120000}={}){
+    assert(Number.isInteger(manualCooldownMs)&&manualCooldownMs>=0&&manualCooldownMs<=3600000,'Invalid manual map refresh cooldown.');
     this.pending=saved.pending||null;this.due=saved.due||0;this.lastError=saved.lastError||null;
-    this.running=null;this.debounceMs=debounceMs;this.retryMs=retryMs;
+    this.running=null;this.debounceMs=debounceMs;this.retryMs=retryMs;this.manualCooldownMs=manualCooldownMs;
+    this.lastManualStartedAt=Number.isFinite(saved.lastManualStartedAt)&&saved.lastManualStartedAt>=0?saved.lastManualStartedAt:null;
     this.enabled=typeof saved.enabled==='boolean'?saved.enabled:true;
     this.intervalMinutes=Number.isInteger(saved.intervalMinutes)&&saved.intervalMinutes>=0&&saved.intervalMinutes<=1440?saved.intervalMinutes:0;
     this.lastStartedAt=Number.isFinite(saved.lastStartedAt)&&saved.lastStartedAt>=0?saved.lastStartedAt:null;
+  }
+  manualStatus(now=Date.now()){
+    const last=Math.max(this.lastManualStartedAt??-Infinity,this.lastStartedAt??-Infinity);
+    return {availableAt:Number.isFinite(last)?last+this.manualCooldownMs:0,serverNow:now};
+  }
+  claimManual(now=Date.now()){
+    const remaining=this.manualStatus(now).availableAt-now;
+    assert(remaining<=0,'Map refresh is cooling down. Try again in '+Math.ceil(remaining/1000)+' seconds.',429);
+    this.lastManualStartedAt=now;
   }
   configure(value){Object.assign(this,mapRefreshSettings(value));}
   observe(candidate,snapshot,now=Date.now()){
@@ -49,6 +60,6 @@ export class SaveMapQueue {
     if(ok){this.lastError=null;if(this.pending?.version===task.version)this.pending=null;}
     else{this.lastError=error||'Automatic map refresh failed.';if(this.pending?.version===task.version)this.due=now+this.retryMs;}
   }
-  toJSON(){return {pending:this.pending,due:this.due,lastError:this.lastError,enabled:this.enabled,intervalMinutes:this.intervalMinutes,lastStartedAt:this.lastStartedAt};}
+  toJSON(){return {pending:this.pending,due:this.due,lastError:this.lastError,enabled:this.enabled,intervalMinutes:this.intervalMinutes,lastStartedAt:this.lastStartedAt,lastManualStartedAt:this.lastManualStartedAt};}
   status(){return {enabled:this.enabled,intervalMinutes:this.intervalMinutes,pending:!!this.pending,running:!!this.running,lastError:this.lastError};}
 }

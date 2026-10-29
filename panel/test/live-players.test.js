@@ -12,10 +12,10 @@ test('tracking is off by default and enabling requires explicit consent for the 
   await assert.rejects(test.service.configure({enabled:true,confirm:true,world:'Other.zip',seed:123},'Owner'),/world changed/);
   await test.service.configure({enabled:true,confirm:true,world:'Factory.zip',seed:123},'Owner');assert.equal(test.persisted().approvedBy,'Owner');assert.equal(test.calls(),0,'Configuring does not itself run the Lua query');
 });
-test('live queries coalesce simultaneous viewers, cache for two seconds, and drop disconnected players',async()=>{
+test('live queries coalesce simultaneous viewers, cache across five-second browser polls, and drop disconnected players',async()=>{
   let connected=true,calls=0;const test=fixture({config:{enabled:true,...scope},query:async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,5));return response(connected?[player]:{});}});
   const results=await Promise.all([test.service.get(),test.service.get(),test.service.get()]);assert.equal(calls,1);assert.equal(results[0].state,'live');assert.deepEqual(results[0].players[0].color,[51,153,255]);
-  await test.service.get();assert.equal(calls,1);connected=false;test.advance(2000);assert.deepEqual((await test.service.get()).players,[]);assert.equal(calls,2);
+  await test.service.get();assert.equal(calls,1);connected=false;test.advance(4500);assert.deepEqual((await test.service.get()).players,[]);assert.equal(calls,2);
 });
 test('stopped servers, other worlds, and other seeds never receive a script command',async()=>{
   for(const value of [{...scope,running:false},{...scope,world:'Next.zip'},{...scope,seed:456}]){

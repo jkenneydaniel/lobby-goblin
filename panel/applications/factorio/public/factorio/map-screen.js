@@ -9,7 +9,14 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     created = null,
     scope = null,
     positions = null,
-    polling = false;
+    polling = false,
+    cached = null,
+    checkedAt = 0,
+    liveAt = 0,
+    cooldownUntil = 0,
+    playersKey = null,
+    manualPending = false,
+    loading = null;
   const $ = (selector) => context?.root.querySelector(selector);
   function applyPlayers(value) {
     if (!context?.isCurrent() || !scope) return;
@@ -31,28 +38,26 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     label.textContent =
       value.state === 'live'
         ? matches
-          ? `${value.players.length} online · updates every 2 seconds · checked ${new Date(value.updatedAt).toLocaleTimeString()}`
+          ? `${value.players.length} online · updates every 5 seconds · checked ${new Date(value.updatedAt).toLocaleTimeString()}`
           : 'The live server is running a different world from this map. Refresh the map to show its players.'
         : messages[value.state] || 'Checking live positions…';
-    list.replaceChildren();
-    if (value.state === 'live' && matches) {
-      if (!value.players.length) list.append(ui.template('live-empty'));
-      for (const player of value.players) {
-        const row = ui.template('live-player'),
-          button = row.querySelector('button');
-        row.querySelector('span').textContent =
-          `${player.name} · X ${player.x.toFixed(1)} · Y ${player.y.toFixed(1)} · ${player.surface}`;
-        if (player.surface === scope.surface) {
-          button.textContent = 'Center on ' + player.name;
-          context.on(button, 'click', () => {
-            cleanMap.centerPlayer?.(player.name);
-            $('#world-map')?.scrollIntoView({
-              behavior: 'smooth',
-              block: 'center',
-            });
-          });
-        } else button.remove();
-        list.append(row);
+    const key = JSON.stringify([value.state, matches, value.players]);
+    if (key !== playersKey) {
+      playersKey = key;
+      list.replaceChildren();
+      if (value.state === 'live' && matches) {
+        if (!value.players.length) list.append(ui.template('live-empty'));
+        for (const player of value.players) {
+          const row = ui.template('live-player'),
+            button = row.querySelector('button');
+          row.querySelector('span').textContent =
+            `${player.name} · X ${player.x.toFixed(1)} · Y ${player.y.toFixed(1)} · ${player.surface}`;
+          if (player.surface === scope.surface) {
+            button.textContent = 'Center on ' + player.name;
+            button.dataset.centerPlayer = player.name;
+          } else button.remove();
+          list.append(row);
+        }
       }
     }
     if (button) {
@@ -62,9 +67,18 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
         : 'Enable live tracking';
     }
   }
-  async function live(ctx) {
-    if (!ctx.isCurrent() || document.hidden || polling || !scope) return;
+  async function live(ctx, force = false) {
+    if (
+      !ctx.isCurrent() ||
+      document.hidden ||
+      polling ||
+      !scope ||
+      (!force &&
+        Date.now() - liveAt < (positions?.enabled === false ? 60000 : 5000))
+    )
+      return;
     polling = true;
+    liveAt = Date.now();
     try {
       positions = await ctx.request('/live-players');
       applyPlayers(positions);
@@ -77,7 +91,85 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       polling = false;
     }
   }
+  function updateCooldown(value) {
+    if (value)
+      cooldownUntil =
+        performance.now() + Math.max(0, value.availableAt - value.serverNow);
+    const button = $('[data-map-refresh]'),
+      label = $('#map-manual-state');
+    if (!button) return;
+    const seconds = Math.max(
+        0,
+        Math.ceil((cooldownUntil - performance.now()) / 1000),
+      ),
+      state = getState();
+    button.disabled = !!(
+      seconds ||
+      manualPending ||
+      state.busyJob ||
+      state.recoveryRequired ||
+      state.status?.imageMigration ||
+      !state.canAction('refresh-map')
+    );
+    const text = button.querySelector('[data-part=label]');
+    const buttonLabel = seconds
+      ? `Refresh map in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+      : state.busyJob?.action === 'refresh-map'
+        ? 'Refreshing map…'
+        : 'Refresh map';
+    if (text && text.textContent !== buttonLabel)
+      text.textContent = buttonLabel;
+    const explanation = seconds
+      ? 'A recent map refresh is cooling down. This limit is shared by everyone viewing this server.'
+      : 'Refresh map saves current progress and rebuilds the snapshot. Automatic refresh uses completed saves without requesting an extra save.';
+    if (label && label.textContent !== explanation)
+      label.textContent = explanation;
+  }
+  function paintPins(ctx, data) {
+    const list = $('[data-part=pins]');
+    if (!list) return;
+    list.replaceChildren();
+    for (const pin of data.pins) {
+      const row = ui.template('pin'),
+        button = row.querySelector('[data-map-pin]');
+      button.dataset.mapPin = pin.id;
+      button.textContent = pin.label + ' · ' + pin.x + ', ' + pin.y;
+      const remove = row.querySelector('[data-remove-pin]');
+      if (getState().can('application.factorio.map.pins'))
+        remove.dataset.removePin = pin.id;
+      else remove.remove();
+      list.append(row);
+    }
+    if (!data.pins.length) list.append(ui.template('pins-empty'));
+    cleanMap.updatePins?.(data.pins);
+  }
   function bind(ctx) {
+    ctx.on(ctx.root, 'click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button || button.disabled) return;
+      if (button.hasAttribute('data-map-refresh')) {
+        manualPending = true;
+        button.disabled = true;
+        try {
+          await startJob('refresh-map', {});
+        } finally {
+          manualPending = false;
+          if (ctx.isCurrent()) await load(ctx, true);
+        }
+      } else if (button.dataset.centerPlayer) {
+        cleanMap.centerPlayer?.(button.dataset.centerPlayer);
+        $('#world-map')?.scrollIntoView({behavior: 'smooth', block: 'center'});
+      } else if (button.dataset.mapPin)
+        cleanMap.centerPin?.(button.dataset.mapPin);
+      else if (button.dataset.removePin) {
+        await ctx.request('/pins', {
+          method: 'POST',
+          body: {remove: button.dataset.removePin},
+        });
+        await load(ctx, true);
+        notify('Pin removed.');
+      }
+    });
     const settings = $('#map-refresh-form');
     if (settings)
       ctx.on(settings, 'submit', async (event) => {
@@ -117,7 +209,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
             ? {confirm: true, world: scope.world, seed: scope.seed}
             : {}),
         });
-        await live(ctx);
+        await live(ctx, true);
       });
     const form = $('#pin-form');
     if (form)
@@ -130,22 +222,37 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
         await load(ctx, true);
         notify('Shared pin added.');
       });
-    for (const button of ctx.root.querySelectorAll('[data-remove-pin]'))
-      ctx.on(button, 'click', async () => {
-        await ctx.request('/pins', {
-          method: 'POST',
-          body: {remove: button.dataset.removePin},
-        });
-        await load(ctx, true);
-        notify('Pin removed.');
-      });
   }
-  async function load(ctx, preserve = false) {
+  async function read(ctx, preserve) {
+    const query = cached?.revision
+      ? '?revision=' + encodeURIComponent(cached.revision)
+      : '';
+    let data = await ctx.request('/map' + query);
+    if (data.unchanged) {
+      if (!cached?.snapshot) data = await ctx.request('/map');
+      else data = {...cached, ...data, snapshot: cached.snapshot};
+    }
+    const same =
+      cached?.snapshot &&
+      data.snapshot &&
+      cached.staleWorld === data.staleWorld &&
+      (data.revision
+        ? data.revision === cached.revision
+        : data.snapshot.created === cached.snapshot.created);
+    cached = data;
+    checkedAt = Date.now();
+    updateCooldown(data.manual);
+    if (same && $('#world-map')) {
+      const label = $('#map-refresh-state');
+      if (label) label.textContent = mapRefreshLabel(data.automatic);
+      paintPins(ctx, data);
+      return;
+    }
     const view = preserve ? cleanMap.getView?.() : null;
-    const data = await ctx.request('/map');
     cleanMap();
     ctx.render(mapPage(data));
     ctx.root.className = '';
+    playersKey = null;
     created = data.snapshot?.created || null;
     scope = data.snapshot
       ? {
@@ -158,23 +265,46 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       cleanMap = mountMap(data, view);
       if (positions) applyPlayers(positions);
       void live(ctx);
-    }
+    } else cleanMap = () => {};
+    updateCooldown(data.manual);
     bindCommon(ctx);
     bind(ctx);
+  }
+  async function load(ctx, preserve = false) {
+    if (loading?.ctx === ctx) return loading.promise;
+    const current = {ctx};
+    current.promise = read(ctx, preserve).finally(() => {
+      if (loading === current) loading = null;
+    });
+    loading = current;
+    return current.promise;
   }
   return {
     async mount(ctx, options) {
       context = ctx;
       await load(ctx, options.preserveMap === true);
-      const timer = pollEvery(() => live(ctx), 2000);
-      ctx.onDispose(() => clearInterval(timer));
+      const timer = pollEvery(() => live(ctx), 5000),
+        cooldown = setInterval(() => updateCooldown(), 1000);
+      ctx.onDispose(() => {
+        clearInterval(timer);
+        clearInterval(cooldown);
+      });
     },
     async refresh(ctx, options) {
       if (options.reason !== 'status')
         return load(ctx, options.preserveMap === true);
+      updateCooldown();
+      if (
+        document.hidden ||
+        Date.now() - checkedAt <
+          (getState().busyJob?.action === 'refresh-map' ? 5000 : 30000)
+      )
+        return;
+      checkedAt = Date.now();
       const latest = await ctx.request('/map-status'),
         label = $('#map-refresh-state'),
         banner = $('.job-banner');
+      updateCooldown(latest.manual);
       if (label)
         label.textContent = mapRefreshLabel(latest.automatic, latest.active);
       if (banner && !getState().busyJob) {
@@ -184,7 +314,9 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
         else banner.remove();
       }
       if (
-        latest.created !== created &&
+        (latest.revision
+          ? latest.revision !== cached?.revision
+          : latest.created !== created) &&
         !getState().busyJob &&
         !cleanMap.isInteracting?.() &&
         !['INPUT', 'TEXTAREA', 'SELECT'].includes(

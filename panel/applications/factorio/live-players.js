@@ -33,7 +33,7 @@ export class LivePlayers {
   get(){
     if(!this.config.enabled)return Promise.resolve({enabled:false,state:'disabled',players:[],updatedAt:null});
     if(this.pending)return this.pending;
-    if(this.cache&&this.now()-this.cacheAt<1800)return Promise.resolve(this.cache);
+    if(this.cache&&this.now()-this.cacheAt<4500)return Promise.resolve(this.cache);
     const generation=this.generation;
     this.pending=this.sample(generation).then(value=>{if(generation===this.generation){this.cache=value;this.cacheAt=this.now();}return value;}).finally(()=>{this.pending=null;});return this.pending;
   }

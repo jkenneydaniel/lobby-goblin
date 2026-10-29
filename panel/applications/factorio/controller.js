@@ -36,7 +36,7 @@ const modLibrary=createFactorioModLibrary(ctx,{fetcher:modFetcher,start:async()=
 const worldDefaults=await readJSON(new URL('../../world-defaults.json',import.meta.url));
 const autoMapFile=path.join(state,'map-refresh.json');
 const snapshotMetadata=new SnapshotMetadata(path.join(state,'map.json'));
-const autoMap=new SaveMapQueue(await readJSON(autoMapFile,{}),{debounceMs:Number(ctx.env.MAP_SAVE_DEBOUNCE_MS||2000)});
+const autoMap=new SaveMapQueue(await readJSON(autoMapFile,{enabled:true,intervalMinutes:15}),{debounceMs:Number(ctx.env.MAP_SAVE_DEBOUNCE_MS||2000),manualCooldownMs:Number(ctx.env.MAP_MANUAL_REFRESH_COOLDOWN_MS??120000)});
 let autoMapWrites=Promise.resolve(),autoMapSaved=null,autoMapPolling=false;
 function persistAutoMap(settings){
   autoMapWrites=autoMapWrites.catch(()=>{}).then(async()=>{const value=JSON.stringify({...autoMap.toJSON(),...settings});if(settings||value!==autoMapSaved){await writeJSON(autoMapFile,JSON.parse(value));if(settings)autoMap.configure(settings);autoMapSaved=value;}});return autoMapWrites;
@@ -231,6 +231,7 @@ const actions={
     return params.enabled?'Live player tracking enabled for this world. Lua console use disables achievements.':'Live player tracking disabled. This does not restore achievements already disabled.';
   },
   'refresh-map':async(params,job)=>{
+    if(!params.automatic){autoMap.claimManual();await persistAutoMap();}
     const server=await info(),world=await activeSave(),automatic=params.automatic;
     assert(!automatic||automatic.world===world,'The active world changed before map export.');
     return exportMap({data,state,env:ctx.env,server,world,source:automatic?.source||world,save:!automatic,expectedVersion:automatic?.version,saveNow,ready,running:server.State.Running,job,stageMessage},{docker,rcon,gameContainerRoute});
@@ -279,12 +280,13 @@ async function handle(req,res,url){
   if(req.method==='GET'&&url.pathname==='/world-options'){const copied=await readJSON(path.join(state,'world-options.json'),null);return json(res,200,{defaults:worldDefaults,copied,currentWorld:await activeSave(),image:(await info()).Config.Image});}
   if(req.method==='GET'&&url.pathname==='/worlds')return json(res,200,{worlds:await worlds()});
   if(req.method==='GET'&&url.pathname==='/map'){
-    const snapshot=await readJSON(path.join(state,'map.json'),null);
-    if(!snapshot)return json(res,200,{snapshot:null,pins:[],automatic:autoMap.status()});
-    const current=await activeSave();return json(res,200,{snapshot,automatic:autoMap.status(),staleWorld:snapshot.world!==current,pins:(await readJSON(path.join(state,'map-pins.json'),[])).filter(pin=>pin.world===snapshot.world&&pin.seed===snapshot.seed)});
+    const known=url.searchParams.get('revision');assert(!known||/^[a-f0-9]{64}$/.test(known),'Invalid map revision.');
+    const document=await snapshotMetadata.document(known),snapshot=document.snapshot||snapshotMetadata.value;
+    if(!snapshot)return json(res,200,{snapshot:null,revision:null,pins:[],automatic:autoMap.status(),manual:autoMap.manualStatus()});
+    const current=await activeSave();return json(res,200,{...document,automatic:autoMap.status(),manual:autoMap.manualStatus(),staleWorld:snapshot.world!==current,pins:(await readJSON(path.join(state,'map-pins.json'),[])).filter(pin=>pin.world===snapshot.world&&pin.seed===(document.snapshot?.seed??snapshotMetadata.seed))});
   }
   if(req.method==='GET'&&url.pathname==='/map-status'){
-    const snapshot=await snapshotMetadata.read();return json(res,200,{created:snapshot?.created||null,automatic:autoMap.status(),active:ctx.active?.action==='refresh-map'?{message:ctx.active.message}:null});
+    const snapshot=await snapshotMetadata.read();return json(res,200,{created:snapshot?.created||null,revision:snapshotMetadata.revision,automatic:autoMap.status(),manual:autoMap.manualStatus(),active:ctx.active?.action==='refresh-map'?{message:ctx.active.message}:null});
   }
   if(req.method==='POST'&&url.pathname==='/map-settings'){
     const settings=mapRefreshSettings(await requestJSON(req));await persistAutoMap(settings);return json(res,200,autoMap.status());
@@ -324,7 +326,7 @@ async function handle(req,res,url){
 async function pollSavedMap(){
   if(autoMapPolling)return;autoMapPolling=true;
   try{
-    if(await runtimeUpdates.pending())return;
+    if(!autoMap.enabled||await runtimeUpdates.pending())return;
     const event=completedSave(await logText()),snapshot=await snapshotMetadata.read();
     if(event.completed&&!event.saving){
       const item=event.completed,file=await existingFile(saves,item.source).catch(()=>null);
@@ -368,7 +370,7 @@ for(const job of ctx.jobs)if(['refresh-map','create','world-options'].includes(j
   await removeHelperWorkspace(state,job.id);
 }
 },
-async start(){ctx.every(()=>void worldPreviews.tick(),500);ctx.every(pollSavedMap,Number(ctx.env.MAP_SAVE_POLL_MS||2000));await pollSavedMap();},
+async start(){ctx.every(()=>void worldPreviews.tick(),500);ctx.every(pollSavedMap,Number(ctx.env.MAP_SAVE_POLL_MS||5000));await pollSavedMap();},
 async beforeJob(job){await runtimeUpdates.guard(job.action);if(!['stop','mod-library-recover'].includes(job?.action))await modLibrary.assertReady();if(worldPreviews.running)await stageMessage(job,'Waiting for the current map preview to finish…');await worldPreviews.waitIdle();},
 async afterJob(job,params){if(job.action==='refresh-map'&&params.automatic){autoMap.finish(params.automatic,job.state==='succeeded',job.state==='failed'?job.message:null);await persistAutoMap().catch(error=>console.error('Map queue persistence failed:',redact(error.message)));}},
 waitIdle:()=>worldPreviews.waitIdle(),

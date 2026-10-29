@@ -2339,7 +2339,7 @@ for (const feature of [
       await expect(page.locator('#toggle-live-players')).toHaveCount(
         feature.name === 'tracking' ? 1 : 0,
       );
-      await expect(page.locator('[data-action=refresh-map]')).toHaveCount(
+      await expect(page.locator('[data-map-refresh]')).toHaveCount(
         feature.name === 'generate' ? 1 : 0,
       );
       await expect(page.locator('[data-action=start]')).toHaveCount(0);

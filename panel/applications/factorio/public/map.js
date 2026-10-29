@@ -1,4 +1,5 @@
 import {spatialIndex} from './map-spatial.js';
+import {overviewIndex} from './map-lod.js';
 const colors = {
   resources: '#77b7c7',
   railways: '#dad3b8',
@@ -25,7 +26,10 @@ export function mountMap(payload, view = null) {
   const map = payload.snapshot,
     canvas = document.querySelector('#world-map');
   if (!canvas || !map) return () => {};
-  const context = canvas.getContext('2d'),
+  const base = document.createElement('canvas'),
+    context = base.getContext('2d'),
+    overlay = canvas.getContext('2d'),
+    resourceColors = new Map(),
     layers = new Set(
       view?.layers || [
         'resources',
@@ -42,7 +46,10 @@ export function mountMap(payload, view = null) {
     cx = view?.cx || 0,
     cy = view?.cy || 0,
     frame = null,
-    dragged = false;
+    dragged = false,
+    dirty = true,
+    disposed = false,
+    pixelRatio = Math.min(2, devicePixelRatio || 1);
   const pointers = new Map();
   let gesture = null;
   let livePositions = null;
@@ -72,6 +79,7 @@ export function mountMap(payload, view = null) {
       0,
     ),
     objectIndex = spatialIndex(entities),
+    overview = overviewIndex(entities, objectIndex),
     palette = map.palette?.map((tile) => rgb(tile.color)),
     atlas = chunks.length ? document.createElement('canvas') : null,
     columns = Math.ceil(Math.sqrt(chunks.length)),
@@ -118,20 +126,20 @@ export function mountMap(payload, view = null) {
       entity.type === 'unit' ? 1.5 : entity.type === 'unit-spawner' ? 4 : 3,
       (Math.max(entity.w, entity.h) * scale) / 2,
     );
-  function draw() {
-    frame = null;
-    context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  function drawBase() {
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     context.fillStyle = '#151f20';
     context.fillRect(0, 0, width, height);
     context.imageSmoothingEnabled = false;
     const [left, top] = world(0, 0),
       [right, bottom] = world(width, height),
       margin = extent + 8 / scale,
-      objects = objectIndex.query(
+      objects = overview.query(
         left - margin,
         top - margin,
         right + margin,
         bottom + margin,
+        scale,
       );
     for (const chunk of terrainIndex.query(
       left - 32,
@@ -159,7 +167,7 @@ export function mountMap(payload, view = null) {
         entity.power && layers.has('power')
           ? colors.power
           : entity.category === 'resources'
-            ? rgb(entity.color)
+            ? resourceColor(entity.color)
             : colors[entity.category];
       context.fillRect(x - w / 2, y - h / 2, w, h);
     }
@@ -192,18 +200,34 @@ export function mountMap(payload, view = null) {
         context.fill();
         if (!unit) context.stroke();
       }
+  }
+  function resourceColor(color) {
+    const key = color.join(',');
+    if (!resourceColors.has(key)) resourceColors.set(key, rgb(color));
+    return resourceColors.get(key);
+  }
+  function draw() {
+    frame = null;
+    if (disposed || !base.width || !base.height) return;
+    if (dirty) {
+      drawBase();
+      dirty = false;
+    }
+    overlay.setTransform(1, 0, 0, 1, 0, 0);
+    overlay.drawImage(base, 0, 0);
+    overlay.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     function marker(item, color, label) {
       const [x, y] = pos(item.x, item.y);
       if (x < 0 || y < 0 || x > width || y > height) return;
-      context.fillStyle = color;
-      context.beginPath();
-      context.arc(x, y, 4, 0, Math.PI * 2);
-      context.fill();
-      context.font = '11px Segoe UI, sans-serif';
-      context.lineWidth = 3;
-      context.strokeStyle = '#17211e';
-      context.strokeText(label, x + 8, y - 7);
-      context.fillText(label, x + 8, y - 7);
+      overlay.fillStyle = color;
+      overlay.beginPath();
+      overlay.arc(x, y, 4, 0, Math.PI * 2);
+      overlay.fill();
+      overlay.font = '11px Segoe UI, sans-serif';
+      overlay.lineWidth = 3;
+      overlay.strokeStyle = '#17211e';
+      overlay.strokeText(label, x + 8, y - 7);
+      overlay.fillText(label, x + 8, y - 7);
     }
     if (layers.has('players'))
       for (const player of currentPlayers())
@@ -219,17 +243,19 @@ export function mountMap(payload, view = null) {
     const length =
       [10, 50, 100, 500, 1000, 5000].find((value) => value * scale >= 65) ||
       10000;
-    context.strokeStyle = '#dce5d6';
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(20, height - 29);
-    context.lineTo(20 + length * scale, height - 29);
-    context.stroke();
-    context.fillStyle = '#dce5d6';
-    context.font = '10px Segoe UI, sans-serif';
-    context.fillText(length + ' tiles', 20, height - 13);
+    overlay.strokeStyle = '#dce5d6';
+    overlay.lineWidth = 2;
+    overlay.beginPath();
+    overlay.moveTo(20, height - 29);
+    overlay.lineTo(20 + length * scale, height - 29);
+    overlay.stroke();
+    overlay.fillStyle = '#dce5d6';
+    overlay.font = '10px Segoe UI, sans-serif';
+    overlay.fillText(length + ' tiles', 20, height - 13);
   }
-  function schedule() {
+  function schedule(rebuild = true) {
+    if (disposed) return;
+    if (rebuild) dirty = true;
     if (frame === null) frame = requestAnimationFrame(draw);
   }
   function fit() {
@@ -430,7 +456,7 @@ export function mountMap(payload, view = null) {
     input.addEventListener('change', () => {
       if (input.checked) layers.add(input.dataset.mapLayer);
       else layers.delete(input.dataset.mapLayer);
-      schedule();
+      schedule(!['players', 'pins'].includes(input.dataset.mapLayer));
     });
   });
   document.querySelector('#map-fit').addEventListener('click', fit);
@@ -446,25 +472,14 @@ export function mountMap(payload, view = null) {
   document
     .querySelector('#map-minus')
     .addEventListener('click', () => zoom(1 / 1.5));
-  document.querySelectorAll('[data-map-pin]').forEach((button) =>
-    button.addEventListener('click', () => {
-      const pin = payload.pins.find(
-        (item) => item.id === button.dataset.mapPin,
-      );
-      if (pin) {
-        cx = pin.x;
-        cy = pin.y;
-        scale = 2;
-        schedule();
-      }
-    }),
-  );
   const resize = new ResizeObserver(() => {
     const rect = canvas.getBoundingClientRect();
+    if (disposed || rect.width <= 0 || rect.height <= 0) return;
     width = rect.width;
     height = rect.height;
-    canvas.width = Math.round(width * devicePixelRatio);
-    canvas.height = Math.round(height * devicePixelRatio);
+    pixelRatio = Math.min(2, devicePixelRatio || 1);
+    canvas.width = base.width = Math.round(width * pixelRatio);
+    canvas.height = base.height = Math.round(height * pixelRatio);
     schedule();
   });
   resize.observe(canvas);
@@ -474,14 +489,35 @@ export function mountMap(payload, view = null) {
   if (view) schedule();
   else fit();
   const cleanup = () => {
+    disposed = true;
     resize.disconnect();
     if (frame !== null) cancelAnimationFrame(frame);
   };
   cleanup.getView = () => ({cx, cy, scale, layers: [...layers]});
   cleanup.isInteracting = () => pointers.size > 0;
+  const playerKey = () =>
+    JSON.stringify([!!livePositions?.enabled, currentPlayers()]);
+  let playersDrawn = playerKey();
   cleanup.updatePlayers = (value) => {
     livePositions = value;
-    schedule();
+    const next = playerKey();
+    if (next !== playersDrawn) {
+      playersDrawn = next;
+      schedule(false);
+    }
+  };
+  cleanup.updatePins = (pins) => {
+    payload.pins = pins;
+    schedule(false);
+  };
+  cleanup.centerPin = (id) => {
+    const pin = payload.pins.find((item) => item.id === id);
+    if (pin) {
+      cx = pin.x;
+      cy = pin.y;
+      scale = 2;
+      schedule();
+    }
   };
   cleanup.centerPlayer = (name) => {
     const player = currentPlayers().find((item) => item.name === name);
