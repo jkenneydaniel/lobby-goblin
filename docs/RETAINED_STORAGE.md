@@ -1,18 +1,33 @@
-# Retained server storage
+# Server storage
 
-Removing a server keeps its original data volume. Open **Storage** as a panel
-administrator to inspect, recover or permanently delete that data on its source
-host. Shared snapshots have their own controls in **Snapshot library**.
+Open **Server storage** as a panel administrator to see registered server volumes
+across connected hosts. Filter by host or storage status, or search by server,
+application or volume name. Assigned storage belongs to an existing server; use
+**Open server** to manage it. Recovery and deletion are limited to removed servers.
+Shared snapshots have their own controls in **Snapshot library**. This is not a
+general Docker volume browser: unrelated host volumes are not listed.
 
-1. Choose **Inspect storage**. This checks ownership, container references, file
-   counts, size and application recovery readiness without changing the volume.
-2. To recover, expand **Recover into a new server**, choose its name and confirm
-   the removed server's name. Allow enough free disk space and host memory for an
+Removing a server keeps its original data volume. Its retained data stays in this
+list until explicitly deleted. Deleted entries are available under **Deleted
+history**. If a host goes offline, previously loaded storage stays visible as
+last known information, with actions disabled until the host reconnects.
+
+1. Choose **Recover**, **Delete data** or **View details** on retained storage. A
+   read-only safety check runs automatically when needed, with progress shown
+   inside the selected entry. There is no separate inspection step to find.
+2. To recover, choose the new server name, type the removed server's name and
+   confirm the copy. Allow enough free disk space and host memory for an
    independent server. The new game stays stopped until you open and start it.
-3. To delete, expand **Permanently delete retained data**, type the removed
-   server's name and confirm permanent deletion. This deletes its original
-   worlds, player progress, settings, software and local backups. Shared snapshots
-   and independent copies are kept.
+3. To delete, type the removed server's name and confirm permanent deletion.
+   This deletes its original worlds, player progress, settings, software and local
+   backups. Shared snapshots and independent copies are kept. Completing the
+   safety check never submits recovery or deletion automatically.
+
+Checks run only when an administrator chooses a retained-storage action. Opening
+the page and using filters do not scan server files or start storage workers.
+Assigned volumes are not scanned; the page does not estimate their size. The
+selected action and form edits survive background refreshes. Failed or expired
+checks offer **Check storage again** without silently retrying an operation.
 
 Inspection expires after fifteen minutes. Ownership and the file inventory are
 checked again before recovery or deletion. Any container reference, including a
