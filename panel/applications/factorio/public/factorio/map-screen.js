@@ -5,6 +5,7 @@ import {pollEvery} from '../client.js';
 export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
   const {mapPage, mapRefreshLabel} = createMapViews(getState, ui);
   let context = null,
+    renderedContext = null,
     cleanMap = () => {},
     created = null,
     scope = null,
@@ -242,7 +243,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     cached = data;
     checkedAt = Date.now();
     updateCooldown(data.manual);
-    if (same && $('#world-map')) {
+    if (same && renderedContext === ctx && $('#world-map')) {
       const label = $('#map-refresh-state');
       if (label) label.textContent = mapRefreshLabel(data.automatic);
       paintPins(ctx, data);
@@ -269,6 +270,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     updateCooldown(data.manual);
     bindCommon(ctx);
     bind(ctx);
+    renderedContext = ctx;
   }
   async function load(ctx, preserve = false) {
     if (loading?.ctx === ctx) return loading.promise;
@@ -330,6 +332,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       cleanMap();
       cleanMap = () => {};
       context = null;
+      renderedContext = null;
     },
   };
 }

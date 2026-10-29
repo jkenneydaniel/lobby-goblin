@@ -17,7 +17,13 @@ async function delivery(page,{manual={availableAt:0,serverNow:Date.now()}}={}){
  });
  return fixture;
 }
-test('pin changes reuse the renderer and revisiting the map reuses its snapshot',async({page})=>{
+for(const retain of [false,true])test('pin changes reuse the renderer and revisiting the map reuses its snapshot'+(retain?' with retained screen DOM':''),async({page})=>{
+ if(retain)await page.route('**/application/host.js',async route=>{
+  // The screen router permits retained roots; exercise that lifecycle without
+  // depending on the application's current eager clearing of inactive roots.
+  const response=await route.fetch(),source=await response.text(),clear='if (root.hidden) root.replaceChildren();';
+  expect(source).toContain(clear);return route.fulfill({response,body:source.replace(clear,'')});
+ });
  const fixture=await delivery(page);
  await page.route('**/api/pins',route=>{
   const body=route.request().postDataJSON();
@@ -31,8 +37,16 @@ test('pin changes reuse the renderer and revisiting the map reuses its snapshot'
  await page.locator('[data-remove-pin]').click();await expect(page.getByText('No shared pins yet.',{exact:true})).toBeVisible();
  expect(fixture.full).toBe(1);expect(fixture.requests.slice(1).every(query=>query.includes('revision='))).toBe(true);
  await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Overview',exact:true}).click();
+ await expect(page.locator('[data-view=overview]')).toBeVisible();await expect(page.locator('#world-map')).toBeHidden();
  await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Map',exact:true}).click();
  await expect(page.locator('#world-map')).toBeVisible();expect(fixture.full).toBe(1);
+ expect(await page.locator('#world-map').evaluate(canvas=>canvas===globalThis.originalMapCanvas)).toBe(false);
+ const image=await page.locator('#world-map').evaluate(canvas=>canvas.toDataURL());
+ await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+ await expect.poll(()=>page.locator('#world-map').evaluate(canvas=>canvas.toDataURL())).not.toBe(image);
+ await page.getByLabel('Pin label',{exact:true}).fill('Revisited outpost');await page.locator('#pin-form').getByRole('button',{name:'Add shared pin',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Revisited outpost · 0, 0',exact:true})).toBeVisible();
+ expect(fixture.pins).toHaveLength(1);expect(fixture.full).toBe(1);
 });
 test('map status uses a 30-second budget and disabled tracking does not poll every two seconds',async({page})=>{
  await page.clock.install();let status=0,players=0;
