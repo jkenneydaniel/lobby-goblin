@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.20-alpha — 2026-10-29
+
+- Cache the static map layer and group distant resources and buildings for faster
+  overview rendering. Preserve exact inspection and individual enemies, rails
+  and oversized objects.
+- Reuse unchanged map snapshots and keep the renderer during pin edits. Reduce
+  map/status and player polling, and pause those requests in hidden tabs.
+- Give manual map refresh a shared, persistent two-minute cooldown. Default new
+  automatic-export settings to 15 minutes and preserve existing preferences.
+- Preserve map export limits and format, updater/archive and state contracts,
+  application images, software-provider pins and existing worlds. Publishing
+  does not deploy installations or change running servers.
+
 ## 0.3.19-alpha — 2026-10-28
 
 - Replace Retained storage with Server storage: browse registered server volumes
