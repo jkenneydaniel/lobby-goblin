@@ -5,7 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {spawnSync} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {headlessChecksums,headlessVersion} from '../applications/factorio/headless-releases.js';
 
 assert.equal(process.env.GITHUB_ACTIONS,'true');
@@ -46,6 +46,7 @@ try{
   'end)',
   'script.on_configuration_changed(function() storage.configurationChanges=(storage.configurationChanges or 0)+1 end)',
   'script.on_event(defines.events.on_tick,function() storage.updates=(storage.updates or 0)+1 end)',
+  'remote.add_interface("goblin-offline-fixture",{state=function()return {sentinel=storage.sentinel,configurationChanges=storage.configurationChanges,updates=storage.updates}end})',
  ].join('\n'));
  const selection={mods:[{name:'base',enabled:true},...['space-age','quality','elevated-rails','recycler'].map(name=>({name,enabled:false})),{name:'goblin-offline-fixture',enabled:true}]};
  await fs.writeFile(path.join(mods,'mod-list.json'),JSON.stringify(selection));
@@ -53,12 +54,29 @@ try{
  async function config(folder){await fs.mkdir(folder,{recursive:true});const file=path.join(folder,'config.ini');await fs.writeFile(file,'[path]\nread-data='+path.join(root,'factorio/data')+'\nwrite-data='+folder+'\n');return file;}
  const save=path.join(source,'source.zip'),created=command(executable,['--config',await config(source),'--create',save,'--map-gen-settings',settings,'--mod-directory',mods]);
  await fs.writeFile(path.join(output,version+'.create.log'),created.stdout+created.stderr);assert.equal(created.status,0,created.stdout+created.stderr);
- const before=hash(await fs.readFile(save));results.sourceHash=before;
+ // Warm only this newly generated fixture, chart it, pause it and save a
+ // baseline. This distinguishes a real saved chart from --create's queued chart.
+ const serverSettings=path.join(source,'server-settings.json');await fs.writeFile(serverSettings,JSON.stringify({name:'Disposable offline probe',visibility:{public:false,lan:false},auto_pause:false,require_user_verification:false,autosave_interval:0}));
+ const child=spawn(executable,['--config',await config(source),'--start-server',save,'--bind','127.0.0.1','--port','0','--mod-directory',mods,'--server-settings',serverSettings],{cwd:root,stdio:['pipe','pipe','pipe']});
+ let logs='';child.stdout.on('data',b=>{logs+=b;});child.stderr.on('data',b=>{logs+=b;});const closed=new Promise(resolve=>child.once('close',resolve));
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;assert.equal(child.exitCode,null,logs);await wait(100);}throw Error('Disposable fixture preparation timed out: '+logs);}
+ try{
+  await until(()=>/Hosting game at|changing state from\(CreatingGame\) to\(InGame\)/.test(logs));
+  child.stdin.write('/silent-command game.forces.player.chart_all(game.surfaces.nauvis)\n/silent-command game.forces.player.chart_all(game.surfaces.nauvis)\n');await wait(1000);
+  child.stdin.write('/silent-command game.tick_paused=true;local n=0;for c in game.surfaces.nauvis.get_chunks()do if game.forces.player.is_chunk_charted(game.surfaces.nauvis,c)then n=n+1 end end;helpers.write_file("baseline.json",helpers.table_to_json({tick=game.tick,charted=n,state=remote.call("goblin-offline-fixture","state")}))\n/server-save offline-ready\n');
+  await until(()=>fs.stat(path.join(source,'saves/offline-ready.zip')).then(()=>true).catch(()=>false));
+  child.kill('SIGTERM');await closed;
+ }finally{if(child.exitCode===null){child.kill('SIGKILL');await closed;}await fs.writeFile(path.join(output,version+'.fixture.log'),logs);}
+ const prepared=path.join(source,'saves/offline-ready.zip');results.baseline=JSON.parse(await fs.readFile(path.join(source,'script-output/baseline.json'),'utf8'));assert.ok(results.baseline.charted>0);
+ const before=hash(await fs.readFile(prepared));results.sourceHash=before;
  const instrument=[
   'log("GOBLIN_INSTRUMENT_STATE="..script.mod_name)',
+  'local done=false',
   'local function export()',
+  'if done then return end;done=true',
   'local s=game.surfaces.nauvis; local n=0;for c in s.get_chunks() do if game.forces.player.is_chunk_charted(s,c) then n=n+1 end end',
-  'local result={mod=script.mod_name,tick=game.tick,charted=n,sentinel=storage.sentinel,configurationChanges=storage.configurationChanges,updates=storage.updates,activeMods=script.active_mods,furnaces=s.count_entities_filtered{name="stone-furnace"}}',
+  'local result={mod=script.mod_name,tick=game.tick,charted=n,state=remote.call("goblin-offline-fixture","state"),activeMods=script.active_mods,furnaces=s.count_entities_filtered{name="stone-furnace"}}',
   'helpers.write_file("probe-"..script.mod_name..".json",helpers.table_to_json(result));log("GOBLIN_OFFLINE_PROBE_OK="..script.mod_name)',
   'end',
   'script.on_event(defines.events.on_tick,export)',
@@ -71,12 +89,12 @@ try{
   await fs.writeFile(path.join(probe,'instrument-control.lua'),instrument);await fs.writeFile(path.join(probe,'control.lua'),'');
   await fs.writeFile(path.join(copy,'mod-list.json'),JSON.stringify({mods:[...selection.mods,{name:'goblin-offline-probe',enabled:enabled===true}]}));
   if(enabled==='base')await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),instrument);
-  const copied=path.join(folder,'source.zip');await fs.copyFile(save,copied);
+  const copied=path.join(folder,'source.zip');await fs.copyFile(prepared,copied);
   const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod',enabled==='base'?'base':'goblin-offline-probe','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
   const start=Date.now(),ran=command(executable,args);await fs.writeFile(path.join(output,version+'.'+enabled+'.log'),ran.stdout+ran.stderr);
   const reports=[];for(const name of await fs.readdir(path.join(folder,'script-output')).catch(()=>[]))if(name.startsWith('probe-'))reports.push(JSON.parse(await fs.readFile(path.join(folder,'script-output',name),'utf8')));
   results.cases.push({enabled,status:ran.status,error:ran.error,elapsedMs:Date.now()-start,reports});
-  assert.equal(hash(await fs.readFile(save)),before);assert.equal(hash(await fs.readFile(copied)),before);
+  assert.equal(hash(await fs.readFile(prepared)),before);assert.equal(hash(await fs.readFile(copied)),before);
  }
  results.sourceUnchanged=true;
 }catch(error){results.error=error.message;process.exitCode=1;}
