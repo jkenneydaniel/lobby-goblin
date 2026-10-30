@@ -157,3 +157,51 @@ viewport, device-pixel ratio and object mix the same; alternate run order when
 collecting more samples. The harness replaces its canvas and controls between
 runs so old event handlers cannot contaminate the comparison. The 320,000-object
 case intentionally tests renderer capacity beyond the supported export payload.
+
+## One-shot offline export
+
+The exporter now loads the copied save once with Factorio's benchmark runner.
+It exports in a callback intercepted before the first simulation update, writes
+one map and a job-matched completion receipt, then exits. No multiplayer listener,
+RCON connection or repeated container command is needed. The saved mod selection
+is preserved: adding an exporter mod would trigger configuration-change callbacks.
+Instead, instrumentation is installed into `base` only in the worker's private
+engine copy or disposable container layer. The debug hook is removed before
+collection. Debug access is enabled only for that network-isolated worker.
+
+The worker retains its one-GiB memory budget and low CPU priority. It operates on
+private copies, never writes the source save, and publishes only after map and
+completion-receipt validation. A failed or incomplete export retains the previous
+map. Its phase timings are recorded privately in `map-export-metrics.json` so
+copy/load/export/decode costs can be measured independently on larger fixtures.
+
+Chunk selection uses a bounded nearest-chunk heap instead of sorting every
+charted chunk. Only the selected 2,048 entries are sorted, with deterministic
+equal-distance ties. Rejected objects no longer grow the deduplication table
+past the output budget, and repeated entities reuse prototype colors. Bounds and
+recipes remain per entity, preserving rotations and modded extents. Terrain,
+enemy priority, the 80,000-object cap and the version-1 map contract are unchanged.
+This supersedes the sequential-RCON and full-sort descriptions above.
+
+### Native acceptance scope
+
+`Factorio offline export acceptance` runs on fresh GitHub-hosted Linux runners.
+It downloads checksum-verified Factorio 2.0.77 and 2.1.23 and generates its own
+fixture saves. Both versions use `--benchmark`; neither offers `--test-save`.
+Tests compare saved tick/mod state before simulation, unchanged source hashes,
+scenario callback replacement and failure without a completion receipt. A second
+job exercises the real bundled-image wrapper and the read-only installed-runtime
+overlay on a fresh Docker engine. It never connects to a deployment.
+
+A playerless headless force does not complete chart requests. The native test
+therefore checks the unmodified production visibility path with zero charted
+chunks, then explicitly supplies a test-only explored-region adapter for exact
+native tile/entity output comparison against paused-server extraction. Lua
+fixtures separately verify chart filtering, nearest selection and category
+budgets. This is not native validation of a real-player charted save or a claim
+that larger worlds fit the helper budget. No existing worlds are used.
+
+Further work remains measuring engine-side entity filtering and private runtime
+copy costs on representative disposable worlds. Larger caps require those
+measurements. Compact payload delivery follows separately; rollback readers
+continue to receive version-1 snapshots.

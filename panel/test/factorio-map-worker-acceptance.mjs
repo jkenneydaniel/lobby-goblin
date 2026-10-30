@@ -41,7 +41,7 @@ try{
   assert.equal(crypto.createHash('sha256').update(await fs.readFile(path.join(folder,'saves/source.zip'))).digest('hex'),before);assert.equal(await fs.readFile(path.join(folder,'mods/mod-list.json'),'utf8'),mods);
   report.profiles.push({mode:copied?'runtime-overlay':'bundled-image',completed:true,sourceSaveAndModsUnchanged:true,network:'none',memory:info.HostConfig.Memory});
  }
-}catch(error){report.error=error.message;for(const name of containers)report[name]=await run(['logs','--tail','30',name]).catch(()=> 'Unavailable');process.exitCode=1;}
+}catch(error){report.error=error.message;for(const name of containers)report[name]=await execute('docker',['logs','--tail','30',name]).then(r=>r.stdout+r.stderr).catch(()=> 'Unavailable');process.exitCode=1;}
 finally{
  const output=path.resolve('output/factorio-map-worker');await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2)+'\n');
  for(const name of containers)await run(['rm','-f','-v',name]).catch(()=>{});await execute('sudo',['rm','-rf','--',root]);
