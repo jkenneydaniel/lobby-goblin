@@ -293,7 +293,17 @@ read-only engine overlay, under the existing one-GiB / one-CPU ceiling. It must
 export exactly 4,096 chunks and 160,000 objects, report truncation, keep source
 save/mod hashes unchanged and round-trip through the compact wire codec. The
 job records elapsed time, cgroup peak memory and raw/compressed sizes. Native
-capacity results are required before this change can be merged and released.
+capacity results from the fresh CI engine on October 30, 2026:
+
+| Factorio | Export time | Cgroup peak memory | Raw JSON | Compressed wire |
+| --- | ---: | ---: | ---: | ---: |
+| 2.0.77 | 8.6 s | 932 MiB | 24.93 MB | 0.77 MB |
+| 2.1.23 | 6.9 s | 958 MiB | 24.93 MB | 0.77 MB |
+
+Both produced 4,096 chunks and 160,000 objects, set the truncation flag, completed
+the exact wire round-trip and preserved source save/mod hashes. Peak memory
+includes the worker cgroup's charged memory; the one-GiB ceiling leaves limited
+headroom in these dense fixtures. No larger worker allocation was introduced.
 
 These synthetic bounds do not promise that every modded save fits one GiB.
 An over-budget or interrupted export retains the previous map. Existing worlds
