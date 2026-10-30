@@ -1,9 +1,9 @@
 name: Factorio offline export acceptance
 on:
   push:
-    paths: ['panel/test/factorio-map-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
+    paths: ['panel/test/factorio-map*-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
   pull_request:
-    paths: ['panel/test/factorio-map-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
+    paths: ['panel/test/factorio-map*-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
 permissions:
   contents: read
 jobs:
@@ -31,4 +31,24 @@ jobs:
         with:
           name: offline-export-${{ matrix.version }}
           path: output/offline-probe
+          retention-days: 7
+  worker-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify bundled and installed-runtime workers on this fresh engine
+        env:
+          FACTORIO_OFFLINE_DISPOSABLE: 'true'
+        run: node panel/test/factorio-map-worker-acceptance.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-worker-profiles
+          path: output/factorio-map-worker
           retention-days: 7
