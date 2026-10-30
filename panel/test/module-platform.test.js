@@ -107,21 +107,23 @@ test('reviewed game helpers use their own executable, naming and read paths with
     return {};
   };
   const helpers={container:'arena-game',dataTarget:'/arena',enforceBoundary:true,
-    previewWorker:{target:'/arena',root:'state/.work',entrypoint:['/arena/bin/preview'],namePrefixes:['arena-preview-']},
+    previewWorker:{target:'/arena',root:'state/.work',entrypoint:['/arena/bin/preview'],entrypoints:[['/arena/bin/offline','--fixed']],namePrefixes:['arena-preview-']},
     archiveReadPaths:['/arena/defaults/settings.json'],execCommands:[{executable:'arena-command',arguments:1,maxArgumentBytes:64}]};
   const request=ownedDocker(engine,{FLEET_ID:fleet,FLEET_INSTANCE:id,FLEET_VOLUME:volume},helpers);
   const config={Image:owner.Image,Entrypoint:['/arena/bin/preview'],Cmd:['--render'],Labels:{},HostConfig:{Memory:256*1024**2,NetworkMode:'none',Mounts:[{Type:'volume',Source:volume,Target:'/arena',VolumeOptions:{Subpath:'state/.work/sample'}}]}};
   await request('POST','/containers/create?name=arena-preview-'+'d'.repeat(36),config);
+  await request('POST','/containers/create?name=arena-preview-'+'d'.repeat(36),{...config,Entrypoint:['/arena/bin/offline','--fixed']});
   await request('GET','/containers/arena-game/archive?path='+encodeURIComponent('/arena/defaults/settings.json'));
   await request('POST','/containers/arena-game/exec',{Cmd:['arena-command','status'],AttachStdout:true});
   const writes=()=>calls.filter(call=>call.method!=='GET').length,before=writes();
   await assert.rejects(request('POST','/containers/create?name=factorio-panel-preview-'+'d'.repeat(36),config),/identity/);
   await assert.rejects(request('POST','/containers/create?name=arena-preview-'+'d'.repeat(36),{...config,Entrypoint:['/bin/sh']}),/command/);
+  await assert.rejects(request('POST','/containers/create?name=arena-preview-'+'d'.repeat(36),{...config,Entrypoint:['/arena/bin/offline','--different']}),/command/);
   await assert.rejects(request('POST','/containers/arena-game/exec',{Cmd:['rcon','status']}),/declared/);
   await assert.rejects(request('GET','/containers/arena-game/archive?path=/etc/passwd'),/settings example/);
   assert.equal(writes(),before);
   const base=selectedApplication('factorio');
-  for(const patch of [{execCommands:[{executable:'bad/helper',arguments:1,maxArgumentBytes:64}]},{previewWorker:{...base.managed.previewWorker,namePrefixes:['../escape-']}},{archiveReadPaths:['/arena/../etc/passwd']}])
+  for(const patch of [{execCommands:[{executable:'bad/helper',arguments:1,maxArgumentBytes:64}]},{previewWorker:{...base.managed.previewWorker,namePrefixes:['../escape-']}},{previewWorker:{...base.managed.previewWorker,entrypoints:[[]]}},{previewWorker:{...base.managed.previewWorker,entrypoints:[['/bin/../escape']]}},{archiveReadPaths:['/arena/../etc/passwd']}])
     assert.throws(()=>validateManagedGame({...base,managed:{...base.managed,...patch}}));
 });
 

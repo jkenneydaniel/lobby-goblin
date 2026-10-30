@@ -32,7 +32,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
       assert.equal(url.searchParams.get('platform'),'linux/amd64');
       assert.equal(body.HostConfig.CpuShares,128);assert.equal(body.HostConfig.Memory,1073741824);
       assert.equal(body.HostConfig.NanoCpus,undefined,'Background priority must not impose a hard CPU quota.');
-      assert.equal(body.HostConfig.NetworkMode,'none');const name=url.searchParams.get('name');helpers.set(name,{work:path.join(state,'.panel-work',name.slice('factorio-panel-map-'.length))});return reply(201,{Id:name});
+      assert.equal(body.HostConfig.NetworkMode,'none');assert.ok(body.Cmd.includes('--benchmark'));assert.ok(body.Cmd.includes('--instrument-mod'));assert.ok(!body.Cmd.includes('--start-server'));const name=url.searchParams.get('name');helpers.set(name,{work:path.join(state,'.panel-work',name.slice('factorio-panel-map-'.length)),jobId:body.Labels['factorio-panel.job']});return reply(201,{Id:name});
     }
     const execMatch=url.pathname.match(/^\/containers\/([^/]+)\/exec$/);
     if(execMatch){const id=crypto.randomUUID();execs.set(id,{name:execMatch[1],command:body.Cmd[1]});return reply(201,{Id:id});}
@@ -44,18 +44,18 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
         assert.equal(command,'/server-save','Automatic exports must not run Lua on the live game.');liveSaves++;
         await fs.writeFile(path.join(data,'saves/Factory.zip'),world('manual-'+liveSaves));
         await fs.appendFile(log,`${100+liveSaves} Saving game as /factorio/saves/Factory.zip\n${101+liveSaves} Saving finished\n`);output='Saved';
-      }else if(command.includes('MAP_CHUNKS='))output='MAP_CHUNKS=1';
-      else if(command.includes('MAP_BATCH_OK'))output='MAP_BATCH_OK';
-      else if(command.includes('MAP_DONE')){
-        const helper=helpers.get(name);copied.push(zipEntries(await fs.readFile(path.join(helper.work,'saves/source.zip')))[0].read().toString());
-        if(copied.length===1)await until(()=>!holdFirst);
-        await fs.mkdir(path.join(helper.work,'script-output'),{recursive:true});
-        await fs.writeFile(path.join(helper.work,'script-output/panel-map.json'),JSON.stringify({version:1,step:2,seed:123,tick:100,chunks:[{x:0,y:0,tiles:[1,256]}],palette:[{name:'grass',color:[60,70,30]}],entities:[],players:[],tags:[]}));output='MAP_DONE';
-      }
+      }else assert.fail('Offline map workers must not need RCON.');
       const buffer=Buffer.from(output),header=Buffer.alloc(8);header[0]=1;header.writeUInt32BE(buffer.length,4);res.writeHead(200);return res.end(Buffer.concat([header,buffer]));
     }
     if(/^\/exec\/[^/]+\/json$/.test(url.pathname))return reply(200,{ExitCode:0});
     const name=url.pathname.split('/')[2];
+    if(url.pathname.endsWith('/wait')){
+      const helper=helpers.get(name);copied.push(zipEntries(await fs.readFile(path.join(helper.work,'saves/source.zip')))[0].read().toString());
+      if(copied.length===1)await until(()=>!holdFirst);
+      await fs.mkdir(path.join(helper.work,'script-output'),{recursive:true});
+      await fs.writeFile(path.join(helper.work,'script-output/panel-map.json'),JSON.stringify({version:1,step:2,seed:123,tick:100,chunks:[{x:0,y:0,tiles:[1,256]}],palette:[{name:'grass',color:[60,70,30]}],entities:[],players:[],tags:[]}));
+      await fs.writeFile(path.join(helper.work,'script-output/panel-map.complete.json'),JSON.stringify({format:1,jobId:helper.jobId,tick:100,chunks:1,entities:0,engine:'2.0.77'}));return reply(200,{StatusCode:0});
+    }
     if(req.method==='DELETE'){helpers.delete(name);return reply(204);}
     if(url.pathname.endsWith('/start')||url.pathname.endsWith('/stop'))return reply(204);
     return reply(404,{message:'No such container'});

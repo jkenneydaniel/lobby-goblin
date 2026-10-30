@@ -192,6 +192,7 @@ export function validateManagedGame(module) {
       const worker = managed.previewWorker;
       assert(worker.softwareTarget === undefined || /^\/[A-Za-z0-9_/-]+$/.test(worker.softwareTarget) && !worker.softwareTarget.includes('..') && worker.softwareTarget !== worker.target, 'Invalid read-only helper software target.');
       assert(Array.isArray(worker.entrypoint) && worker.entrypoint.length > 0 && worker.entrypoint.length <= 8 && worker.entrypoint.every(value => typeof value === 'string' && value.length > 0 && value.length <= 256) && /^\/[A-Za-z0-9_./-]+$/.test(worker.entrypoint[0]) && !worker.entrypoint[0].split('/').includes('..'), 'Invalid game worker entrypoint.');
+      assert(worker.entrypoints===undefined||Array.isArray(worker.entrypoints)&&worker.entrypoints.length<=4&&worker.entrypoints.every(entry=>Array.isArray(entry)&&entry.length>0&&entry.length<=8&&entry.every(value=>typeof value==='string'&&value.length>0&&value.length<=256)&&/^\/[A-Za-z0-9_./-]+$/.test(entry[0])&&!entry[0].split('/').includes('..')),'Invalid additional game worker entrypoint.');
       assert(Array.isArray(worker.namePrefixes) && worker.namePrefixes.length > 0 && worker.namePrefixes.length <= 8 && worker.namePrefixes.every(value => /^[a-z][a-z0-9-]{0,63}-$/.test(value)), 'Invalid game worker names.');
     }
   }
