@@ -16,6 +16,7 @@ test('offline helpers use a declared exact wrapper or a prepared read-only runti
   assert.deepEqual(command.Entrypoint,copied?['/opt/factorio/bin/x64/factorio']:bundledMapEntrypoint);
   assert.ok(command.Cmd.includes('--benchmark'));assert.ok(command.Cmd.includes('--enable-unsafe-lua-debug-api'));assert.ok(!command.Cmd.includes('--start-server'));
   assert.equal(writes.has('engine/data/base/instrument-control.lua'),copied);
+  assert.ok(writes.get('map-export/config.ini').includes('read-data='+(copied?'/opt/factorio/data':'/factorio/map-export/data')));
   assert.ok(![...writes.keys()].some(name=>name.startsWith('mods/')||name.startsWith('saves/')));
  }
  assert.deepEqual(definition.services[0].configuration.helpers.previewWorker.entrypoints,[bundledMapEntrypoint]);

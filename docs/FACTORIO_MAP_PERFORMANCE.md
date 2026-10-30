@@ -166,7 +166,7 @@ one map and a job-matched completion receipt, then exits. No multiplayer listene
 RCON connection or repeated container command is needed. The saved mod selection
 is preserved: adding an exporter mod would trigger configuration-change callbacks.
 Instead, instrumentation is installed into `base` only in the worker's private
-engine copy or disposable container layer. The debug hook is removed before
+engine/data copy; bundled image files remain read-only. The debug hook is removed before
 collection. Debug access is enabled only for that network-isolated worker.
 
 The worker retains its one-GiB memory budget and low CPU priority. It operates on

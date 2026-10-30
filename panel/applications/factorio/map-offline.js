@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import {assert} from '../../common.js';
 
-export const bundledMapEntrypoint=['/bin/sh','-ec','cp /factorio/map-export/instrument-control.lua /opt/factorio/data/base/instrument-control.lua; exec /opt/factorio/bin/x64/factorio "$@"','goblin-map-export'];
+export const bundledMapEntrypoint=['/bin/sh','-ec','d=/factorio/map-export; cp -R /opt/factorio/data "$d/data"; chmod u+w "$d/data/base"; cp "$d/instrument-control.lua" "$d/data/base/instrument-control.lua"; exec /opt/factorio/bin/x64/factorio "$@"','goblin-map-export'];
 const init=await fs.readFile(new URL('../../map-init.lua',import.meta.url),'utf8');
 const batch=await fs.readFile(new URL('../../map-batch.lua',import.meta.url),'utf8');
 
@@ -46,7 +46,7 @@ export async function prepareOfflineMap(workspace,runtime,jobId){
  // job's private directory before their read-only engine overlay is mounted.
  const copied=runtime.env.includes('FACTORIO_RUNTIME_HELPER=true');
  if(copied)await workspace.write('engine/data/base/instrument-control.lua',script);
- await workspace.write('map-export/config.ini','[path]\nread-data=/opt/factorio/data\nwrite-data=/factorio\n[other]\ncheck-updates=false\n');
+ await workspace.write('map-export/config.ini','[path]\nread-data='+(copied?'/opt/factorio/data':'/factorio/map-export/data')+'\nwrite-data=/factorio\n[other]\ncheck-updates=false\n');
  return {
   Entrypoint:copied?['/opt/factorio/bin/x64/factorio']:bundledMapEntrypoint,
   Cmd:['--config','/factorio/map-export/config.ini','--mod-directory','/factorio/mods','--instrument-mod','base','--enable-unsafe-lua-debug-api','--benchmark','/factorio/saves/source.zip','--benchmark-ticks','1','--benchmark-runs','1'],

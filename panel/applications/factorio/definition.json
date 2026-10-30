@@ -73,7 +73,7 @@
               [
                 "/bin/sh",
                 "-ec",
-                "cp /factorio/map-export/instrument-control.lua /opt/factorio/data/base/instrument-control.lua; exec /opt/factorio/bin/x64/factorio \"$@\"",
+                "d=/factorio/map-export; cp -R /opt/factorio/data \"$d/data\"; chmod u+w \"$d/data/base\"; cp \"$d/instrument-control.lua\" \"$d/data/base/instrument-control.lua\"; exec /opt/factorio/bin/x64/factorio \"$@\"",
                 "goblin-map-export"
               ]
             ]
