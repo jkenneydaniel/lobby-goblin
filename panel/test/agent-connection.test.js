@@ -115,3 +115,11 @@ test('manual pairing uses a persistent agent connection, survives panel restart 
  await restored.disconnect(two,{confirm:true,name:'Disposable agent'});assert.equal(connection.closed,true);assert.equal(restored.state.outgoing.length,0);
  assert.ok(calls.every(call=>call.method==='GET'));assert.equal((await readAgentIdentity(env.FLEET_WEB_ROOT)).fingerprint,host.fingerprint);
 });
+
+test('explicit gzip map files survive the pinned HTTP2 agent and panel proxy unchanged',async t=>{
+ const {gzipSync}=await import('node:zlib'),{proxyResponse}=await import('../core/proxy.js');
+ const bytes=gzipSync(JSON.stringify({synthetic:'map'.repeat(1000)})),f=await fixture(t,(_req,res)=>{res.setHeader('content-type','application/vnd.lobby-goblin.map+gzip');res.end(bytes);});
+ const proxy=http.createServer((req,res)=>{proxyResponse(req,res,f.origin+'/remote/v1/map-payload',{fetcher:(...args)=>f.connection.fetch(...args)}).catch(()=>res.destroy());});
+ await new Promise(resolve=>proxy.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{proxy.closeAllConnections();proxy.close(resolve);}));
+ const response=await fetch('http://127.0.0.1:'+proxy.address().port);assert.equal(response.headers.get('content-type'),'application/vnd.lobby-goblin.map+gzip');assert.equal(response.headers.get('content-encoding'),null);assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+});

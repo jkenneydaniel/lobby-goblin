@@ -8,7 +8,7 @@ export function createApi({
   const pending = new Map();
   return async function request(
     route,
-    {method = 'GET', body, raw = false, signal} = {},
+    {method = 'GET', body, raw = false, signal, binary = false} = {},
   ) {
     const requestedSession = getSession();
     route = '/' + route.replace(/^\//, '');
@@ -47,7 +47,10 @@ export function createApi({
     });
     let result;
     try {
-      result = await response.json();
+      result =
+        binary && response.ok
+          ? await readResponseBytes(response)
+          : await response.json();
     } catch {
       throw new Error(
         'The panel returned an incomplete response. Check the connection and try again.',
@@ -69,6 +72,33 @@ export function createApi({
     pending.delete(pendingKey);
     return result;
   };
+}
+
+// Explicit binary files retain the same authentication and error handling.
+async function readResponseBytes(response) {
+  const reader = response.body.getReader(),
+    chunks = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 32 * 1024 * 1024)
+        throw new Error('Response exceeds its delivery budget.');
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 export const playerCount = (value) =>

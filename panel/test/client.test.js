@@ -90,3 +90,17 @@ test('shared status and image matching preserve unknown states and reject differ
   );
   assert.equal(sameImageReference('game:v1', 'game:v2'), false);
 });
+
+test('binary delivery keeps scoped credentials and uses the same expired-session path',async()=>{
+ let expired=0,unauthorized=false;const payload=new Uint8Array([31,139,0,255]),session={username:'Reader'};
+ const api=createApi({base:'/servers/synthetic/api',getSession:()=>session,onUnauthorized:()=>expired++,fetcher:async(url,options)=>{
+  assert.equal(url,'/servers/synthetic/api/map-payload?revision=fixture');assert.equal(options.credentials,'same-origin');
+  return unauthorized?Response.json({error:'Expired'},{status:401}):new Response(payload,{headers:{'content-type':'application/vnd.lobby-goblin.map+gzip'}});
+ }});
+ assert.deepEqual(await api('/map-payload?revision=fixture',{binary:true}),payload);
+ unauthorized=true;await assert.rejects(api('/map-payload?revision=fixture',{binary:true}),{status:401});assert.equal(expired,1);
+});
+test('binary responses cancel on exceeding the byte budget',async()=>{
+ let cancelled=false;const response=new Response(new ReadableStream({pull(controller){controller.enqueue(new Uint8Array(1024*1024));},cancel(){cancelled=true;}}));
+ const api=createApi({fetcher:async()=>response});await assert.rejects(api('/map-payload',{binary:true}),/incomplete response/);assert.equal(cancelled,true);
+});

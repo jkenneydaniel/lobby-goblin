@@ -17,6 +17,7 @@ import {validateBackup} from './backup.js';
 import {exportMap} from './map-export.js';
 import {completedSave,saveVersion,SaveMapQueue,mapRefreshSettings} from './save-map.js';
 import {SnapshotMetadata} from './snapshot-metadata.js';
+import {MapDelivery} from './map-delivery.js';
 import {LivePlayers} from './live-players.js';
 import {validateConfiguration} from './world-settings.js';
 import {WorldPreviews,renderWorldPreview,cleanPreviewWorkers} from './world-preview.js';
@@ -36,6 +37,7 @@ const modLibrary=createFactorioModLibrary(ctx,{fetcher:modFetcher,start:async()=
 const worldDefaults=await readJSON(new URL('../../world-defaults.json',import.meta.url));
 const autoMapFile=path.join(state,'map-refresh.json');
 const snapshotMetadata=new SnapshotMetadata(path.join(state,'map.json'));
+const mapDelivery=new MapDelivery(snapshotMetadata);
 const autoMap=new SaveMapQueue(await readJSON(autoMapFile,{enabled:true,intervalMinutes:15}),{debounceMs:Number(ctx.env.MAP_SAVE_DEBOUNCE_MS||2000),manualCooldownMs:Number(ctx.env.MAP_MANUAL_REFRESH_COOLDOWN_MS??120000)});
 let autoMapWrites=Promise.resolve(),autoMapSaved=null,autoMapPolling=false;
 function persistAutoMap(settings){
@@ -281,9 +283,16 @@ async function handle(req,res,url){
   if(req.method==='GET'&&url.pathname==='/worlds')return json(res,200,{worlds:await worlds()});
   if(req.method==='GET'&&url.pathname==='/map'){
     const known=url.searchParams.get('revision');assert(!known||/^[a-f0-9]{64}$/.test(known),'Invalid map revision.');
-    const document=await snapshotMetadata.document(known),snapshot=document.snapshot||snapshotMetadata.value;
+    const document=await (url.searchParams.get('format')==='compact-v1'?mapDelivery.document(known):snapshotMetadata.document(known)),snapshot=document.snapshot||document.mapScope||snapshotMetadata.value,seed=snapshot?.seed??snapshotMetadata.seed;
     if(!snapshot)return json(res,200,{snapshot:null,revision:null,pins:[],automatic:autoMap.status(),manual:autoMap.manualStatus()});
-    const current=await activeSave();return json(res,200,{...document,automatic:autoMap.status(),manual:autoMap.manualStatus(),staleWorld:snapshot.world!==current,pins:(await readJSON(path.join(state,'map-pins.json'),[])).filter(pin=>pin.world===snapshot.world&&pin.seed===(document.snapshot?.seed??snapshotMetadata.seed))});
+    const current=await activeSave();return json(res,200,{...document,automatic:autoMap.status(),manual:autoMap.manualStatus(),staleWorld:snapshot.world!==current,pins:(await readJSON(path.join(state,'map-pins.json'),[])).filter(pin=>pin.world===snapshot.world&&pin.seed===seed)});
+  }
+  if(req.method==='GET'&&url.pathname==='/map-payload'){
+    const revision=url.searchParams.get('revision');assert(/^[a-f0-9]{64}$/.test(revision||''),'Invalid map revision.');
+    const bytes=await mapDelivery.bytes(revision);
+    // This is an explicit gzip file, not HTTP content-encoding: every proxy
+    // transports identical bytes, including Node fetch and the HTTP/2 agent.
+    res.writeHead(200,{'content-type':'application/vnd.lobby-goblin.map+gzip','cache-control':'no-store','content-length':bytes.length});return res.end(bytes);
   }
   if(req.method==='GET'&&url.pathname==='/map-status'){
     const snapshot=await snapshotMetadata.read();return json(res,200,{created:snapshot?.created||null,revision:snapshotMetadata.revision,automatic:autoMap.status(),manual:autoMap.manualStatus(),active:ctx.active?.action==='refresh-map'?{message:ctx.active.message}:null});
