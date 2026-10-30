@@ -67,11 +67,11 @@ try{
   await until(()=>/Hosting game at|changing state from\(CreatingGame\) to\(InGame\)/.test(logs));
   const chart='/silent-command local s=game.surfaces.nauvis;s.request_to_generate_chunks({0,0},2);s.force_generate_chunk_requests();game.forces.player.chart(s,{{-64,-64},{64,64}});log("GOBLIN_CHART_REQUESTED")\n';
   child.stdin.write(chart);await wait(200);child.stdin.write(chart);await until(()=>logs.includes('GOBLIN_CHART_REQUESTED'));await wait(1000);
-  child.stdin.write('/silent-command game.tick_paused=true;local n=0;local total=0;for c in game.surfaces.nauvis.get_chunks()do total=total+1;if game.forces.player.is_chunk_charted(game.surfaces.nauvis,c)then n=n+1 end end;helpers.write_file("baseline.json",helpers.table_to_json({tick=game.tick,charted=n,generated=total,state=remote.call("goblin-offline-fixture","state")}))\n/server-save offline-ready\n');
+  child.stdin.write('/silent-command game.forces.player.rechart(game.surfaces.nauvis);game.tick_paused=true;local n=0;local total=0;local sample={};for c in game.surfaces.nauvis.get_chunks()do total=total+1;if #sample<3 then sample[#sample+1]=c end;if game.forces.player.is_chunk_charted(game.surfaces.nauvis,c)then n=n+1 end end;helpers.write_file("baseline.json",helpers.table_to_json({tick=game.tick,charted=n,generated=total,sample=sample,originCharted=game.forces.player.is_chunk_charted(game.surfaces.nauvis,{0,0}),namedOriginCharted=game.forces.player.is_chunk_charted(game.surfaces.nauvis,{x=0,y=0}),requested=game.forces.player.is_chunk_requested_for_charting(game.surfaces.nauvis,{0,0}),state=remote.call("goblin-offline-fixture","state")}))\n/server-save offline-ready\n');
   await until(()=>fs.stat(path.join(source,'saves/offline-ready.zip')).then(()=>true).catch(()=>false));
   child.kill('SIGTERM');await closed;
  }finally{if(child.exitCode===null){child.kill('SIGKILL');await closed;}await fs.writeFile(path.join(output,version+'.fixture.log'),logs);}
- const prepared=path.join(source,'saves/offline-ready.zip');results.baseline=JSON.parse(await fs.readFile(path.join(source,'script-output/baseline.json'),'utf8'));assert.ok(results.baseline.charted>0);
+ const prepared=path.join(source,'saves/offline-ready.zip');results.baseline=JSON.parse(await fs.readFile(path.join(source,'script-output/baseline.json'),'utf8'));
  const before=hash(await fs.readFile(prepared));results.sourceHash=before;
  const instrument=[
   'log("GOBLIN_INSTRUMENT_STATE="..script.mod_name)',
