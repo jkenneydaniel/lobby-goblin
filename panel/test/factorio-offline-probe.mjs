@@ -56,7 +56,8 @@ try{
  await fs.writeFile(path.join(output,version+'.create.log'),created.stdout+created.stderr);assert.equal(created.status,0,created.stdout+created.stderr);
  // Warm only this newly generated fixture, chart it, pause it and save a
  // baseline. This distinguishes a real saved chart from --create's queued chart.
- const serverSettings=path.join(source,'server-settings.json');await fs.writeFile(serverSettings,JSON.stringify({name:'Disposable offline probe',visibility:{public:false,lan:false},auto_pause:false,require_user_verification:false,autosave_interval:0}));
+ const defaults=JSON.parse(await fs.readFile(path.join(root,'factorio/data/server-settings.example.json'),'utf8'));
+ const serverSettings=path.join(source,'server-settings.json');await fs.writeFile(serverSettings,JSON.stringify({...defaults,name:'Disposable offline probe',visibility:{public:false,lan:false},auto_pause:false,require_user_verification:false,autosave_interval:0}));
  const child=spawn(executable,['--config',await config(source),'--start-server',save,'--bind','127.0.0.1','--port','0','--mod-directory',mods,'--server-settings',serverSettings],{cwd:root,stdio:['pipe','pipe','pipe']});
  let logs='';child.stdout.on('data',b=>{logs+=b;});child.stderr.on('data',b=>{logs+=b;});const closed=new Promise(resolve=>child.once('close',resolve));
  const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
