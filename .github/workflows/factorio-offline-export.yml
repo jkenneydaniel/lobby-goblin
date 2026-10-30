@@ -1,9 +1,9 @@
 name: Factorio offline export acceptance
 on:
   push:
-    paths: ['panel/test/factorio-offline-probe.mjs', '.github/workflows/factorio-offline-export.yml']
+    paths: ['panel/test/factorio-map-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
   pull_request:
-    paths: ['panel/test/factorio-offline-probe.mjs', '.github/workflows/factorio-offline-export.yml']
+    paths: ['panel/test/factorio-map-acceptance.mjs', 'panel/applications/factorio/**', 'panel/map*.lua', '.github/workflows/factorio-offline-export.yml']
 permissions:
   contents: read
 jobs:
@@ -21,11 +21,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Probe one-shot exports using only freshly generated fixture worlds
+      - name: Verify one-shot exports using only freshly generated fixture worlds
         env:
           FACTORIO_OFFLINE_DISPOSABLE: 'true'
           PROBE_FACTORIO_VERSION: ${{ matrix.version }}
-        run: node panel/test/factorio-offline-probe.mjs
+        run: node panel/test/factorio-map-acceptance.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

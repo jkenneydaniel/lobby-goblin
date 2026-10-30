@@ -1,4 +1,4 @@
-// Exploratory native acceptance. Only GitHub-hosted disposable runners may run
+// Native acceptance. Only GitHub-hosted disposable runners may run
 // it. Creates its own worlds and engine; never reads installation paths/Docker.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -9,6 +9,7 @@ import {spawn,spawnSync} from 'node:child_process';
 import {headlessChecksums,headlessVersion} from '../applications/factorio/headless-releases.js';
 import {offlineMapScript,validateMapCompletion} from '../applications/factorio/map-offline.js';
 import {validateMap} from '../applications/factorio/map-export.js';
+import {makeZip,zipEntries} from '../core/archive.js';
 
 assert.equal(process.env.GITHUB_ACTIONS,'true');
 assert.equal(process.platform,'linux');
@@ -62,8 +63,8 @@ try{
  async function config(folder){await fs.mkdir(folder,{recursive:true});const file=path.join(folder,'config.ini');await fs.writeFile(file,'[path]\nread-data='+path.join(root,'factorio/data')+'\nwrite-data='+folder+'\n');return file;}
  const save=path.join(source,'source.zip'),created=command(executable,['--config',await config(source),'--create',save,'--map-gen-settings',settings,'--mod-directory',mods]);
  await fs.writeFile(path.join(output,version+'.create.log'),created.stdout+created.stderr);assert.equal(created.status,0,created.stdout+created.stderr);
- // Warm only this newly generated fixture, chart it, pause it and save a
- // baseline. This distinguishes a real saved chart from --create's queued chart.
+ // Warm only this newly generated fixture, request charting, pause it and save
+ // a baseline. A playerless force keeps chart requests pending; see fixtureInit.
  const defaults=JSON.parse(await fs.readFile(path.join(root,'factorio/data/server-settings.example.json'),'utf8'));
  await fs.mkdir(path.join(source,'saves'));
  const serverSettings=path.join(source,'server-settings.json');await fs.writeFile(serverSettings,JSON.stringify({...defaults,name:'Disposable offline probe',visibility:{public:false,lan:false},auto_pause:false,require_user_verification:false,autosave_interval:0}));
@@ -82,55 +83,34 @@ try{
  }finally{if(child.exitCode===null){child.kill('SIGKILL');await closed;}await fs.writeFile(path.join(output,version+'.fixture.log'),logs);}
  const prepared=path.join(source,'saves/offline-ready.zip');results.baseline=JSON.parse(await fs.readFile(path.join(source,'script-output/baseline.json'),'utf8'));
  const before=hash(await fs.readFile(prepared));results.sourceHash=before;
- const instrument=[
-  'log("GOBLIN_INSTRUMENT_STATE="..script.mod_name)',
-  'local done=false',
-  'local function export()',
-  'if done then return end;done=true',
-  'local s=game.surfaces.nauvis; local n=0;for c in s.get_chunks() do if game.forces.player.is_chunk_charted(s,c) then n=n+1 end end',
-  'local result={mod=script.mod_name,tick=game.tick,charted=n,state=remote.call("goblin-offline-fixture","state"),activeMods=script.active_mods,furnaces=s.count_entities_filtered{name="stone-furnace"}}',
-  'helpers.write_file("probe-"..script.mod_name..".json",helpers.table_to_json(result));log("GOBLIN_OFFLINE_PROBE_OK="..script.mod_name)',
-  'end',
-  'script.on_event(defines.events.on_tick,export)',
-  'script.on_nth_tick(1,export)',
- ].join('\n');
  const normalize=value=>{for(const key of ['chunks','palette','entities','players','tags'])if(value[key]&&!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];return validateMap(value);};
  const baselineMap=normalize(JSON.parse(await fs.readFile(path.join(source,'script-output/baseline-map.json'),'utf8')));assert.equal(baselineMap.chunks.length,4);assert.ok(baselineMap.entities.some(e=>e.name==='stone-furnace'));
- for(const enabled of [false,true,'base','base-hook','production','geometry']){
-  const folder=path.join(root,String(enabled)),copy=path.join(folder,'mods');await fs.mkdir(folder);await fs.cp(mods,copy,{recursive:true});
-  const probe=path.join(copy,'goblin-offline-probe_1.0.0');await fs.mkdir(probe);
-  await fs.writeFile(path.join(probe,'info.json'),JSON.stringify({name:'goblin-offline-probe',version:'1.0.0',title:'Offline export probe',author:'Lobby Goblin',factorio_version:version.split('.').slice(0,2).join('.'),dependencies:['base']}));
-  await fs.writeFile(path.join(probe,'instrument-control.lua'),instrument);await fs.writeFile(path.join(probe,'control.lua'),'');
-  await fs.writeFile(path.join(copy,'mod-list.json'),JSON.stringify({mods:[...selection.mods,{name:'goblin-offline-probe',enabled:enabled===true}]}));
-  if(typeof enabled==='string'){
-   const hooked=instrument.replace('script.on_event(defines.events.on_tick,export)\nscript.on_nth_tick(1,export)',[
-    'if script.mod_name=="level" then',
-    'local function noop()end;script.on_event(defines.events.on_tick,noop)',
-    'debug.sethook(function(event)',
-    'if event=="return" then if not script.get_event_handler(defines.events.on_tick)then script.on_event(defines.events.on_tick,noop)end',
-    'elseif game and debug.getinfo(2,"f").func==script.get_event_handler(defines.events.on_tick) then debug.sethook();export()end',
-    'end,"cr")',
-    'end',
-   ].join('\n'));
-   const job='12345678-1234-1234-1234-123456789abc';
-   const initialization='helpers.write_file("state-before.json",helpers.table_to_json({tick=game.tick,state=remote.call("goblin-offline-fixture","state")}))\n'+(enabled==='geometry'?fixtureInit:init);
-   const program=['production','geometry'].includes(enabled)?offlineMapScript(job,{initialization,collection:batch}):enabled==='base-hook'?hooked:instrument;
-   await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),program);
-  }
+ for(const mode of ['production','geometry','scenario','partial-failure']){
+  const folder=path.join(root,mode),copy=path.join(folder,'mods');await fs.mkdir(folder);await fs.cp(mods,copy,{recursive:true});
+  const job='12345678-1234-1234-1234-123456789abc';
+  const initialization='helpers.write_file("state-before.json",helpers.table_to_json({tick=game.tick,state=remote.call("goblin-offline-fixture","state")}))\n'+(mode==='production'?init:fixtureInit);
+  const collection=mode==='partial-failure'?batch+'\nhelpers.write_file("panel-map.json",helpers.table_to_json(storage.panel_map.output));error("Expected disposable partial-export failure")':batch;
+  await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),offlineMapScript(job,{initialization,collection}));
   const copied=path.join(folder,'source.zip');await fs.copyFile(prepared,copied);
-  const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod',typeof enabled==='string'?'base':'goblin-offline-probe','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
-  if(['base-hook','production','geometry'].includes(enabled))args.push('--enable-unsafe-lua-debug-api');
-  const start=Date.now(),ran=command(executable,args);await fs.writeFile(path.join(output,version+'.'+enabled+'.log'),ran.stdout+ran.stderr);
-  const reports=[];for(const name of await fs.readdir(path.join(folder,'script-output')).catch(()=>[]))if(name.startsWith('probe-'))reports.push(JSON.parse(await fs.readFile(path.join(folder,'script-output',name),'utf8')));
-  if(['production','geometry'].includes(enabled)){
-   assert.equal(ran.status,0,ran.stdout+ran.stderr);const value=normalize(JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'))),receipt=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.complete.json'),'utf8'));
-   validateMapCompletion(receipt,value,'12345678-1234-1234-1234-123456789abc');assert.equal(receipt.engine,version);
-   const beforeState=JSON.parse(await fs.readFile(path.join(folder,'script-output/state-before.json'),'utf8'));assert.equal(beforeState.tick,results.baseline.tick);assert.deepEqual(beforeState.state,results.baseline.state);
-   if(enabled==='geometry')assert.deepEqual(value,baselineMap);else assert.equal(value.chunks.length,results.baseline.charted);
-   reports.push({nativeMapValidated:true,preUpdateStateMatches:true,chunks:value.chunks.length,entities:value.entities.length,geometryParity:enabled==='geometry'});
+  if(mode==='scenario'){
+   const entries=zipEntries(await fs.readFile(copied)),control=entries.find(entry=>entry.name.endsWith('/control.lua'));assert.ok(control);
+   const override='\nscript.on_load(function()script.on_event(defines.events.on_tick,function()for _,e in pairs(game.surfaces.nauvis.find_entities_filtered{name="stone-furnace"})do e.destroy()end end)end)\n';
+   await fs.writeFile(copied,makeZip(entries.map(entry=>({name:entry.name,data:entry.name===control.name?Buffer.from(entry.read().toString()+override):entry.read()}))));
   }
-  results.cases.push({enabled,status:ran.status,error:ran.error,elapsedMs:Date.now()-start,reports});
-  assert.equal(hash(await fs.readFile(prepared)),before);assert.equal(hash(await fs.readFile(copied)),before);
+  const copiedHash=hash(await fs.readFile(copied));
+  const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod','base','--enable-unsafe-lua-debug-api','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
+  const start=Date.now(),ran=command(executable,args);await fs.writeFile(path.join(output,version+'.'+mode+'.log'),ran.stdout+ran.stderr);
+  if(mode==='partial-failure'){
+   assert.notEqual(ran.status,0);assert.equal(await fs.stat(path.join(folder,'script-output/panel-map.complete.json')).then(()=>true).catch(()=>false),false);
+   results.cases.push({mode,failedClosed:true});
+  }else{
+   assert.equal(ran.status,0,ran.stdout+ran.stderr);const value=normalize(JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'))),receipt=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.complete.json'),'utf8'));
+   validateMapCompletion(receipt,value,job);assert.equal(receipt.engine,version);
+   const beforeState=JSON.parse(await fs.readFile(path.join(folder,'script-output/state-before.json'),'utf8'));assert.equal(beforeState.tick,results.baseline.tick);assert.deepEqual(beforeState.state,results.baseline.state);
+   if(mode!=='production')assert.deepEqual(value,baselineMap);else assert.equal(value.chunks.length,results.baseline.charted);
+   results.cases.push({mode,nativeMapValidated:true,preUpdateStateMatches:true,chunks:value.chunks.length,entities:value.entities.length,geometryParity:mode!=='production',elapsedMs:Date.now()-start});
+  }
+  assert.equal(hash(await fs.readFile(prepared)),before);assert.equal(hash(await fs.readFile(copied)),copiedHash);
  }
  results.sourceUnchanged=true;
 }catch(error){results.error=error.message;process.exitCode=1;}
