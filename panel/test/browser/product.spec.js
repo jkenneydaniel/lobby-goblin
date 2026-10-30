@@ -722,8 +722,11 @@ test('a non-game definition shares configuration, services, logs, accounts and o
   await page
     .getByRole('button', {name: 'Save configuration', exact: true})
     .click();
+  // A settled job can remain active through its final cleanup write. Completion
+  // feedback then arrives on the next five-second poll, after the POST returns.
   await expect(page.locator('.product-feedback')).toContainText(
     'Configuration saved',
+    {timeout: 10000},
   );
   await page.reload();
   await expect(page.getByLabel('Application name', {exact: true})).toHaveValue(

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.21-alpha — 2026-10-30
+
+- Export Factorio map snapshots in one isolated offline process, preserving the
+  saved mod selection and collecting before the first simulation update. Keep
+  the previous map when the worker fails or its completion receipt is missing.
+- Bound nearest-chunk selection and rejected-object bookkeeping, and reuse
+  prototype colors while preserving per-entity bounds, recipes and enemy priority.
+- Deliver compact, cached gzip snapshots with revision checks and a legacy JSON
+  fallback. Keep pins, players and status independent of the static map payload.
+- Raise Factorio map coverage to 4,096 explored chunks and 160,000 objects. Raise
+  the raw export allowance to 48 MiB while retaining the one-GiB worker budget.
+- Preserve map format v1, updater/archive and state contracts, game images and
+  software-provider pins. Publication does not deploy installations or change
+  running servers or existing worlds.
+
 ## 0.3.20-alpha — 2026-10-29
 
 - Cache the static map layer and group distant resources and buildings for faster

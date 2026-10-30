@@ -23,7 +23,7 @@ test('compact snapshots preserve exact geometry, metadata, entity order and opti
 });
 test('compact decoders reject bad rows, dictionary references, metadata and compressed bombs',async()=>{
  const original=encodeMapPayload(fixture());
- for(const mutate of [v=>{v.format='future';},v=>{v.metadata.version=2;},v=>{v.rows[0][0]=-1;},v=>{v.rows[0][0]=9999;},v=>{v.rows[0][1]=null;},v=>{v.rows[0].push(99);},v=>{v.rows[2]=[0,1,2,2,999];},v=>{v.prototypes[0].x=1;},v=>{v.rows=Array(80001).fill(v.rows[0]);}]){
+ for(const mutate of [v=>{v.format='future';},v=>{v.metadata.version=2;},v=>{v.rows[0][0]=-1;},v=>{v.rows[0][0]=9999;},v=>{v.rows[0][1]=null;},v=>{v.rows[0].push(99);},v=>{v.rows[2]=[0,1,2,2,999];},v=>{v.prototypes[0].x=1;},v=>{v.rows=Array(160001).fill(v.rows[0]);}]){
   const value=structuredClone(original);mutate(value);assert.throws(()=>decodeMapPayload(value),/Invalid compact/);
  }
  await assert.rejects(readMapPayload(Buffer.from('invalid gzip')));

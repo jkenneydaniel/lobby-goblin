@@ -10,7 +10,7 @@ for c in s.get_chunks() do
   if f.is_chunk_charted(s,c) then
     total=total+1
     local item={x=c.x,y=c.y,distance=(c.x*32-origin.x)^2+(c.y*32-origin.y)^2}
-    if #chunks<2048 then
+    if #chunks<4096 then
       chunks[#chunks+1]=item
       local i=#chunks
       while i>1 do

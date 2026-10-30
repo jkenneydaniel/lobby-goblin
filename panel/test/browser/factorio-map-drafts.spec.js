@@ -86,8 +86,8 @@ test('large saved-map rendering preserves inspection, zoom, layers and a terrain
   await page.addInitScript(()=>{const create=globalThis.document.createElement.bind(globalThis.document);globalThis.mapAtlasCount=0;globalThis.document.createElement=function(name,...args){if(name==='canvas')globalThis.mapAtlasCount++;return create(name,...args);};});
   await page.route(/\/api\/map(?:\?.*)?$/,async route=>{
     const response=await route.fetch({url:route.request().url().split('?')[0]}),value=await response.json(),map=value.snapshot;
-    map.chunks=Array.from({length:2048},(_,i)=>({x:(i%64)-32,y:Math.floor(i/64)-16,tiles:[1,256],pollution:0}));
-    map.entities=Array.from({length:79999},(_,i)=>({name:'iron-ore',type:'resource',category:'resources',x:(i%400)*5-1000,y:Math.floor(i/400)*5-500,w:1,h:1,color:[70,100,160],amount:1000}));
+    map.chunks=Array.from({length:4096},(_,i)=>({x:(i%64)-32,y:Math.floor(i/64)-16,tiles:[1,256],pollution:0}));
+    map.entities=Array.from({length:159999},(_,i)=>({name:'iron-ore',type:'resource',category:'resources',x:(i%400)*5-1000,y:Math.floor(i/400)*5-500,w:1,h:1,color:[70,100,160],amount:1000}));
     map.entities.push({name:'biter-spawner',type:'unit-spawner',category:'enemies',x:0,y:0,w:7,h:7,color:[220,30,20]});map.enemyUnits=true;
     await route.fulfill({json:value});
   });

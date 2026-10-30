@@ -1,5 +1,11 @@
 # Factorio map performance and draft controls
 
+The current export contract (0.3.21-alpha) supports 4,096 explored chunks and
+160,000 objects, with a 48-MiB raw export allowance. The compact wire allowance
+remains 32 MiB. Worker memory remains one GiB, CPU priority remains low and the
+180-second export deadline is unchanged. Earlier measurements below retain the
+limits and fixture sizes used when those changes were made.
+
 This review uses source inspection and synthetic fixtures only. No running
 server, existing save, Docker daemon or deployed panel was used.
 
@@ -261,3 +267,44 @@ compression coalescing, scoped permissions, session expiry and byte preservation
 through HTTP and the pinned HTTP/2 agent. Browser fixtures exercise compact
 snapshot reuse, legacy large/modded-map rendering and fallback after a corrupted
 payload or missing decoder. All previews use in-memory synthetic data only.
+
+
+## Doubled export capacity
+
+Collection, source validation and compact delivery now share the 4,096-chunk /
+160,000-object contract. JavaScript readers use one limits module; a regression
+checks the Lua collectors and visible warning against it. At the boundary,
+enemy priority, nearest-spawn selection, deterministic ties and truncation flags
+remain intact. Object or chunk overflow is still refused by delivery validation.
+
+The intermediate JSON allowance increases from 24 to 48 MiB because compression
+happens after Factorio produces that JSON. A synthetic full-cap fixture with
+alternating terrain runs exercises output larger than the former byte limit,
+then checks exact compressed round-trip and both overflow guards. Map format 1,
+compact wire format 1, refresh frequency/cooldown, existing images and updater
+state/rollback contracts remain unchanged.
+
+The capacity CI job generates its own finite 2,048-by-2,048-tile world and
+160,001 resource/building objects on each supported test engine (2.0.77 and
+2.1.23). An explicit test-only visibility adapter supplies its generated region
+because playerless headless forces do not complete chart requests. The worker
+uses real native tile/entity queries, the production collection source and a
+read-only engine overlay, under the existing one-GiB / one-CPU ceiling. It must
+export exactly 4,096 chunks and 160,000 objects, report truncation, keep source
+save/mod hashes unchanged and round-trip through the compact wire codec. The
+job records elapsed time, cgroup peak memory and raw/compressed sizes. Native
+capacity results from the fresh CI engine on October 30, 2026:
+
+| Factorio | Export time | Cgroup peak memory | Raw JSON | Compressed wire |
+| --- | ---: | ---: | ---: | ---: |
+| 2.0.77 | 8.6 s | 932 MiB | 24.93 MB | 0.77 MB |
+| 2.1.23 | 6.9 s | 958 MiB | 24.93 MB | 0.77 MB |
+
+Both produced 4,096 chunks and 160,000 objects, set the truncation flag, completed
+the exact wire round-trip and preserved source save/mod hashes. Peak memory
+includes the worker cgroup's charged memory; the one-GiB ceiling leaves limited
+headroom in these dense fixtures. No larger worker allocation was introduced.
+
+These synthetic bounds do not promise that every modded save fits one GiB.
+An over-budget or interrupted export retains the previous map. Existing worlds
+and running installations are never used by these fixtures.

@@ -22,7 +22,7 @@ local function entity(name,kind,force,x)
 end
 local function run(start)
   assert(load((batch_source:gsub('MAP_START',tostring(start or 1)))))()
-  assert(#storage.panel_map.output.entities<=80000)
+  assert(#storage.panel_map.output.entities<=160000)
   return storage.panel_map.output
 end
 local function count(m,kind)
@@ -30,7 +30,7 @@ local function count(m,kind)
 end
 local function fill(category,kind,slots)
   local state=storage.panel_map
-  for i=1,80000 do
+  for i=1,160000 do
     state.output.entities[i]={category=category,type=kind}
     if slots then state[slots][i]=i end
   end
@@ -47,7 +47,7 @@ run();assert(#m.entities==5,'Overlapping batches must not duplicate enemies')
 reset();fill('resources','resource','resource_slots')
 objects={entity('small-biter','unit','enemy'),entity('biter-spawner','unit-spawner','enemy',16),entity('small-worm-turret','turret','enemy',24)}
 m=run();assert(count(m,'unit-spawner')==1 and count(m,'turret')==1 and count(m,'unit')==1,'Resources must not crowd out enemies')
-assert(m.entitiesLimited and #m.entities==80000)
+assert(m.entitiesLimited and #m.entities==160000)
 
 reset();fill('buildings','furnace','object_slots')
 objects={entity('small-biter','unit','enemy'),entity('biter-spawner','unit-spawner','enemy',16)}
@@ -55,11 +55,11 @@ m=run();assert(count(m,'unit-spawner')==1 and count(m,'unit')==1,'Protect enemie
 
 reset();fill('enemies','unit','unit_slots')
 objects={entity('biter-spawner','unit-spawner','enemy'),entity('small-worm-turret','turret','enemy',16)}
-m=run();assert(count(m,'unit-spawner')==1 and count(m,'turret')==1 and count(m,'unit')==79998,'Bases and worms take priority over unit swarms')
+m=run();assert(count(m,'unit-spawner')==1 and count(m,'turret')==1 and count(m,'unit')==159998,'Bases and worms take priority over unit swarms')
 
 reset();fill('enemies','unit-spawner')
 objects={entity('small-biter','unit','enemy'),entity('extra-base','unit-spawner','enemy',16)}
-m=run();assert(#m.entities==80000 and m.entitiesLimited and count(m,'unit')==0,'Keep the hard cap and its warning when only bases remain')
+m=run();assert(#m.entities==160000 and m.entitiesLimited and count(m,'unit')==0,'Keep the hard cap and its warning when only bases remain')
 
 reset();objects={entity('boundary-base','unit-spawner','enemy',31)}
 m=run();assert(#m.entities==1,'A base crossing a chunk boundary is exported once')

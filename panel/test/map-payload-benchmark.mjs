@@ -5,7 +5,7 @@ import {performance} from 'node:perf_hooks';
 import {encodeMapPayload,decodeMapPayload,readMapPayload} from '../applications/factorio/public/map-payload.js';
 import {mapPayloadFixture} from './map-payload-fixture.js';
 
-const snapshot=mapPayloadFixture(),plain=JSON.stringify(snapshot),compact=JSON.stringify(encodeMapPayload(snapshot)),gzip=gzipSync(compact,{level:6}),legacyGzip=gzipSync(plain,{level:6});
+const snapshot=mapPayloadFixture(80000,2048),plain=JSON.stringify(snapshot),compact=JSON.stringify(encodeMapPayload(snapshot)),gzip=gzipSync(compact,{level:6}),legacyGzip=gzipSync(plain,{level:6});
 assert.deepEqual(decodeMapPayload(JSON.parse(compact)),snapshot);assert.deepEqual(await readMapPayload(gzip),snapshot);
 const samples={legacyParse:[],compactParseAndExpand:[],gzipDecodeAndExpand:[],firstEncodingAndCompression:[]};
 for(let i=0;i<9;i++){
