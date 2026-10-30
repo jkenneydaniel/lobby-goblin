@@ -205,3 +205,59 @@ Further work remains measuring engine-side entity filtering and private runtime
 copy costs on representative disposable worlds. Larger caps require those
 measurements. Compact payload delivery follows separately; rollback readers
 continue to receive version-1 snapshots.
+
+## Compact snapshot delivery
+
+Map storage remains `map.json` version 1. New clients negotiate `compact-v1` on
+`/map`; older clients and controllers continue to use the original response.
+The negotiated response contains small revision/scope/pin/status metadata. A
+separate `/map-payload` request retrieves the static snapshot as an explicit gzip
+file containing the `goblin-map/1` wire format. Repeated entity details share a
+prototype dictionary; rows retain exact coordinates, per-entity bounds, amounts,
+recipes, order and optional fields. Terrain RLE and renderer inputs are unchanged.
+
+The controller lazily encodes/compresses once per snapshot and retains one bounded
+byte buffer, with concurrent requests coalesced. It retains no additional parsed
+entity graph. Snapshots nobody views incur no encoding/compression cost. Pins,
+players and status do not invalidate these bytes. Atomic map replacement changes
+the revision; a request cannot associate older payload bytes with a new revision.
+No map fetch starts a Factorio process or requests a save.
+
+The gzip file uses a distinct media type, without HTTP content-encoding, so Node
+fetch, ordinary proxies and the pinned HTTP/2 host connection transport identical
+bytes. The same server-scoped map-view permission applies at both endpoints.
+Clients bound both transferred and decompressed bytes to 32 MiB and reject invalid
+row/dictionary references. An unavailable decoder, interrupted payload or concurrent
+export falls back to the original JSON route. Authentication failures keep their
+normal sign-in/access handling. No new persisted files, schema, dependencies or
+image pins are needed; rollback readers see the original map.
+
+### Synthetic payload measurement
+
+Run `node panel/test/map-payload-benchmark.mjs` with Node 24. The fixture has 80,000
+objects across resources, buildings, rails and enemies, with 2,048 uniform chunks,
+fractional coordinates, amounts and recipes. Seven measured passes follow two
+warmups; case order alternates. A local run on October 30, 2026 measured:
+
+| Representation | Bytes |
+| --- | ---: |
+| Original JSON | 12,249,894 |
+| Compact dictionary JSON | 2,450,655 |
+| Compact gzip file | 503,019 |
+| Original JSON with gzip, for comparison | 641,517 |
+
+The delivered file is about 96% smaller than uncompressed JSON and 22% smaller
+than gzipped original JSON. Node parsing took 37.7 ms for the original, versus
+21.0 ms for gzip decompression, parsing and expansion. First-time encoding plus
+compression cost 174 ms; later viewers reuse those bytes. A separate Chromium
+check of the same fixture measured 28.3 ms versus 16.5 ms median decode work and
+rendered all 80,000 objects on desktop/mobile. These are synthetic CPU/byte
+measurements, not network latency, GPU time, gameplay or larger-export acceptance.
+Current export caps and the one-GiB offline worker budget remain unchanged.
+
+Regression coverage checks exact round trips including rotations/unknown fields,
+empty maps, zero/null optional fields, corrupt/oversized payloads, snapshot races,
+compression coalescing, scoped permissions, session expiry and byte preservation
+through HTTP and the pinned HTTP/2 agent. Browser fixtures exercise compact
+snapshot reuse, legacy large/modded-map rendering and fallback after a corrupted
+payload or missing decoder. All previews use in-memory synthetic data only.

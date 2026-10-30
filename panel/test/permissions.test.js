@@ -52,3 +52,14 @@ test('existing roles remain unscoped and assigned accounts start empty; revision
   assert.deepEqual((await accounts.users()).Assigned.grants,{});
   await assert.rejects(accounts.update({username:'Owner',operation:'role',role:'member',confirm:true}),/at least one administrator/);
 });
+
+test('compact map bytes require the same server-scoped map permission as legacy snapshots',async()=>{
+ const {factorio}=await import('../applications/factorio/index.js');
+ const scoped={role:'member',grants:{[server]:['server.view','application.factorio.map.view']}};
+ for(const route of ['/map','/map-status','/map-payload']){
+  requireServerPermission(scoped,server,'GET',route,{module:factorio});
+  assert.throws(()=>requireServerPermission(member,server,'GET',route,{module:factorio}),{status:403});
+  assert.throws(()=>requireServerPermission(scoped,remote,'GET',route,{module:factorio}),{status:404});
+ }
+ assert.throws(()=>requireServerPermission(scoped,server,'POST','/map-payload',{module:factorio}),{status:403});
+});

@@ -47,3 +47,9 @@ test('upstream errors cannot turn a partial archive into a successful response',
   const f=await fixture(t,(req,res)=>{res.writeHead(200);res.write('partial');setTimeout(()=>res.destroy(),30);});
   const response=await fetch(f.url);await assert.rejects(response.text());
 });
+
+test('explicit gzip map files survive HTTP proxying byte-for-byte without implicit decompression',async t=>{
+ const {gzipSync}=await import('node:zlib'),bytes=gzipSync(JSON.stringify({synthetic:'map'.repeat(1000)}));
+ const f=await fixture(t,(_req,res)=>{res.writeHead(200,{'content-type':'application/vnd.lobby-goblin.map+gzip'});res.end(bytes);},{download:false,timeout:3000});
+ const response=await fetch(f.url);assert.equal(response.headers.get('content-type'),'application/vnd.lobby-goblin.map+gzip');assert.equal(response.headers.get('content-encoding'),null);assert.equal(response.headers.get('cache-control'),'no-store');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
+});

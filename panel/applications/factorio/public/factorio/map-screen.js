@@ -1,6 +1,7 @@
 import {createMapViews} from './map-views.js';
 import {mountMap} from '../map.js';
 import {pollEvery} from '../client.js';
+import {readMapPayload, mapPayloadFormat} from '../map-payload.js';
 
 export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
   const {mapPage, mapRefreshLabel} = createMapViews(getState, ui);
@@ -225,10 +226,31 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       });
   }
   async function read(ctx, preserve) {
-    const query = cached?.revision
-      ? '?revision=' + encodeURIComponent(cached.revision)
-      : '';
-    let data = await ctx.request('/map' + query);
+    const query = new URLSearchParams();
+    if (cached?.revision) query.set('revision', cached.revision);
+    if (typeof DecompressionStream === 'function')
+      query.set('format', 'compact-v1');
+    const search = query.toString();
+    let data = await ctx.request('/map' + (search ? '?' + search : ''));
+    if (data.payload) {
+      try {
+        if (
+          data.payload.format !== mapPayloadFormat ||
+          data.payload.revision !== data.revision
+        )
+          throw new Error('Unknown map delivery format.');
+        const bytes = await ctx.request(
+          '/map-payload?revision=' + encodeURIComponent(data.revision),
+          {binary: true},
+        );
+        data = {...data, snapshot: await readMapPayload(bytes)};
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) throw error;
+        // A concurrent export, older controller or unavailable decoder can
+        // still use the unchanged legacy snapshot route without a game export.
+        data = await ctx.request('/map');
+      }
+    }
     if (data.unchanged) {
       if (!cached?.snapshot) data = await ctx.request('/map');
       else data = {...cached, ...data, snapshot: cached.snapshot};

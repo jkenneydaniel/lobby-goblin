@@ -33,7 +33,7 @@ async function drafts(page,{conflict=false,delay=0,discardDelay=0,discardError=f
 
 test('map refresh preferences are editable, retained after navigation, and describe save-based timing',async({page},info)=>{
   let automatic={enabled:true,intervalMinutes:0,pending:false,running:false,lastError:null};const writes=[];
-  await page.route('**/api/map',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),automatic}});});
+  await page.route(/\/api\/map(?:\?.*)?$/,async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),automatic}});});
   await page.route('**/api/map-status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),automatic}});});
   await page.route('**/api/map-settings',async route=>{const body=route.request().postDataJSON();writes.push(body);automatic={...automatic,...body};await route.fulfill({json:automatic});});
   await open(page,'#map');await page.getByText('Map refresh settings',{exact:true}).click();
@@ -84,8 +84,8 @@ test('a rejected draft cancellation retains the editor and saved draft',async({p
 });
 test('large saved-map rendering preserves inspection, zoom, layers and a terrain atlas plus cached base',async({page},info)=>{
   await page.addInitScript(()=>{const create=globalThis.document.createElement.bind(globalThis.document);globalThis.mapAtlasCount=0;globalThis.document.createElement=function(name,...args){if(name==='canvas')globalThis.mapAtlasCount++;return create(name,...args);};});
-  await page.route('**/api/map',async route=>{
-    const response=await route.fetch(),value=await response.json(),map=value.snapshot;
+  await page.route(/\/api\/map(?:\?.*)?$/,async route=>{
+    const response=await route.fetch({url:route.request().url().split('?')[0]}),value=await response.json(),map=value.snapshot;
     map.chunks=Array.from({length:2048},(_,i)=>({x:(i%64)-32,y:Math.floor(i/64)-16,tiles:[1,256],pollution:0}));
     map.entities=Array.from({length:79999},(_,i)=>({name:'iron-ore',type:'resource',category:'resources',x:(i%400)*5-1000,y:Math.floor(i/400)*5-500,w:1,h:1,color:[70,100,160],amount:1000}));
     map.entities.push({name:'biter-spawner',type:'unit-spawner',category:'enemies',x:0,y:0,w:7,h:7,color:[220,30,20]});map.enemyUnits=true;
@@ -108,8 +108,8 @@ test('a submitted world operation disables draft cancellation',async({page})=>{
   await open(page,'#worlds/create');await expect(page.getByRole('button',{name:'Cancel draft',exact:true})).toBeDisabled();
 });
 test('oversized modded objects remain visible and selectable when their center is outside the viewport',async({page})=>{
-  await page.route('**/api/map',async route=>{
-    const response=await route.fetch(),value=await response.json();
+  await page.route(/\/api\/map(?:\?.*)?$/,async route=>{
+    const response=await route.fetch({url:route.request().url().split('?')[0]}),value=await response.json();
     Object.assign(value.snapshot,{players:[],entities:[{name:'oversized-modded-building',category:'buildings',x:800,y:0,w:1600,h:40,color:[100,100,20]}]});
     await route.fulfill({json:value});
   });

@@ -3,6 +3,10 @@
 // real server-management actions are rejected. Optional creation/onboarding flows
 // simulate success in memory only, for browser acceptance of those workflows.
 import http from 'node:http';
+import {gzipSync} from 'node:zlib';
+import crypto from 'node:crypto';
+import {encodeMapPayload,mapPayloadFormat} from '../applications/factorio/public/map-payload.js';
+import {mapPayloadFixture} from './map-payload-fixture.js';
 import {web as factorioWeb} from '../applications/factorio/web.js';
 import {factorio} from '../applications/factorio/index.js';
 import {publicContract} from '../core/game-contract.js';
@@ -28,6 +32,7 @@ if(process.env.UI_MAP_ENEMIES_TEST==='1'){
   for(let i=0;i<6;i++)add('small-biter','unit','enemies',-160+i*8,-70+i*3,1);
   add('iron-ore','resource','resources',-200,-100,12);add('assembling-machine-1','assembling-machine','buildings',0,0,3);
 }
+if(process.env.UI_MAP_PAYLOAD_TEST==='1')Object.assign(snapshot,mapPayloadFixture());
 let retention={policy:{...defaultRetention},revision:0,lastRun:null};const cleanupPlans=new Map();
 const backups=[],schedule={enabled:false,hours:6,keep:12,lastRun:null};
 const {summarizeBackups}=await import('../core/backup-health.js');
@@ -58,6 +63,7 @@ let draftPreview=null,previewRequests=0;
 let playerSample=0;
 function previewPlayers(){playerSample++;return process.env.UI_LIVE_PLAYERS_TEST==='1'?{enabled:true,state:'live',world:snapshot.world,seed:snapshot.seed,updatedAt:new Date().toISOString(),players:[{name:'Preview engineer',x:playerSample*3,y:0,surface:snapshot.surface,color:[90,200,220]}]}:{enabled:false,state:'disabled',players:[]};}
 if(process.env.UI_AUTO_REFRESH_TEST==='1')setTimeout(()=>{snapshot.created=new Date().toISOString();console.log('Preview-only snapshot advanced in memory.');},20000).unref();
+let payloadCache=null;
 const server=http.createServer(async(req,res)=>{
   if(scope){if(!req.url.startsWith(scope+'/')){res.writeHead(404);return res.end('Open the scoped disposable server URL.');}req.url=req.url.slice(scope.length);}
   if(req.method==='POST'&&req.url==='/api/backup-retention'&&process.env.UI_RETENTION_TEST==='1'){
@@ -104,6 +110,13 @@ const server=http.createServer(async(req,res)=>{
   const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/svg+xml'});return res.end(fixtureImage);}
   if(route==='/api/world-preview'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview||{state:'idle'}));}
   if(route==='/api/players'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({available:status.ready,players:status.players.map(name=>({name})),message:status.ready?'':'Factorio is not ready.'}));}
+  if(route==='/api/map'&&new URL(req.url,'http://fixture').searchParams.get('format')==='compact-v1'){
+    const text=JSON.stringify(snapshot),revision=process.env.UI_AUTO_REFRESH_TEST==='1'?crypto.createHash('sha256').update(text).digest('hex'):'a'.repeat(64);
+    if(payloadCache?.text!==text)payloadCache={text,revision,bytes:gzipSync(JSON.stringify(encodeMapPayload(snapshot)))};
+    const known=new URL(req.url,'http://fixture').searchParams.get('revision');
+    res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({...data.map,snapshot:undefined,revision,...(known===revision?{unchanged:true}:{payload:{format:mapPayloadFormat,revision}})}));
+  }
+  if(route==='/api/map-payload'){res.writeHead(payloadCache?200:404,{'content-type':'application/vnd.lobby-goblin.map+gzip'});return res.end(payloadCache?.bytes);}
   if(route.startsWith('/api/')){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(route==='/api/live-players'?previewPlayers():route==='/api/map-status'?{created:snapshot.created,automatic:data.map.automatic,active:null}:data[route.slice(5)]||{}));}
   if(route==='/application-definition.json'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(publicContract(factorio)));}
   const files={...sharedAssets,...factorioWeb.assets};const file=files[route];if(!file){res.writeHead(404);return res.end();}let content=await fs.readFile(new URL(file[0],Object.hasOwn(factorioWeb.assets,route)?factorioWeb.publicRoot:new URL('../public/',import.meta.url)));if(scope&&file[1].startsWith('text/html'))content=content.toString().replace(/(href|src)="\/(?!\/)/g,(_,key)=>key+'="'+scope+'/');res.writeHead(200,{'content-type':file[1]});res.end(content);
