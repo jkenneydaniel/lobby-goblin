@@ -27,14 +27,14 @@ for index=MAP_START,math.min(MAP_START+15,#state.queue) do
     local key=category and e.name..':'..position.x..':'..position.y
     if category and not state.seen[key] and position.x>=c.x*32 and position.x<c.x*32+32 and position.y>=c.y*32 and position.y<c.y*32+32 then
       local slot=#m.entities+1
-      if slot>80000 then
+      if slot>160000 then
         m.entitiesLimited=true
         if category=='enemies' then
           slot=table.remove(state.resource_slots) or table.remove(state.object_slots)
           if not slot and kind~='unit' then slot=table.remove(state.unit_slots) end
         end
       end
-      if slot and slot<=80000 then
+      if slot and slot<=160000 then
         state.seen[key]=true
         local b=e.bounding_box
         local color=state.prototype_lookup[e.name]

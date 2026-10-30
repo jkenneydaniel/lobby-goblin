@@ -52,3 +52,28 @@ jobs:
           name: offline-worker-profiles
           path: output/factorio-map-worker
           retention-days: 7
+  capacity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ['2.0.77', '2.1.23']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Measure the larger map using only a generated fixture world
+        env:
+          FACTORIO_OFFLINE_DISPOSABLE: 'true'
+          PROBE_FACTORIO_VERSION: ${{ matrix.version }}
+        run: node panel/test/factorio-map-capacity-acceptance.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: map-capacity-${{ matrix.version }}
+          path: output/factorio-map-capacity
+          retention-days: 14

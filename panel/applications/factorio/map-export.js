@@ -1,3 +1,4 @@
+import {mapObjectLimit,mapChunkLimit,mapExportByteLimit} from './public/map-limits.js';
 import {runtimeHelper} from './runtime.js';
 import {prepareOfflineMap,validateMapCompletion} from './map-offline.js';
 import {helperWorkspace,readScopedFile,removeHelperWorker} from '../../core/helper-workspace.js';
@@ -8,7 +9,7 @@ import {assert,HttpError,writeJSON} from '../../common.js';
 import {saveVersion} from './save-map.js';
 
 export function validateMap(value){
-  assert(value?.version===1&&Array.isArray(value.chunks)&&value.chunks.length<=2048&&Array.isArray(value.entities)&&value.entities.length<=80000&&Array.isArray(value.palette)&&value.palette.length<1000,'Invalid map export.');
+  assert(value?.version===1&&Array.isArray(value.chunks)&&value.chunks.length<=mapChunkLimit&&Array.isArray(value.entities)&&value.entities.length<=mapObjectLimit&&Array.isArray(value.palette)&&value.palette.length<1000,'Invalid map export.');
   assert(value.step===2&&Number.isFinite(value.seed),'Invalid map metadata.');
   for(const item of [...value.palette,...value.entities])assert(Array.isArray(item.color)&&item.color.length===3&&item.color.every(component=>Number.isInteger(component)&&component>=0&&component<=255),'Invalid map color.');
   for(const chunk of value.chunks){
@@ -41,12 +42,12 @@ export async function exportMap({data,state,env={},server,source,world=source,sa
       const error=new HttpError(409,status.State?.OOMKilled?'The offline map export exceeded its 1 GiB memory budget. The previous map was kept.':'The offline map exporter failed with exit code '+result.StatusCode+'. Check operation details; the previous map was kept.');
       error.cause=new Error(logs.slice(-12000));throw error;
     }
-    const value=JSON.parse((await workspace.read('script-output/panel-map.json',24*1024*1024)).toString());for(const key of ['chunks','palette','entities','players','tags'])if(value[key]&&!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];
+    const value=JSON.parse((await workspace.read('script-output/panel-map.json',mapExportByteLimit)).toString());for(const key of ['chunks','palette','entities','players','tags'])if(value[key]&&!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];
     validateMap(value);const receipt=await workspace.json('script-output/panel-map.complete.json').catch(()=>null);validateMapCompletion(receipt,value,job.id);
     Object.assign(value,{world,sourceFile:source,sourceVersion:version,created:new Date().toISOString(),sourceModified:sourceStat.mtime.toISOString()});
     await writeJSON(path.join(state,'map-export-metrics.json'),{version:1,jobId:job.id,engine:receipt.engine,chunks:value.chunks.length,entities:value.entities.length,prepareMs:Math.round(prepared-started),workerMs:Math.round(exported-prepared),decodeMs:Math.round(performance.now()-exported)});
     await writeJSON(path.join(state,'map.json'),value);
-    return `Map refreshed: ${value.chunks.length} explored chunks and ${value.entities.length} objects.${value.limited?' Limited to the 2,048 chunks nearest spawn.':''}`;
+    return `Map refreshed: ${value.chunks.length} explored chunks and ${value.entities.length} objects.${value.limited?' Limited to the 4,096 chunks nearest spawn.':''}`;
   }finally{
     if(exists)await removeHelperWorker(docker,helper);
     await workspace.remove();

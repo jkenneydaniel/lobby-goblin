@@ -1,3 +1,5 @@
+import {mapObjectLimit, mapChunkLimit} from './map-limits.js';
+
 // Wire format only. Stored maps and the renderer continue to use map version 1.
 export const mapPayloadFormat = 'goblin-map/1';
 export const mapPayloadLimit = 32 * 1024 * 1024;
@@ -11,7 +13,7 @@ const common = ['name', 'type', 'w', 'h', 'category', 'power', 'color'];
 
 export function encodeMapPayload(snapshot) {
   const {entities, ...metadata} = snapshot;
-  check(Array.isArray(entities) && entities.length <= 80000);
+  check(Array.isArray(entities) && entities.length <= mapObjectLimit);
   const prototypes = [],
     recipes = [],
     types = new Map(),
@@ -58,15 +60,15 @@ export function decodeMapPayload(value) {
   );
   check(
     Array.isArray(value.rows) &&
-      value.rows.length <= 80000 &&
+      value.rows.length <= mapObjectLimit &&
       Array.isArray(value.prototypes) &&
-      value.prototypes.length <= 80000 &&
+      value.prototypes.length <= mapObjectLimit &&
       Array.isArray(value.recipes) &&
-      value.recipes.length <= 80000,
+      value.recipes.length <= mapObjectLimit,
   );
   check(
     Array.isArray(value.metadata.chunks) &&
-      value.metadata.chunks.length <= 2048 &&
+      value.metadata.chunks.length <= mapChunkLimit &&
       Array.isArray(value.metadata.palette) &&
       value.metadata.palette.length < 1000,
   );

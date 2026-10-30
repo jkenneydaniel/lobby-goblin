@@ -1,6 +1,6 @@
 FROM docker:29.9.0-cli AS docker-cli
 FROM node:24.22.0-bookworm-slim
-LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.20-alpha" org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.title="Lobby Goblin" org.opencontainers.image.version="0.3.21-alpha" org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" io.lobby-goblin.runtime="1"
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
