@@ -34,7 +34,7 @@ try{
   await run(['start',name]);const exit=Number(await run(['wait',name]));
   if(exit!==0){report.workerState=JSON.parse(await run(['inspect',name]))[0].State;report.factorioLog=await fs.readFile(path.join(folder,'factorio-current.log'),'utf8').catch(()=> 'No Factorio log');}
   assert.equal(exit,0,JSON.stringify(report));
-  const info=JSON.parse(await run(['inspect',name]))[0];assert.equal(info.State.OOMKilled,false);assert.equal(info.HostConfig.NetworkMode,'none');assert.equal(Object.keys(info.HostConfig.PortBindings||{}).length,0);assert.equal(info.HostConfig.Memory,1024**3);assert.deepEqual(info.HostConfig.CapAdd,['CHOWN','SETUID','SETGID','DAC_OVERRIDE']);
+  const info=JSON.parse(await run(['inspect',name]))[0];assert.equal(info.State.OOMKilled,false);assert.equal(info.HostConfig.NetworkMode,'none');assert.equal(Object.keys(info.HostConfig.PortBindings||{}).length,0);assert.equal(info.HostConfig.Memory,1024**3);assert.deepEqual(info.HostConfig.CapAdd.map(cap=>cap.replace(/^CAP_/,'' )).sort(),['CHOWN','DAC_OVERRIDE','SETGID','SETUID']);
   const value=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'));
   for(const key of ['chunks','palette','entities','players','tags'])if(!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];
   validateMap(value);validateMapCompletion(JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.complete.json'),'utf8')),value,id);
