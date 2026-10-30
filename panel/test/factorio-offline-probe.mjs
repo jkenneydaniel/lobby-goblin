@@ -58,20 +58,21 @@ try{
   'log("GOBLIN_INSTRUMENT_STATE="..script.mod_name)',
   'local function export()',
   'local s=game.surfaces.nauvis; local n=0;for c in s.get_chunks() do if game.forces.player.is_chunk_charted(s,c) then n=n+1 end end',
-  'local result={mod=script.mod_name,tick=game.tick,charted=n,sentinel=storage.sentinel,configurationChanges=storage.configurationChanges,updates=storage.updates,activeMods=script.active_mods}',
+  'local result={mod=script.mod_name,tick=game.tick,charted=n,sentinel=storage.sentinel,configurationChanges=storage.configurationChanges,updates=storage.updates,activeMods=script.active_mods,furnaces=s.count_entities_filtered{name="stone-furnace"}}',
   'helpers.write_file("probe-"..script.mod_name..".json",helpers.table_to_json(result));log("GOBLIN_OFFLINE_PROBE_OK="..script.mod_name)',
   'end',
   'script.on_event(defines.events.on_tick,export)',
   'script.on_nth_tick(1,export)',
  ].join('\n');
- for(const enabled of [false,true]){
-  const folder=path.join(root,enabled?'enabled':'disabled'),copy=path.join(folder,'mods');await fs.mkdir(folder);await fs.cp(mods,copy,{recursive:true});
+ for(const enabled of [false,true,'base']){
+  const folder=path.join(root,String(enabled)),copy=path.join(folder,'mods');await fs.mkdir(folder);await fs.cp(mods,copy,{recursive:true});
   const probe=path.join(copy,'goblin-offline-probe_1.0.0');await fs.mkdir(probe);
   await fs.writeFile(path.join(probe,'info.json'),JSON.stringify({name:'goblin-offline-probe',version:'1.0.0',title:'Offline export probe',author:'Lobby Goblin',factorio_version:version.split('.').slice(0,2).join('.'),dependencies:['base']}));
   await fs.writeFile(path.join(probe,'instrument-control.lua'),instrument);await fs.writeFile(path.join(probe,'control.lua'),'');
-  await fs.writeFile(path.join(copy,'mod-list.json'),JSON.stringify({mods:[...selection.mods,{name:'goblin-offline-probe',enabled}]}));
+  await fs.writeFile(path.join(copy,'mod-list.json'),JSON.stringify({mods:[...selection.mods,{name:'goblin-offline-probe',enabled:enabled===true}]}));
+  if(enabled==='base')await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),instrument);
   const copied=path.join(folder,'source.zip');await fs.copyFile(save,copied);
-  const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod','goblin-offline-probe','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
+  const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod',enabled==='base'?'base':'goblin-offline-probe','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
   const start=Date.now(),ran=command(executable,args);await fs.writeFile(path.join(output,version+'.'+enabled+'.log'),ran.stdout+ran.stderr);
   const reports=[];for(const name of await fs.readdir(path.join(folder,'script-output')).catch(()=>[]))if(name.startsWith('probe-'))reports.push(JSON.parse(await fs.readFile(path.join(folder,'script-output',name),'utf8')));
   results.cases.push({enabled,status:ran.status,error:ran.error,elapsedMs:Date.now()-start,reports});
