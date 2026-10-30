@@ -40,7 +40,6 @@ try{
  await fs.writeFile(path.join(fixture,'info.json'),JSON.stringify({name:'goblin-offline-fixture',version:'1.0.0',title:'Disposable fixture',author:'Lobby Goblin',factorio_version:version.split('.').slice(0,2).join('.'),dependencies:['base']}));
  await fs.writeFile(path.join(fixture,'control.lua'),[
   'script.on_init(function()',
-  'game.create_player{name="SyntheticOffline"}',
   'local s=game.surfaces.nauvis; s.request_to_generate_chunks({0,0},2); s.force_generate_chunk_requests(); game.forces.player.chart_all(s)',
   'storage.sentinel=123; storage.configurationChanges=0; storage.updates=0',
   's.create_entity{name="stone-furnace",position={8,8},force="player"}',
@@ -66,7 +65,8 @@ try{
  async function until(predicate){for(let i=0;i<300;i++){if(await predicate())return;assert.equal(child.exitCode,null,logs);await wait(100);}throw Error('Disposable fixture preparation timed out: '+logs);}
  try{
   await until(()=>/Hosting game at|changing state from\(CreatingGame\) to\(InGame\)/.test(logs));
-  child.stdin.write('/silent-command game.forces.player.chart(game.surfaces.nauvis,{{-64,-64},{64,64}})\n/silent-command game.forces.player.chart(game.surfaces.nauvis,{{-64,-64},{64,64}})\n');await wait(1000);
+  const chart='/silent-command local s=game.surfaces.nauvis;s.request_to_generate_chunks({0,0},2);s.force_generate_chunk_requests();game.forces.player.chart(s,{{-64,-64},{64,64}});log("GOBLIN_CHART_REQUESTED")\n';
+  child.stdin.write(chart);await wait(200);child.stdin.write(chart);await until(()=>logs.includes('GOBLIN_CHART_REQUESTED'));await wait(1000);
   child.stdin.write('/silent-command game.tick_paused=true;local n=0;local total=0;for c in game.surfaces.nauvis.get_chunks()do total=total+1;if game.forces.player.is_chunk_charted(game.surfaces.nauvis,c)then n=n+1 end end;helpers.write_file("baseline.json",helpers.table_to_json({tick=game.tick,charted=n,generated=total,state=remote.call("goblin-offline-fixture","state")}))\n/server-save offline-ready\n');
   await until(()=>fs.stat(path.join(source,'saves/offline-ready.zip')).then(()=>true).catch(()=>false));
   child.kill('SIGTERM');await closed;
