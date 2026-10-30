@@ -7,6 +7,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {spawn,spawnSync} from 'node:child_process';
 import {headlessChecksums,headlessVersion} from '../applications/factorio/headless-releases.js';
+import {offlineMapScript,validateMapCompletion} from '../applications/factorio/map-offline.js';
+import {validateMap} from '../applications/factorio/map-export.js';
 
 assert.equal(process.env.GITHUB_ACTIONS,'true');
 assert.equal(process.platform,'linux');
@@ -18,6 +20,12 @@ const output=path.resolve(process.env.PROBE_OUTPUT||'output/offline-probe');
 await fs.mkdir(output,{recursive:true});
 const results={version,disposable:true,cases:[]};
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
+const init=await fs.readFile(new URL('../map-init.lua',import.meta.url),'utf8'),batch=await fs.readFile(new URL('../map-batch.lua',import.meta.url),'utf8');
+// Playerless headless fixture worlds retain chart requests without completing
+// them. An explicit local force adapter supplies a known explored region for
+// native geometry tests; production never supplies this adapter.
+const fixtureInit=init.replace('local f=game.forces.player','local real_force=game.forces.player;local f=setmetatable({is_chunk_charted=function(_,c)local x=c.x or c[1];local y=c.y or c[2];return x>=0 and x<2 and y>=0 and y<2 end},{__index=function(_,key)return real_force[key]end})');
+const baselineExport=['local storage={};local rcon={print=function()end}',fixtureInit,'for map_start=1,#storage.panel_map.queue,16 do',batch.replaceAll('MAP_START','map_start'),'end','helpers.write_file("baseline-map.json",helpers.table_to_json(storage.panel_map.output))'].join(' ').replace(/\s+/g,' ');
 const command=(program,args,options={})=>{
  const result=spawnSync(program,args,{encoding:'utf8',timeout:120000,maxBuffer:4*1024**2,cwd:root,...options});
  return {status:result.status,error:result.error?.message,stdout:result.stdout||'',stderr:result.stderr||''};
@@ -69,6 +77,7 @@ try{
   child.stdin.write(chart);await wait(200);child.stdin.write(chart);await until(()=>logs.includes('GOBLIN_CHART_REQUESTED'));await wait(5000);
   child.stdin.write('/silent-command game.forces.player.rechart(game.surfaces.nauvis);game.tick_paused=true;local n=0;local total=0;local sample={};for c in game.surfaces.nauvis.get_chunks()do total=total+1;if #sample<3 then sample[#sample+1]=c end;if game.forces.player.is_chunk_charted(game.surfaces.nauvis,c)then n=n+1 end end;helpers.write_file("baseline.json",helpers.table_to_json({tick=game.tick,charted=n,generated=total,sample=sample,originCharted=game.forces.player.is_chunk_charted(game.surfaces.nauvis,{0,0}),namedOriginCharted=game.forces.player.is_chunk_charted(game.surfaces.nauvis,{x=0,y=0}),requested=game.forces.player.is_chunk_requested_for_charting(game.surfaces.nauvis,{0,0}),state=remote.call("goblin-offline-fixture","state")}))\n/server-save offline-ready\n');
   await until(()=>fs.stat(path.join(source,'saves/offline-ready.zip')).then(()=>true).catch(()=>false));
+  child.stdin.write('/silent-command '+baselineExport+'\n');await until(()=>fs.stat(path.join(source,'script-output/baseline-map.json')).then(()=>true).catch(()=>false));
   child.kill('SIGTERM');await closed;
  }finally{if(child.exitCode===null){child.kill('SIGKILL');await closed;}await fs.writeFile(path.join(output,version+'.fixture.log'),logs);}
  const prepared=path.join(source,'saves/offline-ready.zip');results.baseline=JSON.parse(await fs.readFile(path.join(source,'script-output/baseline.json'),'utf8'));
@@ -85,7 +94,9 @@ try{
   'script.on_event(defines.events.on_tick,export)',
   'script.on_nth_tick(1,export)',
  ].join('\n');
- for(const enabled of [false,true,'base','base-hook']){
+ const normalize=value=>{for(const key of ['chunks','palette','entities','players','tags'])if(value[key]&&!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];return validateMap(value);};
+ const baselineMap=normalize(JSON.parse(await fs.readFile(path.join(source,'script-output/baseline-map.json'),'utf8')));assert.equal(baselineMap.chunks.length,4);assert.ok(baselineMap.entities.some(e=>e.name==='stone-furnace'));
+ for(const enabled of [false,true,'base','base-hook','production','geometry']){
   const folder=path.join(root,String(enabled)),copy=path.join(folder,'mods');await fs.mkdir(folder);await fs.cp(mods,copy,{recursive:true});
   const probe=path.join(copy,'goblin-offline-probe_1.0.0');await fs.mkdir(probe);
   await fs.writeFile(path.join(probe,'info.json'),JSON.stringify({name:'goblin-offline-probe',version:'1.0.0',title:'Offline export probe',author:'Lobby Goblin',factorio_version:version.split('.').slice(0,2).join('.'),dependencies:['base']}));
@@ -101,13 +112,23 @@ try{
     'end,"cr")',
     'end',
    ].join('\n'));
-   await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),enabled==='base-hook'?hooked:instrument);
+   const job='12345678-1234-1234-1234-123456789abc';
+   const initialization='helpers.write_file("state-before.json",helpers.table_to_json({tick=game.tick,state=remote.call("goblin-offline-fixture","state")}))\n'+(enabled==='geometry'?fixtureInit:init);
+   const program=['production','geometry'].includes(enabled)?offlineMapScript(job,{initialization,collection:batch}):enabled==='base-hook'?hooked:instrument;
+   await fs.writeFile(path.join(root,'factorio/data/base/instrument-control.lua'),program);
   }
   const copied=path.join(folder,'source.zip');await fs.copyFile(prepared,copied);
   const args=['--config',await config(folder),'--mod-directory',copy,'--instrument-mod',typeof enabled==='string'?'base':'goblin-offline-probe','--benchmark',copied,'--benchmark-ticks','1','--benchmark-runs','1'];
-  if(enabled==='base-hook')args.push('--enable-unsafe-lua-debug-api');
+  if(['base-hook','production','geometry'].includes(enabled))args.push('--enable-unsafe-lua-debug-api');
   const start=Date.now(),ran=command(executable,args);await fs.writeFile(path.join(output,version+'.'+enabled+'.log'),ran.stdout+ran.stderr);
   const reports=[];for(const name of await fs.readdir(path.join(folder,'script-output')).catch(()=>[]))if(name.startsWith('probe-'))reports.push(JSON.parse(await fs.readFile(path.join(folder,'script-output',name),'utf8')));
+  if(['production','geometry'].includes(enabled)){
+   assert.equal(ran.status,0,ran.stdout+ran.stderr);const value=normalize(JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'))),receipt=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.complete.json'),'utf8'));
+   validateMapCompletion(receipt,value,'12345678-1234-1234-1234-123456789abc');assert.equal(receipt.engine,version);
+   const beforeState=JSON.parse(await fs.readFile(path.join(folder,'script-output/state-before.json'),'utf8'));assert.equal(beforeState.tick,results.baseline.tick);assert.deepEqual(beforeState.state,results.baseline.state);
+   if(enabled==='geometry')assert.deepEqual(value,baselineMap);else assert.equal(value.chunks.length,results.baseline.charted);
+   reports.push({nativeMapValidated:true,preUpdateStateMatches:true,chunks:value.chunks.length,entities:value.entities.length,geometryParity:enabled==='geometry'});
+  }
   results.cases.push({enabled,status:ran.status,error:ran.error,elapsedMs:Date.now()-start,reports});
   assert.equal(hash(await fs.readFile(prepared)),before);assert.equal(hash(await fs.readFile(copied)),before);
  }

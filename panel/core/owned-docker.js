@@ -443,8 +443,7 @@ export function ownedDocker(
         assert(
           host.Memory <= 1024 ** 3 &&
             (!data.Entrypoint ||
-              JSON.stringify(data.Entrypoint) ===
-                JSON.stringify(previewWorker.entrypoint)) &&
+              [previewWorker.entrypoint,...(previewWorker.entrypoints||[])].some(entry=>JSON.stringify(data.Entrypoint)===JSON.stringify(entry))) &&
             (!data.Cmd ||
               (Array.isArray(data.Cmd) &&
                 data.Cmd.length <= 32 &&

@@ -183,6 +183,7 @@ function declaration(definition) {
           'target',
           'root',
           'entrypoint',
+          'entrypoints',
           'namePrefixes',
           'softwareTarget',
         ])),

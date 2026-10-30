@@ -68,7 +68,15 @@
               "factorio-panel-map-",
               "factorio-panel-job-"
             ],
-            "softwareTarget": "/opt/factorio"
+            "softwareTarget": "/opt/factorio",
+            "entrypoints": [
+              [
+                "/bin/sh",
+                "-ec",
+                "cp /factorio/map-export/instrument-control.lua /opt/factorio/data/base/instrument-control.lua; exec /opt/factorio/bin/x64/factorio \"$@\"",
+                "goblin-map-export"
+              ]
+            ]
           },
           "archiveReadPaths": [
             "/opt/factorio/data/map-settings.example.json"
