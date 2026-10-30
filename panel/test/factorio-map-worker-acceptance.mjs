@@ -31,7 +31,9 @@ try{
   const mounts=['--mount','type=bind,source='+folder+',target=/factorio',...(copied?['--mount','type=bind,source='+path.join(folder,'engine')+',target=/opt/factorio,readonly']:[])];
   containers.push(name);
   await run(['create','--name',name,'--network','none','--memory','1g','--cpu-shares','128','--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges:true',...mounts,'--entrypoint',command.Entrypoint[0],copied?runtime:bundled,...command.Entrypoint.slice(1),...command.Cmd]);
-  await run(['start',name]);assert.equal(Number(await run(['wait',name])),0);
+  await run(['start',name]);const exit=Number(await run(['wait',name]));
+  if(exit!==0){report.workerState=JSON.parse(await run(['inspect',name]))[0].State;report.factorioLog=await fs.readFile(path.join(folder,'factorio-current.log'),'utf8').catch(()=> 'No Factorio log');}
+  assert.equal(exit,0,JSON.stringify(report));
   const info=JSON.parse(await run(['inspect',name]))[0];assert.equal(info.State.OOMKilled,false);assert.equal(info.HostConfig.NetworkMode,'none');assert.ok(!info.HostConfig.PortBindings);assert.equal(info.HostConfig.Memory,1024**3);
   const value=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'));
   for(const key of ['chunks','palette','entities','players','tags'])if(!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];
@@ -42,6 +44,6 @@ try{
 }catch(error){report.error=error.message;for(const name of containers)report[name]=await run(['logs','--tail','30',name]).catch(()=> 'Unavailable');process.exitCode=1;}
 finally{
  const output=path.resolve('output/factorio-map-worker');await fs.mkdir(output,{recursive:true});await fs.writeFile(path.join(output,'result.json'),JSON.stringify(report,null,2)+'\n');
- for(const name of containers)await run(['rm','-f',name]).catch(()=>{});await execute('sudo',['rm','-rf','--',root]);
+ for(const name of containers)await run(['rm','-f','-v',name]).catch(()=>{});await execute('sudo',['rm','-rf','--',root]);
 }
 console.log(JSON.stringify(report));
