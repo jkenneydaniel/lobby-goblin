@@ -30,11 +30,11 @@ try{
   const before=crypto.createHash('sha256').update(await fs.readFile(path.join(folder,'saves/source.zip'))).digest('hex'),mods=await fs.readFile(path.join(folder,'mods/mod-list.json'),'utf8');
   const mounts=['--mount','type=bind,source='+folder+',target=/factorio',...(copied?['--mount','type=bind,source='+path.join(folder,'engine')+',target=/opt/factorio,readonly']:[])];
   containers.push(name);
-  await run(['create','--name',name,'--network','none','--memory','1g','--cpu-shares','128','--pids-limit','256','--cap-drop','ALL','--security-opt','no-new-privileges:true',...mounts,'--entrypoint',command.Entrypoint[0],copied?runtime:bundled,...command.Entrypoint.slice(1),...command.Cmd]);
+  await run(['create','--name',name,'--network','none','--memory','1g','--cpu-shares','128','--pids-limit','256','--cap-drop','ALL',...['CHOWN','SETUID','SETGID','DAC_OVERRIDE'].flatMap(cap=>['--cap-add',cap]),'--security-opt','no-new-privileges:true',...mounts,'--entrypoint',command.Entrypoint[0],copied?runtime:bundled,...command.Entrypoint.slice(1),...command.Cmd]);
   await run(['start',name]);const exit=Number(await run(['wait',name]));
   if(exit!==0){report.workerState=JSON.parse(await run(['inspect',name]))[0].State;report.factorioLog=await fs.readFile(path.join(folder,'factorio-current.log'),'utf8').catch(()=> 'No Factorio log');}
   assert.equal(exit,0,JSON.stringify(report));
-  const info=JSON.parse(await run(['inspect',name]))[0];assert.equal(info.State.OOMKilled,false);assert.equal(info.HostConfig.NetworkMode,'none');assert.ok(!info.HostConfig.PortBindings);assert.equal(info.HostConfig.Memory,1024**3);
+  const info=JSON.parse(await run(['inspect',name]))[0];assert.equal(info.State.OOMKilled,false);assert.equal(info.HostConfig.NetworkMode,'none');assert.ok(!info.HostConfig.PortBindings);assert.equal(info.HostConfig.Memory,1024**3);assert.deepEqual(info.HostConfig.CapAdd,['CHOWN','SETUID','SETGID','DAC_OVERRIDE']);
   const value=JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.json'),'utf8'));
   for(const key of ['chunks','palette','entities','players','tags'])if(!Array.isArray(value[key])&&Object.keys(value[key]).length===0)value[key]=[];
   validateMap(value);validateMapCompletion(JSON.parse(await fs.readFile(path.join(folder,'script-output/panel-map.complete.json'),'utf8')),value,id);
