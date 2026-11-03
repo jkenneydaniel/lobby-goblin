@@ -50,15 +50,13 @@ const steamDeclaration = {
   },
   requiredFiles: [{path: 'RustDedicated', executable: true}],
 };
+const workerTag = softwareWorkerDeployment.image.split('@')[0];
 const workerImage = {
   Id: softwareWorkerDeployment.imageId,
   Os: 'linux',
   Architecture: 'amd64',
   RepoDigests: [
-    softwareWorkerDeployment.image.slice(
-      0,
-      softwareWorkerDeployment.image.indexOf(':1-lg.1'),
-    ) +
+    workerTag.slice(0, workerTag.lastIndexOf(':')) +
       '@' +
       softwareWorkerDeployment.image.split('@')[1],
   ],
@@ -69,11 +67,16 @@ const workerImage = {
     Env: ['HOME=/home/node'],
     Labels: {
       'io.lobby-goblin.provider': 'steamcmd-worker',
-      'io.lobby-goblin.image-revision': '1',
+      'io.lobby-goblin.image-revision': softwareWorkerDeployment.revision,
     },
   },
 };
-function engine() {
+function engine(imageStore = 'classic') {
+  const selectedWorkerImage = structuredClone(workerImage);
+  if (imageStore === 'containerd') {
+    selectedWorkerImage.Id = softwareWorkerDeployment.image.split('@')[1];
+    selectedWorkerImage.Descriptor = {digest: selectedWorkerImage.Id, mediaType: 'application/vnd.oci.image.index.v1+json'};
+  }
   const calls = [],
     containers = new Map(),
     volumes = new Map(),
@@ -121,13 +124,14 @@ function engine() {
         Secret: 'host-private',
       };
     if (bits[0] === 'images') {
+      if (imageStore === 'containerd' && bits[1] === softwareWorkerDeployment.imageId) missing();
       if (
         [
           softwareWorkerDeployment.image,
           softwareWorkerDeployment.imageId,
         ].includes(bits[1])
       )
-        return structuredClone(workerImage);
+        return structuredClone(selectedWorkerImage);
       const reference = bits[1],
         module = modules.find((value) =>
           reference.includes(value.id + '-server'),
@@ -217,7 +221,7 @@ function engine() {
             data.Image === runtime
               ? runtime
               : data.Image === softwareWorkerDeployment.image
-                ? workerImage.Id
+                ? selectedWorkerImage.Id
                 : gameImageId,
           Config: {
             Image: data.Image,
@@ -228,7 +232,7 @@ function engine() {
             Env:
               spec.Env ||
               (data.Image === softwareWorkerDeployment.image
-                ? workerImage.Config.Env
+                ? selectedWorkerImage.Config.Env
                 : []),
           },
           HostConfig: spec.HostConfig,
@@ -324,12 +328,13 @@ function engine() {
     volumes,
     networks,
     seed,
+    workerImage: selectedWorkerImage,
     setCapacity: (value) => {
       capacity = value;
     },
   };
 }
-async function fixture(t, {softwareWorker = false} = {}) {
+async function fixture(t, {softwareWorker = false, imageStore = 'classic'} = {}) {
   const selectedModules = softwareWorker === 'legacy'
     ? modules.map(module => {if (module.id !== 'rust') return module;const managed = {...module.managed};delete managed.softwareWorker;return {...module, managed};})
     : softwareWorker
@@ -349,7 +354,7 @@ async function fixture(t, {softwareWorker = false} = {}) {
     ),
     root = path.join(directory, 'private'),
     transport = path.join(directory, 'transport'),
-    fake = engine();
+    fake = engine(imageStore);
   t.after(() => fs.rm(directory, {recursive: true, force: true}));
   let broker = await startDockerBroker({
     env: {FLEET_ID: fleet},
@@ -407,8 +412,8 @@ test('instance capabilities cannot invoke management coordination and the host R
   await assert.rejects(f.host.managementUpdate({action: 'plan', version: '99.0.0-alpha', requestId: 'e'.repeat(32), ...extra}), /Unexpected/);
 });
 
-async function steamFixture(t) {
-  const f = await fixture(t, {softwareWorker: true}),
+async function steamFixture(t, imageStore = 'classic') {
+  const f = await fixture(t, {softwareWorker: true, imageStore}),
     item = f.seed(one, 'rust'),
     client = await f.instance(one, 'rust');
   const owner = f.containers.get(item.container);
@@ -450,10 +455,11 @@ async function steamFixture(t) {
   return {...f, item, client, owner, scope, id, name, spec, route};
 }
 
+for (const imageStore of ['classic', 'containerd']) {
 unix(
-  'real broker admits only the published private worker and permits stopped orphan cleanup without replay',
+  `real broker admits only the published private worker and permits stopped orphan cleanup without replay (${imageStore})`,
   async (t) => {
-    const f = await steamFixture(t);
+    const f = await steamFixture(t, imageStore);
     f.setCapacity(5 * 1024 ** 3);
     const mutated = structuredClone(f.spec);
     mutated.Env = ['BROKER_TOKEN=not-accepted'];
@@ -537,9 +543,9 @@ unix(
 );
 
 unix(
-  'worker claims remain isolated and cannot race host game startup or consume another stopped reservation',
+  `worker claims remain isolated and cannot race host game startup or consume another stopped reservation (${imageStore})`,
   async (t) => {
-    const f = await steamFixture(t);
+    const f = await steamFixture(t, imageStore);
     f.setCapacity(5 * 1024 ** 3);
     const foreign = f.seed(two, 'rust');
     const other = await f.instance(two, 'rust');
@@ -566,9 +572,9 @@ unix(
 );
 
 unix(
-  'preparing a larger stopped server never frees capacity for another server',
+  `preparing a larger stopped server never frees capacity for another server (${imageStore})`,
   async (t) => {
-    const f = await steamFixture(t),
+    const f = await steamFixture(t, imageStore),
       GiB = 1024 ** 3;
     f.owner.HostConfig.Memory = 8 * GiB;
     f.setCapacity(11 * GiB); // 8 GiB application + 1 GiB controller + 2 GiB host reserve.
@@ -621,10 +627,44 @@ unix(
   },
 );
 
+
+unix(`changed image and foreign container metadata stay denied (${imageStore})`, async t => {
+  const f = await steamFixture(t, imageStore);
+  const original = structuredClone(f.workerImage);
+  for (const mutate of [
+    value => value.Id = 'sha256:' + 'f'.repeat(64),
+    value => value.RepoDigests = [],
+    value => value.Config.Labels['io.lobby-goblin.image-revision'] = 'previous',
+  ]) {
+    mutate(f.workerImage);
+    const before = f.calls.filter(call => call.method !== 'GET').length;
+    await assert.rejects(f.client.docker('POST', f.route, f.spec), denied);
+    assert.equal(f.calls.filter(call => call.method !== 'GET').length, before);
+    Object.assign(f.workerImage, structuredClone(original));
+  }
+  const created = await f.client.docker('POST', f.route, f.spec);
+  const info = f.containers.get(f.name), saved = structuredClone(info);
+  for (const mutate of [
+    value => value.Image = imageStore === 'classic' ? softwareWorkerDeployment.image.split('@')[1] : softwareWorkerDeployment.imageId,
+    value => value.Config.Labels['io.lobby-goblin.instance'] = two,
+    value => value.Config.Image = 'other/image:latest',
+    value => value.Mounts[0].Name = 'foreign-volume',
+  ]) {
+    mutate(info);
+    const before = f.calls.filter(call => call.method !== 'GET').length;
+    await assert.rejects(f.client.docker('POST', '/containers/' + created.Id + '/start'), denied);
+    await assert.rejects(f.host.docker('DELETE', '/containers/' + created.Id), denied);
+    assert.equal(f.calls.filter(call => call.method !== 'GET').length, before);
+    Object.assign(info, structuredClone(saved));
+  }
+  await f.client.docker('DELETE', '/containers/' + created.Id);
+  assert.ok(!f.containers.has(f.name));
+});
+
 unix(
-  'resolving metadata cannot mount provider storage, and legacy profiles cannot launch provider workers',
+  `resolving metadata cannot mount provider storage, and legacy profiles cannot launch provider workers (${imageStore})`,
   async (t) => {
-    const f = await steamFixture(t);
+    const f = await steamFixture(t, imageStore);
     f.owner.State.Running = true;
     const resolve = softwareWorkerSpec(f.scope, f.id, 'resolve');
     const {Id} = await f.client.docker('POST', f.route, resolve);
@@ -642,6 +682,8 @@ unix(
     await assert.rejects(client.docker('POST', f.route, resolve), denied);
   },
 );
+
+}
 
 unix(
   'real Unix broker authenticates before bodies, scopes credentials, persists revocations and never falls back',

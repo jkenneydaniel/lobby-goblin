@@ -5,6 +5,7 @@ import {
   softwareWorkerId,
   softwareWorkerName,
   softwareWorkerDeployment,
+  softwareWorkerImageId,
 } from './software-worker-policy.js';
 
 const application = (value) =>
@@ -24,7 +25,7 @@ export function preparationWorker(info, fleet) {
     softwareWorkerId(request) &&
     info.Name === '/' + softwareWorkerName(id, request) &&
     info.Config.Image === softwareWorkerDeployment.image &&
-    info.Image === softwareWorkerDeployment.imageId
+    softwareWorkerImageId(info.Image)
   );
 }
 export function applicationContainer(info, fleet) {

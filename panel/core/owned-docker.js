@@ -68,7 +68,7 @@ export function ownedDocker(
       await request(
         'GET',
         '/images/' +
-          encodeURIComponent(softwareWorkerDeployment.imageId) +
+          encodeURIComponent(softwareWorkerDeployment.image) +
           '/json',
       ),
     );

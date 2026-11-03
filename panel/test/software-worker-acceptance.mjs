@@ -5,7 +5,10 @@ import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {docker} from '../core/docker.js';
 import {resources, labels} from '../core/instance.js';
-import {softwareWorkerDeployment as deployment} from '../core/software-worker-policy.js';
+import {
+  softwareWorkerDeployment as deployment,
+  validateSoftwareWorkerImage,
+} from '../core/software-worker-policy.js';
 
 assert.ok(
   process.env.GITHUB_ACTIONS === 'true' ||
@@ -35,6 +38,66 @@ assert.equal(runtimeName, 'local/lobby-software-acceptance:amd64');
 const runtime = JSON.parse(run(['image', 'inspect', runtimeName]))[0].Id;
 assert.match(runtime, /^sha256:[a-f0-9]{64}$/);
 run(['pull', '--platform', 'linux/amd64', deployment.image], 1200000);
+// Fail before creating resources when the engine presents a different contract.
+// Only public digests, bounded version identifiers and predicate booleans leave
+// this diagnostic; never serialize Docker configuration or environment values.
+const workerImage = await docker(
+  'GET',
+  '/images/' + encodeURIComponent(deployment.image) + '/json',
+);
+try {
+  validateSoftwareWorkerImage(workerImage);
+} catch {
+  const cliImage = JSON.parse(run(['image', 'inspect', deployment.image]))[0];
+  const version = await docker('GET', '/version');
+  const digest = (value) =>
+    typeof value === 'string' && /^sha256:[a-f0-9]{64}$/.test(value)
+      ? value
+      : null;
+  const identifier = (value) =>
+    typeof value === 'string' && /^[A-Za-z0-9_.+-]{1,64}$/.test(value)
+      ? value
+      : null;
+  const tag = deployment.image.split('@')[0];
+  const repositoryDigest =
+    tag.slice(0, tag.lastIndexOf(':')) + '@' + deployment.image.split('@')[1];
+  assert.fail(
+    JSON.stringify({
+      contract: 'published-steam-worker',
+      engineVersion: identifier(version.Version),
+      apiVersion: identifier(version.ApiVersion),
+      storageDriver: identifier(engine.Driver),
+      cliImageId: digest(cliImage.Id),
+      apiImageId: digest(workerImage.Id),
+      expectedConfigId: deployment.imageId,
+      descriptorDigest: digest(workerImage.Descriptor?.digest),
+      manifests: Array.isArray(workerImage.Manifests)
+        ? workerImage.Manifests.slice(0, 8).map((item) =>
+            digest(item.Descriptor?.digest),
+          )
+        : [],
+      matches: {
+        configId: workerImage.Id === deployment.imageId,
+        repositoryDigest:
+          workerImage.RepoDigests?.includes(repositoryDigest) === true,
+        platform:
+          workerImage.Os === 'linux' && workerImage.Architecture === 'amd64',
+        user: workerImage.Config?.User === '1000:1000',
+        entrypoint:
+          JSON.stringify(workerImage.Config?.Entrypoint) ===
+          JSON.stringify(deployment.entrypoint),
+        command: JSON.stringify(workerImage.Config?.Cmd || []) === '[]',
+        provider:
+          workerImage.Config?.Labels?.['io.lobby-goblin.provider'] ===
+          'steamcmd-worker',
+        revision:
+          workerImage.Config?.Labels?.['io.lobby-goblin.image-revision'] ===
+          deployment.revision,
+      },
+    }),
+  );
+}
+
 const fleet = randomUUID().replaceAll('-', ''),
   instance = randomUUID().replaceAll('-', ''),
   owned = resources(fleet, instance, 'rust'),

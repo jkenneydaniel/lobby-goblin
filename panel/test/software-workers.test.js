@@ -45,7 +45,7 @@ const image = {
     Env: [],
     Labels: {
       'io.lobby-goblin.provider': 'steamcmd-worker',
-      'io.lobby-goblin.image-revision': '1',
+      'io.lobby-goblin.image-revision': deployment.revision,
     },
   },
 };

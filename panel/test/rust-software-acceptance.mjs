@@ -32,10 +32,29 @@ const runtime = JSON.parse(run(['image', 'inspect', runtimeName]))[0].Id;
 const rust = selectedApplication('rust'),
   image = rust.managed.runtime.imagePolicy.defaultImage;
 run(['pull', '--platform', 'linux/amd64', image], 1200000);
-const imageId = JSON.parse(run(['image', 'inspect', image]))[0].Id;
-assert.equal(
-  imageId,
-  'sha256:372dc5104189728730e7efacc3dea7d649203957718b702fee52a53d390bbe29',
+const inspectedImage = JSON.parse(run(['image', 'inspect', image]))[0],
+  imageId = inspectedImage.Id,
+  publishedManifest =
+    'sha256:138cf1e76d6dcd5b88eb172dd2b3264f2abc508eb2b29d568851682a2b0cf802',
+  publishedConfig =
+    'sha256:372dc5104189728730e7efacc3dea7d649203957718b702fee52a53d390bbe29';
+// The frozen registry manifest names this exact configuration. Docker's stores
+// expose either identity; neither a new tag nor an arbitrary digest qualifies.
+assert.equal(image.split('@')[1], publishedManifest);
+assert.ok(
+  imageId === publishedConfig ||
+    (imageId === publishedManifest &&
+      inspectedImage.Descriptor?.digest === publishedManifest &&
+      inspectedImage.Descriptor.mediaType ===
+        'application/vnd.docker.distribution.manifest.v2+json'),
+);
+assert.equal(inspectedImage.Os, 'linux');
+assert.equal(inspectedImage.Architecture, 'amd64');
+const imageTag = image.split('@')[0];
+assert.ok(
+  inspectedImage.RepoDigests.includes(
+    imageTag.slice(0, imageTag.lastIndexOf(':')) + '@' + publishedManifest,
+  ),
 );
 const fleet = randomUUID().replaceAll('-', ''),
   first = randomUUID().replaceAll('-', ''),
