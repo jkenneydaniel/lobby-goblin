@@ -50,15 +50,13 @@ const steamDeclaration = {
   },
   requiredFiles: [{path: 'RustDedicated', executable: true}],
 };
+const workerTag = softwareWorkerDeployment.image.split('@')[0];
 const workerImage = {
   Id: softwareWorkerDeployment.imageId,
   Os: 'linux',
   Architecture: 'amd64',
   RepoDigests: [
-    softwareWorkerDeployment.image.slice(
-      0,
-      softwareWorkerDeployment.image.indexOf(':1-lg.1'),
-    ) +
+    workerTag.slice(0, workerTag.lastIndexOf(':')) +
       '@' +
       softwareWorkerDeployment.image.split('@')[1],
   ],
@@ -69,7 +67,7 @@ const workerImage = {
     Env: ['HOME=/home/node'],
     Labels: {
       'io.lobby-goblin.provider': 'steamcmd-worker',
-      'io.lobby-goblin.image-revision': '1',
+      'io.lobby-goblin.image-revision': softwareWorkerDeployment.revision,
     },
   },
 };

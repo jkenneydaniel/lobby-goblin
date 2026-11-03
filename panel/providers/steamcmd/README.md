@@ -52,6 +52,12 @@ published pinned bases, so a new shared base must pass review/native acceptance
 and be deliberately published before applications pin its digest. Shared image
 tags remain immutable. Publishing a base does not change any installed server.
 
+Controller preparation uses the published worker contract in `deployment.json`.
+Worker revision 2 uses the qualified native64 base. The coordinated management
+updater requires idle workflow histories and rejects retained preparation workers,
+running or exited, before replacing management services. Resolve those requests
+and their workers through the current version before upgrading.
+
 ## Staged installation
 
 createSteamProvider requires separate canonical software and private control

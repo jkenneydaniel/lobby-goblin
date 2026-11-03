@@ -33,12 +33,13 @@ const scope = softwareWorkerScope({
 });
 function fixture(action = 'prepare') {
   const spec = softwareWorkerSpec(scope, id, action);
+  const tag = softwareWorkerDeployment.image.split('@')[0];
   const image = {
     Id: softwareWorkerDeployment.imageId,
     Os: 'linux',
     Architecture: 'amd64',
     RepoDigests: [
-      softwareWorkerDeployment.image.split(':1-lg.1@')[0] +
+      tag.slice(0, tag.lastIndexOf(':')) +
         '@' +
         softwareWorkerDeployment.image.split('@')[1],
     ],
@@ -49,7 +50,7 @@ function fixture(action = 'prepare') {
       Env: ['HOME=/home/node'],
       Labels: {
         'io.lobby-goblin.provider': 'steamcmd-worker',
-        'io.lobby-goblin.image-revision': '1',
+        'io.lobby-goblin.image-revision': softwareWorkerDeployment.revision,
       },
     },
   };
