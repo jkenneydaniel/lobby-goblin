@@ -326,13 +326,13 @@ export function createApplicationComponents({
         function controls(ctx) {
           return [...ctx.root.querySelectorAll('[name]')];
         }
-        function values(ctx) {
+        function values(ctx, forDraft = false) {
           return Object.fromEntries(
             controls(ctx).map((input) => [
               input.name,
               input.type === 'checkbox'
                 ? input.checked
-                : input.type === 'number'
+                : input.type === 'number' && !forDraft
                   ? Number(input.value)
                   : input.value,
             ]),
@@ -409,7 +409,7 @@ export function createApplicationComponents({
             ctx.on(form, 'input', () => {
               if (settings)
                 draft = {
-                  values: values(ctx),
+                  values: values(ctx, true),
                   revision: draft?.revision ?? settings[options.revisionKey],
                 };
             });

@@ -1,14 +1,16 @@
 import {defineConfig} from '@playwright/test';
 
 export const scope = '/hosts/' + 'a'.repeat(32) + '/servers/' + 'b'.repeat(32);
+// Keep fixed listeners below the default Linux ephemeral range used by the
+// fixtures' port-0 controllers, so allocation cannot claim another listener.
 export const origins = {
-  factorio: 'http://127.0.0.1:41731',
-  rust: 'http://127.0.0.1:41732',
-  fleet: 'http://127.0.0.1:41733',
-  arena: 'http://127.0.0.1:41736',
-  application: 'http://127.0.0.1:41737',
-  recoveryDesktop: 'http://127.0.0.1:41734',
-  recoveryMobile: 'http://127.0.0.1:41735',
+  factorio: 'http://127.0.0.1:31731',
+  rust: 'http://127.0.0.1:31732',
+  fleet: 'http://127.0.0.1:31733',
+  arena: 'http://127.0.0.1:31736',
+  application: 'http://127.0.0.1:31737',
+  recoveryDesktop: 'http://127.0.0.1:31734',
+  recoveryMobile: 'http://127.0.0.1:31735',
 };
 const quote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 const server = (file, url, env) => ({
@@ -57,22 +59,22 @@ export default defineConfig({
     },
   ],
   webServer: [
-    server('service-app-ui-preview.js',origins.application,{APPLICATION_UI_PORT:'41737'}),
-    server('arena-ui-preview.js',origins.arena,{ARENA_UI_PORT:'41736'}),
+    server('service-app-ui-preview.js',origins.application,{APPLICATION_UI_PORT:'31737'}),
+    server('arena-ui-preview.js',origins.arena,{ARENA_UI_PORT:'31736'}),
     server('ui-preview.js', origins.factorio + scope + '/', {
-      UI_PREVIEW_PORT: '41731',
+      UI_PREVIEW_PORT: '31731',
       UI_SERVER_SCOPE: scope,
       UI_CREATE_TEST: '1',
       UI_ONBOARDING_TEST: '1',
     }),
-    server('rust-ui-preview.js', origins.rust, {RUST_UI_PORT: '41732'}),
-    server('fleet-ui-preview.js', origins.fleet, {UI_PREVIEW_PORT: '41733'}),
+    server('rust-ui-preview.js', origins.rust, {RUST_UI_PORT: '31732'}),
+    server('fleet-ui-preview.js', origins.fleet, {UI_PREVIEW_PORT: '31733'}),
     server('rust-ui-preview.js', origins.recoveryDesktop, {
-      RUST_UI_PORT: '41734',
+      RUST_UI_PORT: '31734',
       UI_RECOVERY_TEST: '1',
     }),
     server('rust-ui-preview.js', origins.recoveryMobile, {
-      RUST_UI_PORT: '41735',
+      RUST_UI_PORT: '31735',
       UI_RECOVERY_TEST: '1',
     }),
   ],
