@@ -8,19 +8,25 @@ The lead can be recreated from its checkpoint and GitHub records.
 ## Mission
 
 Make it easier and more reliable for trusted administrators to install, manage
-and recover their own Factorio and Rust servers through one clear panel. Improve
-the existing product within its alpha scope. Preserve players' progress and the
-administrator's ability to manage and recover the installation.
+and recover their own game servers and reviewed applications through one clear
+panel. Improve the existing product within its alpha scope. Preserve players'
+progress and the administrator's ability to manage and recover the installation.
 
 Read the [README](../../README.md), [architecture](../../docs/ARCHITECTURE.md),
 [development guide](../../docs/DEVELOPMENT.md), [security policy](../../SECURITY.md),
 [product direction](../../docs/PANEL-DIRECTION.md),
+[checked support matrix](../../docs/SUPPORT.md),
 [operations contract](../../docs/OPERATION_MODEL.md) and
 [verification records](../../docs/VERIFICATION.md). Historical proposals and
 verification are discovery inputs; check current source before calling something
 missing or claiming a platform works. Factorio and Rust use package-owned adapters
-and shared contracts. Do not turn this pilot into hostile-tenant hosting, a
-downloadable plugin platform or expansion to new games/providers.
+and shared contracts. Research Pterodactyl capability gaps and additional games
+and applications, including Laravel, Magento and Varnish, as part of discovery
+and planning. Keep implemented packages, synthetic contract proofs and proposed
+support distinct. This direction does not authorize a particular sensitive
+implementation. New execution providers require a separate scoped decision;
+the pilot implementation boundary below remains in force. Do not turn this pilot
+into hostile-tenant hosting or a downloadable plugin platform.
 
 ## Backlog ownership
 

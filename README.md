@@ -1,14 +1,20 @@
 # Lobby Goblin
 
-**Your servers. One helpful goblin.** A self-hosted game server control panel with
-shared accounts, permissions, jobs and backups, plus dedicated game modules.
+**Your servers. One helpful goblin.** A self-hosted game and application control
+panel with shared accounts, permissions, jobs and backups, plus reviewed packages.
 This is an early alpha for trusted administrators. The repository is
 [`jkenneydaniel/lobby-goblin`](https://github.com/jkenneydaniel/lobby-goblin).
 
-| Game | Controls |
+| Workload | Controls |
 | --- | --- |
 | Factorio | Worlds and saves, map previews, players, settings, backups and recovery, live mod library, guided setup, reviewed updates |
 | Rust | Status, lifecycle, players, logs, settings, Carbon / Oxide / uMod, live plugin library, complete backups and verification |
+| Status Page | Single-container HTTP application, typed settings, lifecycle, logs and bounded stopped-data backups/cloning |
+
+See the [support and capability matrix](docs/SUPPORT.md) for implemented packages,
+recorded acceptance, architecture limits and planned game/application support.
+Laravel, Magento, Varnish and additional games are discovery targets; they are
+not registered hosting options.
 
 ## Install
 
@@ -81,15 +87,17 @@ existing servers are not restarted merely to enable mods. See
 | SSH setup, pairing and agent updates | [Remote game hosts](docs/REMOTE_HOSTS.md) |
 | Source organization and installed compatibility | [Repository layout](docs/REPOSITORY.md) |
 | Shared runtime and game-module boundaries | [Architecture](docs/ARCHITECTURE.md) |
+| Implemented support, capability gaps and expansion priorities | [Support matrix](docs/SUPPORT.md) |
 | Local tests, builds and release preparation | [Development](docs/DEVELOPMENT.md) |
 | Game image sources and compatibility contracts | [Factorio](panel/applications/factorio/images/README.md), [Rust](panel/applications/rust/images/README.md) |
 | Add a small application | [Package guide and copyable template](docs/ADDING_AN_APPLICATION.md) |
 | Recorded validation and remaining limits | [Verification](docs/VERIFICATION.md), [installer acceptance](docs/INSTALLER_ACCEPTANCE.md) |
 | Features, security and release history | [Panel](panel/README.md), [security](SECURITY.md), [changelog](CHANGELOG.md) |
 
-The panel/controller runtime and the two game images have separate build and
-publication workflows within this repository. Game image versions are independent
-of the panel version. The source definitions and configured workflows do not
+The panel/controller runtime and registered application/provider image catalog
+have separate build and publication workflows within this repository. Application
+and provider image versions are independent of the panel version. Source
+definitions and configured workflows do not
 establish publication, deployment or runtime acceptance; consult the verification
 records for the scope of completed checks.
 
