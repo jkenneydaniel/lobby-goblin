@@ -2,8 +2,8 @@
 
 Read [development](docs/DEVELOPMENT.md), [architecture](docs/ARCHITECTURE.md)
 and [security](SECURITY.md) before changing the relevant behavior. This is a
-self-hosted early-alpha panel for trusted administrators, with Factorio and Rust
-applications, shared accounts, jobs, backups and remote hosts.
+self-hosted early-alpha panel for trusted administrators, with Factorio, Rust and
+reviewed application packages, shared accounts, jobs, backups and remote hosts.
 
 - Preserve existing work. Inspect the checkout, worktrees, open issues/PRs and
   active CI before selecting a change. Use an isolated branch/worktree; do not

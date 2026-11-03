@@ -1,9 +1,10 @@
 # Application packages and shared core
 
-Lobby Goblin has a shared web/controller core and built-in Factorio and Rust
-modules. Factorio remains the default for standalone installations. The opt-in
-[host manager](FLEET.md) provisions isolated instances of either module;
-it is a separate Compose project and never adopts an existing standalone server.
+Lobby Goblin has a shared web/controller core and registered Factorio, Rust and
+Status Page packages. Factorio remains the default for standalone installations.
+The opt-in [host manager](FLEET.md) provisions isolated instances of registered
+packages; it is a separate Compose project and never adopts an existing standalone
+server.
 Modules remain built in rather than downloadable plugins.
 
 The authoring model is an explicitly registered application package.
@@ -11,8 +12,13 @@ The authoring model is an explicitly registered application package.
 non-game service profiles and specialized tools such as maps. Factorio and Rust
 select the same standard browser host and ordinary screens from JSON declarations.
 Rich capabilities use package-owned native HTML templates and scoped controllers.
-Application protocols and storage codecs remain reviewed backend adapters;
-production non-game Docker providers are separate future work.
+Application protocols and storage codecs remain reviewed backend adapters.
+The production `managed-container-v1` provider supports one image-owned process,
+typed public configuration and bounded stopped-data snapshots; Status Page is
+its real HTTP application. Production multi-service hosting, private runtime
+providers, deployment tasks and database-aware recovery remain separate work.
+See [application packages](APPLICATION_PACKAGES.md) for enforced limits and the
+[support matrix](SUPPORT.md) for implemented, fixture-only and planned capabilities.
 
 ## Checked module interfaces
 

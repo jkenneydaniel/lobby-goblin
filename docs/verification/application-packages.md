@@ -1,8 +1,11 @@
 # Self-contained application packages
 
 Local verification on 2026-10-25 and 2026-10-26, based on the v0.3.8-alpha release at
-`2b75c09`. This implementation is unreleased. No public registry publication,
-existing installation update, running-server command or world access was used.
+`2b75c09`. At that checkpoint the implementation was unreleased. No public
+registry publication, existing installation update, running-server command or
+world access was used by that verification task. This is a historical evidence
+record; consult the [support matrix](../SUPPORT.md) for current source scope and
+the distinction between package implementation, publication and deployment.
 
 ## Implemented
 

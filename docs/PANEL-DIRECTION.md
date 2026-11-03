@@ -74,7 +74,34 @@ name/seed. Switching remains unchecked on every resumed form or preset load.
 Conflicting tabs cannot silently replace newer work; a local draft copy preserves
 edits for manual recovery. Game image changes require review.
 
-## Useful next additions
+## Broader games and applications
+
+Expand discovery beyond Factorio and Rust, including a comparison with
+Pterodactyl and support for applications such as Laravel, Magento and Varnish.
+The [support matrix](SUPPORT.md) separates current packages from fixture-only
+contracts and proposed work. It is the starting point for capability claims;
+the existing trusted-administrator scope remains in place.
+
+The lead owns the backlog and qualification studies. Prioritize:
+
+1. Accurate support and acceptance records, including the existing Status Page
+   single-container package and the limits of its production provider.
+2. One additional game studied against installation, exact software identity,
+   readiness, graceful save/stop and backup/recovery requirements. Minecraft Java
+   is the first qualification candidate; Valheim follows. Neither is registered.
+3. A reviewed production multi-service design, then a fixed-version disposable
+   Laravel pilot with web, worker and scheduler health and recovery.
+4. A bounded Varnish profile with a declared origin and validated cache policy;
+   Magento follows proven dependency, deployment and database/media recovery.
+
+These are engineering priorities, not delivery promises or measured demand.
+Definitions alone cannot introduce new runtime privileges, private secret
+providers, deployment commands, database consistency or ingress. Return concrete
+sensitive implementation scopes for review; discovery and documentation can
+continue within the standing grant. Detailed evidence and acceptance criteria
+are tracked in [issue #77](https://github.com/jkenneydaniel/lobby-goblin/issues/77).
+
+## Existing game improvements
 
 | Priority | Addition | Acceptance boundary |
 | --- | --- | --- |
