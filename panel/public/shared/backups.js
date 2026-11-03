@@ -38,6 +38,7 @@ export function mountBackups(
     loading = 0,
     disposed = false,
     savingSchedule = false,
+    savingRetention = false,
     retentionControls = null;
   const view = root.querySelector('[data-backup-view]') || root;
   function setBusy() {
@@ -64,9 +65,42 @@ export function mountBackups(
       );
     retentionControls?.setBusy();
   }
+  async function saveRetention(body) {
+    if (disposed || savingRetention || busy()) return;
+    savingRetention = true;
+    setBusy();
+    let saved = false;
+    try {
+      const policy = await request('/backup-retention', {method: 'POST', body});
+      saved = true;
+      if (disposed) return;
+      // Controls may have been replaced by an unrelated backup refresh. The
+      // mounted workflow owns this result and keeps replacements disabled until
+      // it reconciles the saved revision, so no newer edits are discarded.
+      loading++;
+      record.retention = policy;
+      retentionControls?.saved(policy);
+      await load({preserveSchedule: true});
+      if (!disposed) notify('Backup cleanup settings saved.');
+    } catch (error) {
+      if (!disposed) {
+        const message = saved
+          ? 'Backup cleanup settings saved, but refreshing backups failed: ' +
+            error.message
+          : error.message;
+        const status = view.querySelector('#retention-status');
+        if (status) status.textContent = message;
+        notify(message, true);
+      }
+    } finally {
+      savingRetention = false;
+      if (!disposed) setBusy();
+    }
+  }
   async function load({preserveSchedule = false} = {}) {
-    const version = ++loading,
-      result = await request('/backups', {signal: abort.signal});
+    const version = ++loading;
+    retentionControls?.invalidateReview();
+    const result = await request('/backups', {signal: abort.signal});
     if (disposed || version !== loading) return;
     const oldForm = view.querySelector('#schedule-form'),
       draft =
@@ -77,8 +111,10 @@ export function mountBackups(
               keep: oldForm.elements.keep.value,
             }
           : null;
+    const retentionDraft = preserveSchedule ? retentionControls?.draft : null;
+    retentionControls?.dispose();
     record = result;
-    view.innerHTML = `<div class="product-workflow">${showHeading ? '<h1>Backups</h1>' : ''}<p>${esc(description)}</p>${showTools() ? `<button type="button" data-backup-create ${busy() ? 'disabled' : ''}>Create backup</button>` : ''}${backupHealthView(result.health)}<section class="product-card"><h2>Saved archives</h2>${result.backups.length ? `<div class="table-wrap"><table><thead><tr><th>Archive</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${result.backups.map((item) => `<tr><td>${esc(item.relative)}<small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></td><td>${esc(formatDate(item.modified))}</td><td>${formatBytes(item.size)}</td><td>${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>` : `<p>${esc(empty)}</p>`}</section>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention)}</div>` : ''}</div>`;
+    view.innerHTML = `<div class="product-workflow">${showHeading ? '<h1>Backups</h1>' : ''}<p>${esc(description)}</p>${showTools() ? `<button type="button" data-backup-create ${busy() ? 'disabled' : ''}>Create backup</button>` : ''}${backupHealthView(result.health)}<section class="product-card"><h2>Saved archives</h2>${result.backups.length ? `<div class="table-wrap"><table><thead><tr><th>Archive</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${result.backups.map((item) => `<tr><td>${esc(item.relative)}<small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></td><td>${esc(formatDate(item.modified))}</td><td>${formatBytes(item.size)}</td><td>${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>` : `<p>${esc(empty)}</p>`}</section>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention, retentionDraft)}</div>` : ''}</div>`;
     setBusy();
     view
       .querySelector('#schedule-form')
@@ -123,9 +159,13 @@ export function mountBackups(
         api: request,
         confirmAction: confirm,
         startJob,
-        toast: notify,
+        toast: (...args) => {
+          if (!disposed) notify(...args);
+        },
         render: () => load({preserveSchedule: true}),
-        busy,
+        savePolicy: saveRetention,
+        busy: () => busy() || savingRetention,
+        draft: retentionDraft,
       });
   }
   view.addEventListener(
@@ -173,6 +213,7 @@ export function mountBackups(
     dispose() {
       disposed = true;
       loading++;
+      retentionControls?.dispose();
       abort.abort();
     },
   };
