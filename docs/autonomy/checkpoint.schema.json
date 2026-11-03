@@ -62,7 +62,7 @@
         "pr_number": {"type": ["integer", "null"], "minimum": 1},
         "project_id": {"type": ["string", "null"]},
         "priority_reason": {"type": "string"},
-        "specialists": {"type": "array", "maxItems": 2, "items": {"type": "object", "required": ["id", "role", "base_sha", "status"], "properties": {"id": {"type": "string"}, "role": {"enum": ["discovery", "implementation", "review", "qa"]}, "base_sha": {"$ref": "#/$defs/sha"}, "status": {"enum": ["assigned", "running", "completed", "cancelled", "uncertain"]}}}}
+        "specialists": {"type": "array", "maxItems": 2, "items": {"type": "object", "required": ["id", "role", "base_sha", "status"], "properties": {"id": {"type": "string"}, "role": {"enum": ["discovery", "feedback_interpreter", "implementation", "review", "qa"]}, "base_sha": {"$ref": "#/$defs/sha"}, "status": {"enum": ["assigned", "running", "completed", "cancelled", "uncertain"]}}}}
       }
     },
     "feedback": {

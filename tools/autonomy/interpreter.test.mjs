@@ -18,6 +18,7 @@ test('lead normalization produces a bounded inline assignment with the exact no-
   assert.deepEqual(task.sourceIds, [id]);
   assert.throws(() => prepareInterpretation([source, source]), /Duplicate/);
   assert.throws(() => prepareInterpretation([]), /one to ten/);
+  assert.throws(() => prepareInterpretation(Array.from({length:10},(_,i)=>({...source,number:1000+i,body:'😀'.repeat(4000)}))), /batch too large/);
 });
 
 test('valid findings remain untrusted proposals and suspicious findings require escalation', () => {

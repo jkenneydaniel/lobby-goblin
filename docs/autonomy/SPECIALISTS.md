@@ -20,6 +20,17 @@ acceptance criteria, effort/risk and suggested priority. Identify uncertain clai
 and how to verify them. Do not create tickets, implement changes, access live
 panels or infer missing behavior from stale roadmap text.
 
+## Feedback interpretation
+
+Feedback interpretation is a separate restricted role, not ordinary discovery.
+Use [the native reader contract](INTERPRETER.md) for outside text: supply normalized
+data inline with no inherited lead history, explicitly disable every tool and
+delegation in the task, and request strict JSON only. Never give this role a
+repository-inspection assignment or apply discovery's read-tool allowance to it.
+The lead fetches data separately, rejects observable tool attempts and records the
+accepted instruction-only/partial-audit limitation. This reader counts toward the
+two-specialist limit. No standalone API inference.
+
 ## Implementation
 
 Work only on the selected issue in its assigned branch/worktree. Reproduce the
