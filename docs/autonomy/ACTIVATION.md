@@ -6,9 +6,10 @@ controller inactive. See [capability evidence](CAPABILITIES.md),
 [checkpoint/recovery design](STATE.md).
 
 The [restricted feedback intake](TRUST.md) has real API-restriction and adversarial
-tests. Tool-isolated semantic AI interpretation remains unverified; keep that stage
-supervised until supported. This does not block ordinary authorized development.
-Model-only instructions are not a sandbox, and no broad action broker is required.
+tests. Daniel accepted a [native feedback reader](INTERPRETER.md) with every tool
+explicitly prohibited by task instruction. Runtime removal and full tool-use audit
+remain unavailable; reject observable calls, preserve the limitation and treat
+results as untrusted proposals. No API use or broad action broker is required.
 
 ## Smallest viable native pilot
 

@@ -38,7 +38,7 @@ Run `node --test tools/autonomy/guard.test.mjs` from the checkout. Read-only CI
 runs the same tests with checkout credential persistence disabled. No production
 runtime, installed game, world, account or credential is changed.
 
-## Limits and the remaining interpretation stage
+## Limits and the accepted native interpretation stage
 
 Deterministic extraction is **not semantic AI interpretation**. The excerpt can
 still contain attack text, so it remains labelled untrusted and must not be pasted
@@ -58,14 +58,17 @@ cleared environment and unshared network. It failed before intake ran:
 `bwrap: setting up uid map: Read-only file system`. No OS isolation was established
 and no settings/credentials were changed or protections bypassed.
 
-The current native subagent interface cannot select a restricted tool inventory;
-a separate model call with the same tools would be instruction-only isolation.
-The standalone Codex CLI also fails initialization in this environment. Therefore
-a **tool-isolated semantic interpreter is not yet verified**. Before enabling
-automated AI interpretation of outside feedback, select a supported no-tools,
-secret-free inference invocation or sandboxed worker and test actual inability to
-write, execute commands, read secrets or expand destinations. Do not assert
-injection-proof behavior. This specific intake-stage gap does not withdraw the
-already authorized local development, GitHub planning, review, merge or release
-scope. Until resolved, use the deterministic restricted intake and supervised
-evaluation; do not claim autonomous feedback monitoring/interpretation is active.
+The current native subagent interface cannot select a restricted tool inventory.
+Daniel accepted that limitation for the pilot and explicitly requires all tools
+prohibited in the interpretation flow. The task starts "Tools are disabled for
+this task" and forbids every tool/delegation; this is a task-level instruction,
+not runtime removal of inherited capabilities. Standalone API inference was
+declined and must not be requested or used.
+
+The [native reader runbook](INTERPRETER.md) separates lead-controlled fetching and
+normalization from inline-only interpretation, validates strict structured output
+and rejects any observable tool-use attempt. Complete tool-call audit is not
+exposed by this interface and cannot be guaranteed. Findings remain untrusted;
+suspect instructions are escalated rather than executed. This accepted approach
+does not establish an enforced sandbox or injection-proof safety. Scheduled
+feedback reconciliation still requires the parent wake/routing activation.

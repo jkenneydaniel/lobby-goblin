@@ -18,4 +18,4 @@ jobs:
         with:
           node-version: '24'
       - name: Verify restricted data-only feedback intake
-        run: node --test tools/autonomy/guard.test.mjs
+        run: node --test tools/autonomy/*.test.mjs
