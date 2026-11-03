@@ -13,7 +13,8 @@
       ],
       "buildArgs": {
         "BASE_IMAGE": "baseImage",
-        "STEAMCMD_SHA256": "steamcmdSha256"
+        "STEAMCMD_SHA256": "steamcmdSha256",
+        "STEAMCMD_PACKAGE": "steamcmdPackage"
       },
       "checks": [
         {
@@ -25,13 +26,17 @@
           "file": "provider.test.mjs"
         }
       ],
-      "acceptance": ["images/acceptance.mjs"]
+      "acceptance": [
+        "images/acceptance.mjs"
+      ]
     },
     {
       "id": "worker",
       "manifest": "images/worker/image.json",
       "dockerfile": "Dockerfile",
-      "dependencies": ["shared/steamcmd/runtime"],
+      "dependencies": [
+        "shared/steamcmd/runtime"
+      ],
       "runtimeProfile": "software-provider-v1",
       "files": [
         {
@@ -72,7 +77,9 @@
           "file": "worker.test.mjs"
         }
       ],
-      "acceptance": ["images/worker-acceptance.mjs"]
+      "acceptance": [
+        "images/worker-acceptance.mjs"
+      ]
     }
   ]
 }

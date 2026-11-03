@@ -1,9 +1,10 @@
 {
   "format": 1,
   "repository": "ghcr.io/jkenneydaniel/lobby-goblin-steamcmd",
-  "tag": "1-lg.1",
-  "revision": 1,
+  "tag": "1-lg.2",
+  "revision": 2,
   "platform": "linux/amd64",
   "baseImage": "node:24.22.0-bookworm-slim@sha256:ec857ea6bb60cb3d0fa4d97495590c5fe7d51be8572c307b55957eeb06569cf7",
-  "steamcmdSha256": "cebf0046bfd08cf45da6bc094ae47aa39ebf4155e5ede41373b579b8f1071e7c"
+  "steamcmdSha256": "2018eba0bc1e63ef86e1b7860bd9f278f9b3a5c0450886b7f859ba8167927826",
+  "steamcmdPackage": "steamcmd_linux.zip.9efb1d41936da6a3e1b38382f55779c7f4254862"
 }

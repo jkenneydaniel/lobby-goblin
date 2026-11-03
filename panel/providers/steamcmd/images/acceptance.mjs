@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs/promises';
+import {constants} from 'node:fs';
 import path from 'node:path';
 import {
   sharedImages,
@@ -10,6 +11,7 @@ import {
 } from '../../../core/application-image-build.js';
 import metadata from './image.json' with {type: 'json'};
 import {steamBuild, steamDiscoveryArguments} from '../metadata.js';
+import {bootstrapFailureSummary} from '../bootstrap-diagnostics.js';
 
 const run = (args) =>
   execFileSync('docker', args, {
@@ -30,16 +32,56 @@ assert.equal(info.Architecture, 'amd64');
 assert.equal(info.Config.Labels['io.lobby-goblin.provider'], 'steamcmd');
 const name = 'lobby-steam-metadata-' + crypto.randomBytes(16).toString('hex');
 const installer = name + '-install';
+const networkProbe = name + '-network';
 const source = {
   application: 'rust',
   appId: '258550',
   platform: 'linux/amd64',
   branches: ['public'],
 };
+async function reportBootstrapFailure() {
+  try {
+    const container = JSON.parse(run(['inspect', name]))[0];
+    assert.equal(container.Config.Labels['io.lobby-goblin.acceptance'], 'steamcmd');
+    assert.equal(container.Name, '/' + name);
+    // Docker emits a tar archive. Bound both transfer and extraction in memory;
+    // never materialize an unbounded container log on the runner filesystem.
+    const archive = execFileSync('docker', ['cp', container.Id + ':/home/node/Steam/logs/bootstrap_log.txt', '-'], {
+      timeout: 15000, maxBuffer: 300 * 1024,
+    });
+    const log = execFileSync('tar', ['--extract', '--to-stdout', '--file', '-'], {
+      input: archive, encoding: 'utf8', timeout: 15000, maxBuffer: 256 * 1024,
+    });
+    console.error('SteamCMD bootstrap diagnostic: ' + JSON.stringify(bootstrapFailureSummary(log)));
+  } catch {
+    console.error('SteamCMD bootstrap diagnostic unavailable.');
+  }
+}
+async function reportBootstrapNetwork() {
+  try {
+    let runnerCaReadable = false;
+    if (process.env.CODEX_PROXY_CERT) {
+      try { await fs.access(process.env.CODEX_PROXY_CERT, constants.R_OK); runnerCaReadable = true; } catch {}
+    }
+    console.error('SteamCMD diagnostic runner context: ' + JSON.stringify({
+      proxyConfigured: ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'].some(key => Boolean(process.env[key])),
+      publicCaConfigured: Boolean(process.env.CODEX_PROXY_CERT), publicCaReadable: runnerCaReadable,
+    }));
+    const script = await fs.readFile(new URL('./bootstrap-network-probe.mjs', import.meta.url), 'utf8');
+    const result = execFileSync('docker', ['run', '--rm', '--name', networkProbe,
+      '--label', 'io.lobby-goblin.acceptance=steamcmd', '--cap-drop', 'ALL',
+      '--security-opt', 'no-new-privileges:true', '--memory', '256m', '--cpus', '1',
+      '--pids-limit', '64', '--entrypoint', 'node', image, '--input-type=module', '-e', script], {
+      encoding: 'utf8', timeout: 20000, maxBuffer: 8192,
+    });
+    console.error('SteamCMD manifest network diagnostic: ' + result.trim());
+  } catch {
+    console.error('SteamCMD manifest network diagnostic unavailable.');
+  }
+}
 try {
   const output = run([
     'run',
-    '--rm',
     '--name',
     name,
     '--label',
@@ -117,7 +159,18 @@ try {
       );
     });
   }
+} catch (error) {
+  try {
+    await reportBootstrapFailure();
+  } catch {
+    console.error('SteamCMD bootstrap diagnostic unavailable.');
+  }
+  await reportBootstrapNetwork();
+  throw error;
 } finally {
+  try {
+    run(['rm', '-f', networkProbe]);
+  } catch {}
   try {
     run(['rm', '-f', installer]);
   } catch {}

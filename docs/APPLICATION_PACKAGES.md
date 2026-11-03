@@ -99,7 +99,7 @@ LOBBY_DISPOSABLE_ENGINE_ID=<isolated-engine-id> \
 The application-image workflow generates its matrix from the same catalogue.
 Adding a fourth package needs no workflow edits. Publication remains an explicit
 manual action and refuses existing tags. Tags are never overwritten. Rust's
-self-contained dependency set has the new `steam-lg.4` recipe, extending the
+self-contained dependency set has the current `steam-lg.5` recipe, extending the
 digest-pinned shared SteamCMD base with Rust-specific libraries and lifecycle;
 managed defaults remain pinned to `steam-lg.2` until an explicit future change.
 Manual Factorio publication retains migration and backup-recovery acceptance.

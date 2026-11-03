@@ -10,6 +10,20 @@ the official SteamCMD bootstrap checksum and defaults to UID/GID 1000:1000. Game
 binaries are not part of this image. Application-specific libraries belong in
 the application image.
 
+Runtime revision 2 pins Valve's modern bootstrap ZIP from the official
+`cdn.steamstatic.com/client/steam_cmd_linux` manifest (version `1792617903`).
+Its exact package name and SHA-256 live in `images/image.json`; the build checks
+the checksum before extraction. This replaces the December 2017 installer
+archive without changing the anonymous commands. This amd64-only image selects
+Valve's native Linux 64-bit client through `STEAM_PLATFORM=linux64`, preserving
+the upstream launcher and its library-path and restart handling. Workers forward
+only that exact reviewed platform selector into their otherwise clean environment;
+older base images without it retain their original launcher default until their
+pins are updated. Both upstream Linux executables are retained. Native acceptance,
+not a successful download alone, must qualify the new runtime before publication;
+consumers continue using their recorded immutable base digest until separately
+updated to the qualified published image.
+
 Use the existing image CLI with shared/steamcmd/runtime. Source checks also run
 in the normal test suite. Native acceptance runs only on an explicitly selected
 disposable engine or a fresh Actions job. It executes SteamCMD anonymously and
