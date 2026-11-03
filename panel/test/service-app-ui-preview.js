@@ -14,7 +14,7 @@ await fs.mkdir(auth);await fs.writeFile(token,'synthetic-service-controller-toke
 await writeJSON(path.join(auth,'users.json'),{Owner:{...hashPassword('application-preview-password'),role:'admin'},Read:{...hashPassword('application-preview-password'),role:'member',grants:{standalone:['server.view']}},Deployer:{...hashPassword('application-preview-password'),role:'member',grants:{standalone:['server.view','application.web-stack.deploy']}}});
 const env={CONTROLLER_TOKEN_FILE:token,AUTH_DIR:auth,RELEASE_CHECKS:'false',PANEL_HOSTS:'127.0.0.1'};
 const controller=await startController(fixture.module,{env,port:0,hostname:'127.0.0.1',docker:()=>{throw Error('Synthetic application cannot access Docker.');}});
-const web=await startWeb(fixture.module,{env:{...env,CONTROLLER_URL:'http://127.0.0.1:'+controller.address().port},port:Number(process.env.APPLICATION_UI_PORT||41737),hostname:'127.0.0.1'});
+const web=await startWeb(fixture.module,{env:{...env,CONTROLLER_URL:'http://127.0.0.1:'+controller.address().port},port:Number(process.env.APPLICATION_UI_PORT||31737),hostname:'127.0.0.1'});
 let closing=false;
 async function close(){if(closing)return;closing=true;for(const server of [web,controller]){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await fs.rm(root,{recursive:true,force:true});}
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>void close());
