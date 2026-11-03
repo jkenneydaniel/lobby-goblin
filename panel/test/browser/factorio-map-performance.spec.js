@@ -8,10 +8,15 @@ const test=base.extend({page:async({page},use)=>{
 const revision='a'.repeat(64);
 async function open(page){await page.goto(origins.factorio+scope+'/#map');await expect(page.locator('#world-map')).toBeVisible();}
 async function delivery(page,{manual={availableAt:0,serverNow:Date.now()}}={}){
- const requests=[],pins=[];let full=0;
- const fixture={requests,pins,manual,staleWorld:false,get full(){return full;}};
+ const requests=[],pins=[];let full=0,held=null;
+ const fixture={requests,pins,manual,staleWorld:false,get full(){return full;},holdNext(){
+  let release,notify;
+  const gate=new Promise(resolve=>{release=resolve;}),requested=new Promise(resolve=>{notify=resolve;});
+  held={gate,notify};return{requested,release};
+ }};
  await page.route(/\/api\/map(?:\?.*)?$/,async route=>{
   const url=new URL(route.request().url());requests.push(url.search);
+  if(held){const pending=held;held=null;pending.notify();await pending.gate;}
   if(url.searchParams.get('revision')===revision)return route.fulfill({json:{unchanged:true,revision,pins,manual,staleWorld:fixture.staleWorld}});
   const response=await route.fetch(),data=await response.json();full++;await route.fulfill({json:{...data,revision,pins,manual,staleWorld:fixture.staleWorld}});
  });
@@ -38,9 +43,20 @@ for(const retain of [false,true])test('pin changes reuse the renderer and revisi
  expect(fixture.full).toBe(1);expect(fixture.requests.slice(1).every(query=>query.includes('revision='))).toBe(true);
  await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Overview',exact:true}).click();
  await expect(page.locator('[data-view=overview]')).toBeVisible();await expect(page.locator('#world-map')).toBeHidden();
- await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Map',exact:true}).click();
- await expect(page.locator('#world-map')).toBeVisible();expect(fixture.full).toBe(1);
- expect(await page.locator('#world-map').evaluate(canvas=>canvas===globalThis.originalMapCanvas)).toBe(false);
+ const revisit=retain?fixture.holdNext():null;
+ try{
+  await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Map',exact:true}).click();
+  if(revisit){
+   await revisit.requested;
+   await expect(page.locator('#world-map')).toBeVisible();
+   expect(await page.locator('#world-map').evaluate(canvas=>canvas===globalThis.originalMapCanvas)).toBe(true);
+  }
+  // A retained root is visible before the awaited map response remounts it.
+  // Release that response and wait for replacement, not visibility alone.
+  revisit?.release();
+  await expect(page.locator('#world-map')).toBeVisible();expect(fixture.full).toBe(1);
+  await expect.poll(()=>page.locator('#world-map').evaluate(canvas=>canvas===globalThis.originalMapCanvas)).toBe(false);
+ }finally{revisit?.release();}
  const image=await page.locator('#world-map').evaluate(canvas=>canvas.toDataURL());
  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
  await expect.poll(()=>page.locator('#world-map').evaluate(canvas=>canvas.toDataURL())).not.toBe(image);
