@@ -18,6 +18,16 @@ test('Steam bootstrap diagnostics omit secrets, unknown destinations and URL cre
   assert.ok(!JSON.stringify(result).includes('attacker'));
 });
 
+test('modern bootstrap failures retain only fixed host, manifest path and error code', () => {
+  const result = bootstrapFailureSummary('Download failed: http error 200 (https://client-update.steamstatic.com/steam_cmd_linux)\nDownload failed: http error 200 (client-update.steamstatic.com/steam_cmd_steamrt64?secret=private-value)\nDownload failed: http error 200 (client-update.steamstatic.com/private-path)');
+  assert.deepEqual(result.events, [
+    {event: 'manifest_download_failed', code: 200, endpoint: 'client-update.steamstatic.com/steam_cmd_linux'},
+    {event: 'manifest_download_failed', code: 200, endpoint: 'client-update.steamstatic.com/steam_cmd_steamrt64'},
+    {event: 'manifest_download_failed', code: 200, endpoint: 'client-update.steamstatic.com'},
+  ]);
+  assert.ok(!JSON.stringify(result).includes('private'));
+});
+
 test('Steam bootstrap diagnostics bound input/output and ignore malformed or unrelated lines', () => {
   assert.deepEqual(bootstrapFailureSummary('unrelated\nDownload failed: http error 5 (not a host)'), {events: [], truncated: false});
   const result = bootstrapFailureSummary(('Download failed: http error 0 (media.steampowered.com/client/steam_cmd_linux)\n').repeat(1000));

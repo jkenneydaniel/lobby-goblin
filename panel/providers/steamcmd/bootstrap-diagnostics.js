@@ -2,6 +2,7 @@ const endpoints = new Set([
   'client-download.steampowered.com',
   'media.steampowered.com',
   'cdn.steamstatic.com',
+  'client-update.steamstatic.com',
 ]);
 
 // Public diagnostic fields only. Never print arbitrary bootstrap text or URLs.
@@ -13,7 +14,7 @@ export function bootstrapFailureSummary(text) {
       try {
         const url = new URL(/^https?:\/\//i.test(failed[2]) ? failed[2] : 'http://' + failed[2]);
         if (!endpoints.has(url.hostname)) continue;
-        const resource = url.pathname === '/client/steam_cmd_linux' ? url.pathname : '';
+        const resource = ['/client/steam_cmd_linux', '/steam_cmd_linux', '/steam_cmd_steamrt64'].includes(url.pathname) ? url.pathname : '';
         events.push({event: 'manifest_download_failed', code: Number(failed[1]), endpoint: url.hostname + resource});
       } catch {}
     } else if (/Failed to load manifest/.test(line)) {

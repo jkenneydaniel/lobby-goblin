@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import fs from 'node:fs/promises';
+import {constants} from 'node:fs';
 import path from 'node:path';
 import {
   sharedImages,
@@ -58,6 +59,14 @@ async function reportBootstrapFailure() {
 }
 async function reportBootstrapNetwork() {
   try {
+    let runnerCaReadable = false;
+    if (process.env.CODEX_PROXY_CERT) {
+      try { await fs.access(process.env.CODEX_PROXY_CERT, constants.R_OK); runnerCaReadable = true; } catch {}
+    }
+    console.error('SteamCMD diagnostic runner context: ' + JSON.stringify({
+      proxyConfigured: ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy'].some(key => Boolean(process.env[key])),
+      publicCaConfigured: Boolean(process.env.CODEX_PROXY_CERT), publicCaReadable: runnerCaReadable,
+    }));
     const script = await fs.readFile(new URL('./bootstrap-network-probe.mjs', import.meta.url), 'utf8');
     const result = execFileSync('docker', ['run', '--rm', '--name', networkProbe,
       '--label', 'io.lobby-goblin.acceptance=steamcmd', '--cap-drop', 'ALL',
