@@ -27,3 +27,6 @@ lobby-goblin-host/
 
 __pycache__/
 *.pyc
+
+# Private development-lead checkpoints; templates live under docs/autonomy/.
+.autonomy/
