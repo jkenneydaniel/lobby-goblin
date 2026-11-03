@@ -11,6 +11,7 @@ RUN test "$TARGETARCH" = amd64 \
  && curl -fsSL "https://cdn.steamstatic.com/client/$STEAMCMD_PACKAGE" -o /tmp/steamcmd.zip \
  && echo "$STEAMCMD_SHA256  /tmp/steamcmd.zip" | sha256sum -c - \
  && unzip -q /tmp/steamcmd.zip -d /opt/steamcmd \
+ && chmod 0755 /opt/steamcmd/steamcmd.sh /opt/steamcmd/linux32/steamcmd /opt/steamcmd/linux64/steamcmd \
  && rm /tmp/steamcmd.zip \
  && chown -R node:node /opt/steamcmd /home/node/.steam
 LABEL org.opencontainers.image.title="Lobby Goblin SteamCMD runtime" \
