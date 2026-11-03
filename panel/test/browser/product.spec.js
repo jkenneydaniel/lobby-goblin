@@ -803,6 +803,47 @@ test('the shared application host filters delegated tools and the backend enforc
     (await page.request.get(origins.application + '/api/settings')).status(),
   ).toBe(403);
 });
+for (const field of ['Player limit', 'Autosave interval (seconds)']) {
+  test('Rust requires ' + field + ' before submitting settings', async ({page}, info) => {
+    const jobs = [], submissions = [];
+    await page.route('**/api/status', async route => {
+      const response = await route.fetch();
+      await route.fulfill({json: {...await response.json(), running: false, activeJob: null}});
+    });
+    await page.route('**/api/settings', async route => {
+      const response = await route.fetch();
+      await route.fulfill({json: {...await response.json(), editable: true}});
+    });
+    await page.route(/\/api\/jobs(?:\?.*)?$/, async route => {
+      if (route.request().method() === 'POST') {
+        const body = route.request().postDataJSON();
+        submissions.push(body);
+        const job = {id: 'settings-validation-' + jobs.length, action: body.action, state: 'succeeded', message: 'Synthetic settings accepted', started: new Date().toISOString(), actor: 'admin'};
+        jobs.unshift(job);
+        return route.fulfill({status: 202, json: job});
+      }
+      const response = await route.fetch();
+      await route.fulfill({json: {...await response.json(), jobs, active: null}});
+    });
+    await login(page, 'rust');
+    await nav(page).getByRole('link', {name: 'Settings', exact: true}).click();
+    const settings = page.locator('#settings');
+    const input = settings.getByRole('spinbutton', {name: field, exact: true});
+    await expect(input).toBeEnabled();
+    await settings.getByRole('spinbutton', {name: 'Player limit', exact: true}).fill('64');
+    await settings.getByRole('spinbutton', {name: 'Autosave interval (seconds)', exact: true}).fill('900');
+    await input.fill('');
+    await settings.getByRole('button', {name: 'Save settings', exact: true}).click();
+    expect(await input.evaluate(element => element.validity.valueMissing)).toBe(true);
+    expect(submissions).toEqual([]);
+    await page.screenshot({path: info.outputPath(field.startsWith('Player') ? 'rust-player-limit-required.png' : 'rust-autosave-required.png'), fullPage: true});
+    await input.fill(field.startsWith('Player') ? '64' : '900');
+    await settings.getByRole('button', {name: 'Save settings', exact: true}).click();
+    await expect.poll(() => submissions.length).toBe(1);
+    expect(submissions[0]).toMatchObject({action: 'save-settings', params: {values: {'server.maxplayers': 64, 'server.saveinterval': 900}, revision: expect.any(String)}});
+  });
+}
+
 test('Rust navigation cancels a delayed players load before another screen renders', async ({
   page,
 }) => {
