@@ -16,6 +16,6 @@ await writeJSON(path.join(auth,'users.json'),{
 });
 const env={CONTROLLER_TOKEN_FILE:token,AUTH_DIR:auth,RELEASE_CHECKS:'false',PANEL_HOSTS:'127.0.0.1'};
 const controller=await startController(module,{env,hostname:'127.0.0.1',port:0,docker:()=>{throw Error('Arena browser fixture cannot contact Docker');}});
-const web=await startWeb(module,{env:{...env,CONTROLLER_URL:'http://127.0.0.1:'+controller.address().port},hostname:'127.0.0.1',port:Number(process.env.ARENA_UI_PORT||41736)});
+const web=await startWeb(module,{env:{...env,CONTROLLER_URL:'http://127.0.0.1:'+controller.address().port},hostname:'127.0.0.1',port:Number(process.env.ARENA_UI_PORT||31736)});
 async function close(){for(const server of [web,controller]){server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}await fs.rm(root,{recursive:true,force:true});}
 for(const signal of ['SIGINT','SIGTERM'])process.once(signal,()=>{void close().then(()=>process.exit(0));});

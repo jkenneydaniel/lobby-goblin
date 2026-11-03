@@ -164,7 +164,7 @@ npm test
 
 From the repository root, `npm run test:browser --prefix panel` also runs the
 suite after those dependencies are installed. It runs Chromium at desktop and
-390 px mobile widths against disposable loopback fixtures. Ports 41731–41737
+390 px mobile widths against disposable loopback fixtures. Ports 31731–31737
 must be free: the runner deliberately refuses to reuse an existing listener.
 There is no configurable live-panel URL or real Docker/game transport. The
 browser context blocks external requests, and recovery fixtures reject host
