@@ -175,3 +175,70 @@ test('existing worker inspection refuses changed image, environment, realized mo
     validateSoftwareWorkerImage({...image, Id: 'sha256:' + 'e'.repeat(64)}),
   );
 });
+
+for (const representation of ['classic', 'containerd']) {
+  test(`exact published worker identity remains fenced (${representation})`, () => {
+    const {image, info, spec} = fixture();
+    const target = softwareWorkerDeployment.image.split('@')[1];
+    if (representation === 'containerd') {
+      image.Id = target;
+      image.Descriptor = {
+        digest: target,
+        mediaType: 'application/vnd.oci.image.index.v1+json',
+      };
+      info.Image = target;
+    }
+    validateSoftwareWorkerContainer(info, scope, image);
+    for (const mutate of [
+      value => value.Id = 'sha256:' + 'e'.repeat(64),
+      value => value.RepoDigests = [],
+      value => value.RepoDigests = ['ghcr.io/other/worker@' + target],
+      value => value.Architecture = 'arm64',
+      value => value.Os = 'windows',
+      value => value.Config.User = '0:0',
+      value => value.Config.Entrypoint = ['/bin/sh'],
+      value => value.Config.Cmd = ['unexpected'],
+      value => value.Config.Labels['io.lobby-goblin.provider'] = 'other',
+      value => value.Config.Labels['io.lobby-goblin.image-revision'] = '1',
+      value => value.Descriptor = {digest: 'sha256:' + 'f'.repeat(64)},
+    ]) {
+      const changed = structuredClone(image); mutate(changed);
+      assert.throws(() => validateSoftwareWorkerImage(changed));
+    }
+    if (representation === 'containerd') {
+      for (const descriptor of [undefined, {}, {...image.Descriptor, mediaType: 'unreviewed'}])
+        assert.throws(() => validateSoftwareWorkerImage({...image, Descriptor: descriptor}));
+    }
+    for (const mutate of [
+      value => value.Image = representation === 'classic' ? target : softwareWorkerDeployment.imageId,
+      value => value.Config.Image = 'ghcr.io/other/worker@' + target,
+      value => value.Config.Labels['io.lobby-goblin.fleet'] = 'f'.repeat(32),
+      value => value.Config.Labels['io.lobby-goblin.instance'] = 'd'.repeat(32),
+      value => value.Config.Env = ['NODE_OPTIONS=unexpected'],
+      value => value.Mounts[0].Name = 'another-volume',
+      value => value.HostConfig.NetworkMode = 'host',
+    ]) {
+      const changed = structuredClone(info); mutate(changed);
+      assert.throws(() => validateSoftwareWorkerContainer(changed, scope, image));
+    }
+    assert.throws(() => validateSoftwareWorkerCreate({...spec, Image: target}, softwareWorkerName(instance,id), scope));
+  });
+}
+
+test('previous worker artifacts remain refused in either store and running state', () => {
+  const old = {
+    reference: 'ghcr.io/jkenneydaniel/lobby-goblin-steam-worker:1-lg.1@sha256:0b5cbffe60fda9a0f32253821650226dec8f4d2ada325882b1182dbe7efc4b45',
+    config: 'sha256:1c2035ce05c95ca55bd99bc1c17bc1b9c1bb91774446cc1acef61577ea98781b',
+    index: 'sha256:0b5cbffe60fda9a0f32253821650226dec8f4d2ada325882b1182dbe7efc4b45',
+  };
+  for (const identity of [old.config, old.index]) {
+    for (const running of [true, false]) {
+      const {image, info} = fixture();
+      info.Image = identity;
+      info.Config.Image = old.reference;
+      info.State = {Running: running, Status: running ? 'running' : 'exited'};
+      assert.throws(() => validateSoftwareWorkerContainer(info, scope, image));
+      assert.throws(() => validateSoftwareWorkerImage({...image, Id: identity}));
+    }
+  }
+});

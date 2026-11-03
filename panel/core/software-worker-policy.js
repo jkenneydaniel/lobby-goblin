@@ -12,6 +12,12 @@ const deployment = softwareWorkerDeployment;
 const tag = deployment.image.split('@')[0];
 const repositoryDigest =
   tag.slice(0, tag.lastIndexOf(':')) + '@' + deployment.image.split('@')[1];
+const publishedIndex = deployment.image.split('@')[1];
+// Docker's classic store exposes the configuration digest; its multi-platform
+// store exposes the pinned index. These are two identities of this exact
+// published artifact, not a general digest or historical-worker allowlist.
+export const softwareWorkerImageId = (value) =>
+  value === deployment.imageId || value === publishedIndex;
 export const softwareWorkerPaths = Object.freeze({
   software: 'software/steamcmd',
   control: 'state/software/steamcmd',
@@ -131,7 +137,12 @@ export function softwareWorkerSpec(scope, id, action) {
 
 export function validateSoftwareWorkerImage(image) {
   assert(
-    image?.Id === deployment.imageId &&
+    softwareWorkerImageId(image?.Id) &&
+      (!image.Descriptor || image.Descriptor.digest === publishedIndex) &&
+      (image.Id === deployment.imageId ||
+        (image.Descriptor?.digest === publishedIndex &&
+          image.Descriptor.mediaType ===
+            'application/vnd.oci.image.index.v1+json')) &&
       image.Os === 'linux' &&
       image.Architecture === 'amd64' &&
       image.Config?.User === '1000:1000' &&
@@ -217,7 +228,7 @@ export function validateSoftwareWorkerContainer(info, scope, image) {
     typeof info.Id === 'string' &&
       /^[A-Za-z0-9_-]{1,128}$/.test(info.Id) &&
       info.Name === '/' + softwareWorkerName(scope.instance, id) &&
-      info.Image === deployment.imageId &&
+      info.Image === image.Id &&
       info.Config?.Image === deployment.image &&
       Object.entries(expected.Labels).every(
         ([key, value]) => marker[key] === value,

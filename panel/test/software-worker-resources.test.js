@@ -51,10 +51,12 @@ function worker() {
     HostConfig: spec.HostConfig,
   };
 }
-test('only a verified preparation claim borrows its own stopped application reservation', () => {
+for (const imageStore of ['classic', 'containerd']) {
+test(`only a verified preparation claim borrows its own stopped application reservation (${imageStore})`, () => {
   const one = game(instance),
     two = game(other),
     claim = worker();
+  claim.Image = imageStore === 'containerd' ? softwareWorkerDeployment.image.split('@')[1] : softwareWorkerDeployment.imageId;
   assert.equal(softwareReservedMemory([one, two], fleet), 4 * GiB);
   assertPreparationAdmission([one, two], claim, fleet);
   assert.equal(softwareReservedMemory([one, two, claim], fleet), 4 * GiB);
@@ -82,9 +84,10 @@ test('only a verified preparation claim borrows its own stopped application rese
     /existing instance worker/,
   );
 });
-test('created or exited preparation workers fence application start until explicit cleanup', () => {
+test(`created or exited preparation workers fence application start until explicit cleanup (${imageStore})`, () => {
   const one = game(instance),
     claim = worker();
+  claim.Image = imageStore === 'containerd' ? softwareWorkerDeployment.image.split('@')[1] : softwareWorkerDeployment.imageId;
   assert.throws(
     () => assertApplicationStart([one, claim], one, fleet),
     /Finish software/,
@@ -106,10 +109,11 @@ test('created or exited preparation workers fence application start until explic
   );
 });
 
-test('a worker borrows only its own memory and preserves the unused application reservation', () => {
+test(`a worker borrows only its own memory and preserves the unused application reservation (${imageStore})`, () => {
   const one = game(instance),
     two = game(other),
     claim = worker();
+  claim.Image = imageStore === 'containerd' ? softwareWorkerDeployment.image.split('@')[1] : softwareWorkerDeployment.imageId;
   one.HostConfig.Memory = 8 * GiB;
   const before = softwareReservedMemory([one, two], fleet);
   assert.equal(before, 10 * GiB);
@@ -123,3 +127,5 @@ test('a worker borrows only its own memory and preserves the unused application 
   );
   assert.equal(softwareReservedMemory([one, two], fleet), before);
 });
+
+}
