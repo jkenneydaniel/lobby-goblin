@@ -1,6 +1,6 @@
 # Lobby Goblin Rust image
 
-The package recipe builds `ghcr.io/jkenneydaniel/rust-server:steam-lg.4`, a
+The package recipe builds `ghcr.io/jkenneydaniel/rust-server:steam-lg.5`, a
 mod-capable bootstrap image extending the digest-pinned shared Lobby Goblin
 SteamCMD image. The shared provider owns Node/Debian, common libraries and the
 checksum-verified official Valve SteamCMD bootstrap. Rust owns its additional
@@ -8,7 +8,7 @@ libraries, WebRCON transport, startup and shutdown. The recipe declares its shar
 base dependency so targeted checks/builds include that prerequisite.
 Rust and Steam remain subject to their own licenses.
 
-The additional `rust/managed` recipe builds `managed-lg.2`. It never installs or
+The additional `rust/managed` recipe builds `managed-lg.3`. It never installs or
 updates a game at startup: a controller must first publish exact, verified
 software into the sealed `engine` directory and write its execution receipt.
 Worlds, settings and player data stay in the stable `server` directory, reached

@@ -1,9 +1,9 @@
 {
   "format": 1,
   "repository": "ghcr.io/jkenneydaniel/rust-server",
-  "tag": "managed-lg.2",
+  "tag": "managed-lg.3",
   "compatibility": 1,
-  "revision": 2,
+  "revision": 3,
   "platform": "linux/amd64",
-  "baseImage": "ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:acb54444388c2b0886fbb5937d0faa16a18a8cf14e28586cb62de203cd64429b"
+  "baseImage": "ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:5787b7de944e2646d84ca9788a6d10572cb811dd04dd1f89f55d9da0d293919a"
 }

@@ -1,5 +1,5 @@
 # Built from the package-owned temporary context. The game is installed separately.
-ARG BASE_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:acb54444388c2b0886fbb5937d0faa16a18a8cf14e28586cb62de203cd64429b
+ARG BASE_IMAGE=ghcr.io/jkenneydaniel/lobby-goblin-steamcmd@sha256:5787b7de944e2646d84ca9788a6d10572cb811dd04dd1f89f55d9da0d293919a
 FROM $BASE_IMAGE
 ARG TARGETARCH
 # The existing supervisor needs root only to normalize legacy data ownership.
@@ -18,7 +18,7 @@ COPY entrypoint.mjs ./entrypoint.mjs
 LABEL org.opencontainers.image.title="Lobby Goblin Rust server" \
  org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
  org.opencontainers.image.licenses="MIT" \
- io.lobby-goblin.rust-mods="1" io.lobby-goblin.game="rust" io.lobby-goblin.compatibility="1" io.lobby-goblin.image-revision="4"
+ io.lobby-goblin.rust-mods="1" io.lobby-goblin.game="rust" io.lobby-goblin.compatibility="1" io.lobby-goblin.image-revision="5"
 ENV HOME=/home/node RUST_SERVER_IDENTITY=lobby-goblin-rust RUST_SERVER_PORT=28015 RUST_SERVER_QUERYPORT=28017 RUST_RCON_PORT=28016
 EXPOSE 28015/udp 28017/udp 28016/tcp
 STOPSIGNAL SIGTERM
