@@ -8,7 +8,7 @@ RUN test "$TARGETARCH" = amd64 \
  && apt-get install -y --no-install-recommends ca-certificates curl unzip lib32gcc-s1 lib32stdc++6 lib32z1 \
  && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /opt/steamcmd /home/node/.steam/sdk64 \
- && curl -fsSL "https://cdn.steamstatic.com/client/$STEAMCMD_PACKAGE" -o /tmp/steamcmd.zip \
+ && curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 --retry-max-time 120 "https://cdn.steamstatic.com/client/$STEAMCMD_PACKAGE" -o /tmp/steamcmd.zip \
  && echo "$STEAMCMD_SHA256  /tmp/steamcmd.zip" | sha256sum -c - \
  && unzip -q /tmp/steamcmd.zip -d /opt/steamcmd \
  && chmod 0755 /opt/steamcmd/steamcmd.sh /opt/steamcmd/linux32/steamcmd /opt/steamcmd/linux64/steamcmd \
