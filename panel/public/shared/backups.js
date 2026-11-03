@@ -38,6 +38,7 @@ export function mountBackups(
     loading = 0,
     disposed = false,
     savingSchedule = false,
+    savingRetention = false,
     retentionControls = null;
   const view = root.querySelector('[data-backup-view]') || root;
   function setBusy() {
@@ -63,6 +64,38 @@ export function mountBackups(
             (savingSchedule && button.closest('#schedule-form') !== null)),
       );
     retentionControls?.setBusy();
+  }
+  async function saveRetention(body) {
+    if (disposed || savingRetention || busy()) return;
+    savingRetention = true;
+    setBusy();
+    let saved = false;
+    try {
+      const policy = await request('/backup-retention', {method: 'POST', body});
+      saved = true;
+      if (disposed) return;
+      // Controls may have been replaced by an unrelated backup refresh. The
+      // mounted workflow owns this result and keeps replacements disabled until
+      // it reconciles the saved revision, so no newer edits are discarded.
+      loading++;
+      record.retention = policy;
+      retentionControls?.saved(policy);
+      await load({preserveSchedule: true});
+      if (!disposed) notify('Backup cleanup settings saved.');
+    } catch (error) {
+      if (!disposed) {
+        const message = saved
+          ? 'Backup cleanup settings saved, but refreshing backups failed: ' +
+            error.message
+          : error.message;
+        const status = view.querySelector('#retention-status');
+        if (status) status.textContent = message;
+        notify(message, true);
+      }
+    } finally {
+      savingRetention = false;
+      if (!disposed) setBusy();
+    }
   }
   async function load({preserveSchedule = false} = {}) {
     const version = ++loading;
@@ -130,7 +163,8 @@ export function mountBackups(
           if (!disposed) notify(...args);
         },
         render: () => load({preserveSchedule: true}),
-        busy,
+        savePolicy: saveRetention,
+        busy: () => busy() || savingRetention,
         draft: retentionDraft,
       });
   }

@@ -1,5 +1,13 @@
 import {escapeHTML as esc, formatBytes as bytes} from './shared/view.js';
 const date = (value) => new Date(value).toLocaleString();
+const savedStatus = ({policy, lastRun}) =>
+  lastRun
+    ? 'Last automatic cleanup attempt: ' +
+      date(lastRun) +
+      '. Check activity for the result.'
+    : policy.enabled
+      ? 'Daily cleanup is enabled. The first run is due while the controller is running.'
+      : 'Automatic cleanup is off until you enable and confirm it.';
 export function retentionView(record, draft = null) {
   const saved = record || {
     policy: {
@@ -11,16 +19,15 @@ export function retentionView(record, draft = null) {
     revision: 0,
   };
   const policy = draft?.policy ?? saved.policy,
-    revision = draft?.revision ?? saved.revision,
-    {lastRun} = saved;
-  return `<section class="product-card"><div class="product-card-header"><h2>Keep room for what’s next.</h2><span class="product-workflow-badge">${saved.policy.enabled ? 'Daily cleanup on' : 'Manual cleanup'}</span></div><div class="product-card-content"><p class="form-note">Clear older backup archives with a retention window that suits your server.</p>
+    revision = draft?.revision ?? saved.revision;
+  return `<section class="product-card"><div class="product-card-header"><h2>Keep room for what’s next.</h2><span class="product-workflow-badge" data-retention-badge>${saved.policy.enabled ? 'Daily cleanup on' : 'Manual cleanup'}</span></div><div class="product-card-content"><p class="form-note">Clear older backup archives with a retention window that suits your server.</p>
   <form id="retention-form" data-revision="${revision}"><label>Keep backups for (days)<input type="number" name="days" min="1" max="3650" value="${esc(policy.days)}" required aria-describedby="retention-days-note"></label><p class="hint" id="retention-days-note">For example: 7, 30 or 90 days. Scheduled backups are included.</p>
   <label class="check-label"><input type="checkbox" name="enabled" ${policy.enabled ? 'checked' : ''}>Clean up automatically each day</label>
   <details class="retention-options"><summary>Include other backup types</summary><label class="check-label"><input type="checkbox" name="includeManual" ${policy.includeManual ? 'checked' : ''}>Include manual backups</label><label class="check-label"><input type="checkbox" name="includeSafety" ${policy.includeSafety ? 'checked' : ''}>Include backups taken before changes</label><p class="hint">These copies are excluded unless you choose to include them.</p></details>
   <p class="form-note">Always keeps the newest two of each type, the most recent verified archive, and copies required for update recovery. World libraries and game autosaves are outside cleanup.</p>
   <div class="button-group"><button class="button primary" type="submit" data-retention-button>Save cleanup settings</button><button class="button" type="button" id="review-cleanup" data-retention-button>Review cleanup</button><button class="button" type="button" id="reload-retention" data-retention-button>Reload saved cleanup settings</button></div>
   ${draft ? `<p class="hint" id="retention-draft-note">${revision !== saved.revision ? 'Saved cleanup settings changed. Your draft is retained; reload before saving.' : 'Your unsaved cleanup settings are retained.'}</p>` : ''}
-  <p class="hint retention-status" id="retention-status" role="status">${lastRun ? 'Last automatic cleanup attempt: ' + esc(date(lastRun)) + '. Check activity for the result.' : saved.policy.enabled ? 'Daily cleanup is enabled. The first run is due while the controller is running.' : 'Automatic cleanup is off until you enable and confirm it.'}</p></form>
+  <p class="hint retention-status" id="retention-status" role="status">${esc(savedStatus(saved))}</p></form>
   <div id="retention-review" class="retention-review" hidden></div></div></section>`;
 }
 export function bindRetention({
@@ -29,6 +36,7 @@ export function bindRetention({
   startJob,
   toast,
   render,
+  savePolicy,
   busy,
   draft = null,
   root = document,
@@ -99,7 +107,10 @@ export function bindRetention({
         setWorking(true);
         review.querySelector('#delete-old-backups').disabled = true;
         try {
-          await startJob('cleanup-backups', {planId: value.id, confirm: true});
+          await startJob('cleanup-backups', {
+            planId: value.id,
+            confirm: true,
+          });
         } finally {
           setWorking(false);
           if (!disposed && review.isConnected) clearReview();
@@ -143,19 +154,12 @@ export function bindRetention({
         if (disposed || isBusy() || plan !== reviewed) return;
       }
       if (disposed || isBusy()) return;
-      await api('/backup-retention', {
-        method: 'POST',
-        body: {
-          operation: 'save',
-          policy: value,
-          revision: Number(form.dataset.revision),
-          ...(reviewed ? {planId: reviewed.id, confirm: true} : {}),
-        },
+      await savePolicy({
+        operation: 'save',
+        policy: value,
+        revision: Number(form.dataset.revision),
+        ...(reviewed ? {planId: reviewed.id, confirm: true} : {}),
       });
-      if (disposed) return;
-      dirty = false;
-      await render();
-      toast('Backup cleanup settings saved.');
     } catch (error) {
       if (!disposed) {
         status.textContent = error.message;
@@ -196,6 +200,21 @@ export function bindRetention({
   return {
     setBusy: () => setWorking(working),
     invalidateReview: clearReview,
+    saved(value) {
+      dirty = false;
+      if (disposed) return;
+      clearReview();
+      form.dataset.revision = String(value.revision);
+      form.elements.days.value = String(value.policy.days);
+      for (const key of ['enabled', 'includeManual', 'includeSafety'])
+        form.elements[key].checked = value.policy[key];
+      root.querySelector('[data-retention-badge]').textContent = value.policy
+        .enabled
+        ? 'Daily cleanup on'
+        : 'Manual cleanup';
+      root.querySelector('#retention-draft-note')?.remove();
+      status.textContent = savedStatus(value);
+    },
     get draft() {
       return dirty
         ? {

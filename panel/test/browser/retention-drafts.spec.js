@@ -22,7 +22,7 @@ test('cleanup drafts survive unrelated backup completion and stale save until ex
     expect(body.operation).toBe('save'); state.saves.push(body);
     if (body.revision !== state.revision) return route.fulfill({status: 409, json: {error: 'Synthetic cleanup policy changed'}});
     state.policy = body.policy; state.revision++;
-    return route.fulfill({json: {ok: true}});
+    return route.fulfill({json: {policy: state.policy, revision: state.revision, lastRun: null}});
   });
   await page.route(/\/api\/jobs(?:\?.*)?$/, route => {
     if (route.request().method() !== 'POST') return route.fulfill({json: {jobs: state.jobs, active: null}});
@@ -91,12 +91,16 @@ async function moduleFixture(page) {
     const root = globalThis.document.createElement('div'); globalThis.document.body.append(root);
     const h = {root, reads: 0, plans: 0, confirms: [], jobs: [], saves: [], toasts: [], busy: false, holdPreview: false, failRead: false};
     const record = {backups: [], schedule: {enabled: false, hours: 24, keep: 12}, retention: {policy: {enabled: true, days: 30, includeManual: false, includeSafety: false}, revision: 4, lastRun: null}};
+    h.record = record;
     h.controls = mountBackups(root, {
       request: async (url, options) => {
         if (url === '/backups') {
           h.reads++;
           if (h.failRead) {h.failRead = false; throw Error('Synthetic reload failure');}
-          if (h.holdRead) return new Promise(resolve => {h.releaseRead = () => resolve(structuredClone(record));});
+          if (h.holdRead) {
+            const snapshot = structuredClone(record);
+            return new Promise(resolve => {h.releaseRead = () => resolve(snapshot); (h.readReleases ??= []).push(h.releaseRead);});
+          }
           return structuredClone(record);
         }
         if (url !== '/backup-retention') throw Error('Unexpected synthetic request');
@@ -105,7 +109,14 @@ async function moduleFixture(page) {
           return h.holdPreview ? new Promise(resolve => {h.releasePreview = () => resolve(plan);}) : plan;
         }
         if (options.body.operation !== 'save') throw Error('Unexpected synthetic policy operation');
-        h.saves.push(options.body); return {ok: true};
+        h.saves.push(options.body);
+        const commit = () => {
+          if (h.failSave) throw Error('Synthetic save failure');
+          if (options.body.revision !== record.retention.revision) throw Error('Synthetic revision conflict');
+          record.retention.policy = structuredClone(options.body.policy); record.retention.revision++;
+          return structuredClone(record.retention);
+        };
+        return h.holdSave ? new Promise((resolve, reject) => {h.releaseSave = () => {try {resolve(commit());} catch (error) {reject(error);}};}) : commit();
       },
       startJob: async (action, params) => {h.jobs.push({action, params}); return {};},
       isAdmin: () => true, busy: () => h.busy,
@@ -196,4 +207,101 @@ test('cancelled or failed explicit reload preserves an invalid cleanup draft', a
   await reload.click(); await settleConfirmation(page, 2, true);
   await expect(days).toHaveValue('30');
   expect(await page.evaluate(() => globalThis.retentionFixture.saves)).toEqual([]);
+});
+
+test('a successful pending cleanup save reconciles replaced controls without conflicting with itself', async ({page}) => {
+  await moduleFixture(page);
+  const days = page.getByLabel('Keep backups for (days)', {exact: true});
+  await days.fill('7');
+  await page.getByLabel('Clean up automatically each day', {exact: true}).uncheck();
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = true;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  await refreshModule(page);
+  await page.evaluate(() => globalThis.retentionFixture.releaseSave());
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '5');
+  await expect(days).toHaveValue('7');
+  await expect(page.locator('#retention-draft-note')).toHaveCount(0);
+  await expect(page.getByText('Manual cleanup', {exact: true})).toBeVisible();
+  expect(await page.evaluate(() => globalThis.retentionFixture.toasts)).toEqual([['Backup cleanup settings saved.']]);
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = false;});
+  await days.fill('8');
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '6');
+  expect(await page.evaluate(() => globalThis.retentionFixture.saves.map(save => save.revision))).toEqual([4, 5]);
+});
+
+test('replacement controls remain disabled during a save and show its rejection without replay', async ({page}) => {
+  await moduleFixture(page);
+  const days = page.getByLabel('Keep backups for (days)', {exact: true});
+  await days.fill('7');
+  await page.getByLabel('Clean up automatically each day', {exact: true}).uncheck();
+  await page.evaluate(() => {const h = globalThis.retentionFixture; h.holdSave = true; h.failSave = true;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  await refreshModule(page);
+  await expect(days).toBeDisabled();
+  await expect(page.getByRole('button', {name: 'Save cleanup settings', exact: true})).toBeDisabled();
+  await page.evaluate(() => globalThis.retentionFixture.releaseSave());
+  await expect(page.locator('#retention-status')).toHaveText('Synthetic save failure');
+  await expect(days).toBeEnabled(); await expect(days).toHaveValue('7');
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '4');
+  expect(await page.evaluate(() => ({saves: globalThis.retentionFixture.saves.length, revision: globalThis.retentionFixture.record.retention.revision, toasts: globalThis.retentionFixture.toasts}))).toEqual({saves: 1, revision: 4, toasts: [['Synthetic save failure', true]]});
+});
+
+test('leaving the Backups workflow suppresses a pending saves late feedback and reload', async ({page}) => {
+  await moduleFixture(page);
+  await page.getByLabel('Clean up automatically each day', {exact: true}).uncheck();
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = true;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  const before = await page.evaluate(() => {const h = globalThis.retentionFixture; h.controls.dispose(); return h.root.innerHTML;});
+  await page.evaluate(async () => {globalThis.retentionFixture.releaseSave(); await new Promise(resolve => setTimeout(resolve, 0));});
+  expect(await page.evaluate(() => ({reads: globalThis.retentionFixture.reads, toasts: globalThis.retentionFixture.toasts, html: globalThis.retentionFixture.root.innerHTML}))).toEqual({reads: 1, toasts: [], html: before});
+});
+
+test('a successful policy response reconciles revision before a superseding refresh finishes', async ({page}) => {
+  await moduleFixture(page);
+  const days = page.getByLabel('Keep backups for (days)', {exact: true});
+  await days.fill('7');
+  await page.getByLabel('Clean up automatically each day', {exact: true}).uncheck();
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = true;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  await page.evaluate(() => {const h = globalThis.retentionFixture; h.holdRead = true; h.releaseSave();});
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.readReleases?.length)).toBe(1);
+  await page.evaluate(() => {const h = globalThis.retentionFixture; h.pendingRead = h.controls.load({preserveSchedule: true});});
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.readReleases.length)).toBe(2);
+  await page.evaluate(() => globalThis.retentionFixture.readReleases[0]());
+  await expect(days).toBeEnabled();
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '5');
+  await days.fill('8');
+  await page.evaluate(async () => {const h = globalThis.retentionFixture; h.holdRead = false; h.readReleases[1](); await h.pendingRead;});
+  await expect(days).toHaveValue('8');
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '5');
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = false;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '6');
+});
+
+test('a committed cleanup policy stays reconciled when the follow-up archive refresh fails', async ({page}) => {
+  await moduleFixture(page);
+  const days = page.getByLabel('Keep backups for (days)', {exact: true});
+  await days.fill('7');
+  await page.getByLabel('Clean up automatically each day', {exact: true}).uncheck();
+  await page.evaluate(() => {const h = globalThis.retentionFixture; h.holdSave = true;});
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  await page.evaluate(() => {const h = globalThis.retentionFixture; h.failRead = true; h.releaseSave();});
+  await expect(days).toBeEnabled();
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '5');
+  await expect(page.getByText('Manual cleanup', {exact: true})).toBeVisible();
+  await expect(page.locator('#retention-draft-note')).toHaveCount(0);
+  await expect(page.locator('#retention-status')).toContainText('saved');
+  await expect(page.locator('#retention-status')).toContainText('Synthetic reload failure');
+  expect(await page.evaluate(() => globalThis.retentionFixture.saves.length)).toBe(1);
+  await page.evaluate(() => {globalThis.retentionFixture.holdSave = false;});
+  await days.fill('8');
+  await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
+  await expect(page.locator('#retention-form')).toHaveAttribute('data-revision', '6');
 });
