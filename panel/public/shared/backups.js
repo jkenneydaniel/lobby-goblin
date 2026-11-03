@@ -37,6 +37,7 @@ export function mountBackups(
   let record = null,
     loading = 0,
     disposed = false,
+    savingSchedule = false,
     retentionControls = null;
   const view = root.querySelector('[data-backup-view]') || root;
   function setBusy() {
@@ -55,7 +56,12 @@ export function mountBackups(
       .querySelectorAll(
         '[data-backup-create],[data-backup-verify],[data-backup-restore],#schedule-form button',
       )
-      .forEach((button) => (button.disabled = busy()));
+      .forEach(
+        (button) =>
+          (button.disabled =
+            busy() ||
+            (savingSchedule && button.closest('#schedule-form') !== null)),
+      );
     retentionControls?.setBusy();
   }
   async function load({preserveSchedule = false} = {}) {
@@ -79,20 +85,21 @@ export function mountBackups(
       ?.addEventListener('submit', async (event) => {
         event.preventDefault();
         const form = event.currentTarget,
-          button = form.querySelector('button'),
           enabled = form.elements.enabled.checked;
-        if (busy()) return;
-        if (
-          enabled &&
-          interruption &&
-          !(await confirm(
-            'Schedule game interruptions?',
-            'Every scheduled backup will save, stop and resume the game. Connected players will be disconnected. Older scheduled archives beyond the count limit may be removed.',
-          ))
-        )
-          return;
-        button.disabled = true;
+        if (busy() || savingSchedule || disposed) return;
+        savingSchedule = true;
+        setBusy();
         try {
+          if (
+            enabled &&
+            interruption &&
+            !(await confirm(
+              'Schedule game interruptions?',
+              'Every scheduled backup will save, stop and resume the game. Connected players will be disconnected. Older scheduled archives beyond the count limit may be removed.',
+            ))
+          )
+            return;
+          if (disposed || busy()) return;
           await request('/schedule', {
             method: 'POST',
             body: {
@@ -102,11 +109,12 @@ export function mountBackups(
               ...(interruption ? {confirmDowntime: enabled} : {}),
             },
           });
-          notify('Backup schedule saved.');
+          if (!disposed) notify('Backup schedule saved.');
         } catch (error) {
-          notify(error.message, true);
+          if (!disposed) notify(error.message, true);
         } finally {
-          button.disabled = busy();
+          savingSchedule = false;
+          if (!disposed) setBusy();
         }
       });
     if (allow('backups.cleanup'))
