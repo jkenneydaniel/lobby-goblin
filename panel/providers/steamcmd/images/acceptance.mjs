@@ -31,6 +31,7 @@ assert.equal(info.Architecture, 'amd64');
 assert.equal(info.Config.Labels['io.lobby-goblin.provider'], 'steamcmd');
 const name = 'lobby-steam-metadata-' + crypto.randomBytes(16).toString('hex');
 const installer = name + '-install';
+const networkProbe = name + '-network';
 const source = {
   application: 'rust',
   appId: '258550',
@@ -53,6 +54,20 @@ async function reportBootstrapFailure() {
     console.error('SteamCMD bootstrap diagnostic: ' + JSON.stringify(bootstrapFailureSummary(log)));
   } catch {
     console.error('SteamCMD bootstrap diagnostic unavailable.');
+  }
+}
+async function reportBootstrapNetwork() {
+  try {
+    const script = await fs.readFile(new URL('./bootstrap-network-probe.mjs', import.meta.url), 'utf8');
+    const result = execFileSync('docker', ['run', '--rm', '--name', networkProbe,
+      '--label', 'io.lobby-goblin.acceptance=steamcmd', '--cap-drop', 'ALL',
+      '--security-opt', 'no-new-privileges:true', '--memory', '256m', '--cpus', '1',
+      '--pids-limit', '64', '--entrypoint', 'node', image, '--input-type=module', '-e', script], {
+      encoding: 'utf8', timeout: 20000, maxBuffer: 8192,
+    });
+    console.error('SteamCMD manifest network diagnostic: ' + result.trim());
+  } catch {
+    console.error('SteamCMD manifest network diagnostic unavailable.');
   }
 }
 try {
@@ -141,8 +156,12 @@ try {
   } catch {
     console.error('SteamCMD bootstrap diagnostic unavailable.');
   }
+  await reportBootstrapNetwork();
   throw error;
 } finally {
+  try {
+    run(['rm', '-f', networkProbe]);
+  } catch {}
   try {
     run(['rm', '-f', installer]);
   } catch {}
