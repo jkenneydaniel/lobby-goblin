@@ -943,6 +943,52 @@ async function login(page, game, username = 'admin') {
   await expect(page.locator('.product-shell')).toBeVisible();
 }
 
+for (const game of ['factorio', 'rust']) {
+  test(game + ' Overview actions track controller status before load and after disconnection', async ({page}, info) => {
+    let releaseStatus;
+    const firstStatus = new Promise(resolve => {releaseStatus = resolve;});
+    let initial = true, offline = false, running = true;
+    const submissions = [];
+    await page.route('**/api/status', async route => {
+      if (initial) await firstStatus;
+      if (offline) return route.fulfill({status: 503, json: {error: 'Synthetic controller unavailable.'}});
+      const response = await route.fetch();
+      await route.fulfill({json: {...await response.json(), running, ready: running, activeJob: null, managementBusy: false, imageMigration: null}});
+    });
+    await page.route(/\/api\/jobs(?:\?.*)?$/, route => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      submissions.push(route.request().postDataJSON());
+      return route.fulfill({status: 409, json: {error: 'No operation expected.'}});
+    });
+    const opening = game === 'factorio' ? factorio(page) : login(page, 'rust');
+    const overview = page.locator('[data-view=overview]');
+    const actions = overview.locator('button[data-action]');
+    try {
+      await expect(overview).toBeVisible();
+      await expect(actions).toHaveCount(game === 'factorio' ? 4 : 3);
+      for (const button of await actions.all()) await expect(button).toBeDisabled();
+    } finally {
+      initial = false;
+      releaseStatus();
+      await opening;
+    }
+    await expect(overview.locator('[data-action=stop]')).toBeEnabled();
+    await expect(overview.locator('[data-action=restart]')).toBeEnabled();
+    await expect(overview.locator('[data-action=start]')).toBeDisabled();
+    offline = true;
+    await expect(page.locator('#connection-state')).toHaveText('Controller unavailable', {timeout: 10000});
+    for (const button of await actions.all()) await expect(button).toBeDisabled();
+    await page.screenshot({path: info.outputPath(game + '-overview-unavailable.png'), fullPage: true});
+    running = false;
+    offline = false;
+    await expect(overview.locator('[data-action=start]')).toBeEnabled({timeout: 10000});
+    await expect(overview.locator('[data-action=stop]')).toBeDisabled();
+    await expect(overview.locator('[data-action=restart]')).toBeDisabled();
+    if (game === 'factorio') await expect(overview.locator('[data-action=save]')).toBeDisabled();
+    expect(submissions).toEqual([]);
+  });
+}
+
 test('scoped world creation keeps the server pathname through completion and reload', async ({
   page,
 }) => {
