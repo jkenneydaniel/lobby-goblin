@@ -13,7 +13,7 @@ import {registeredApplications} from '/app/applications/index.js';
 import {resources} from '/app/core/instance.js';
 import {SoftwareWorkers} from '/app/core/software-workers.js';
 import {createSteamProvider} from '/app/providers/steamcmd/provider.js';
-import {softwareWorkerDeployment as deployment} from '/app/core/software-worker-policy.js';
+import {softwareWorkerDeployment as deployment, validateSoftwareWorkerImage} from '/app/core/software-worker-policy.js';
 
 assert.equal(process.env.SOFTWARE_WORKER_ACCEPTANCE, 'disposable');
 assert.equal(process.getuid(), 0);
@@ -117,7 +117,13 @@ if (mode === 'broker') {
             'GET',
             '/containers/' + worker.id + '/json',
           );
-          assert.equal(info.Image, deployment.imageId);
+          const image = validateSoftwareWorkerImage(
+            await client.docker(
+              'GET',
+              '/images/' + encodeURIComponent(deployment.image) + '/json',
+            ),
+          );
+          assert.equal(info.Image, image.Id);
           assert.equal(info.Config.User, '1000:0');
           assert.deepEqual(info.HostConfig.CapDrop, ['ALL']);
           assert.deepEqual(info.HostConfig.CapAdd || [], []);

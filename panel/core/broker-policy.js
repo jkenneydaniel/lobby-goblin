@@ -386,7 +386,7 @@ export function hostDockerPolicy(
       const image = await request(
         'GET',
         '/images/' +
-          encodeURIComponent(softwareWorkerDeployment.imageId) +
+          encodeURIComponent(softwareWorkerDeployment.image) +
           '/json',
       );
       validateSoftwareWorkerContainer(info, scope, image);
