@@ -10,6 +10,7 @@ import {
 } from '../../../core/application-image-build.js';
 import metadata from './image.json' with {type: 'json'};
 import {steamBuild, steamDiscoveryArguments} from '../metadata.js';
+import {bootstrapFailureSummary} from '../bootstrap-diagnostics.js';
 
 const run = (args) =>
   execFileSync('docker', args, {
@@ -36,10 +37,27 @@ const source = {
   platform: 'linux/amd64',
   branches: ['public'],
 };
+async function reportBootstrapFailure() {
+  try {
+    const container = JSON.parse(run(['inspect', name]))[0];
+    assert.equal(container.Config.Labels['io.lobby-goblin.acceptance'], 'steamcmd');
+    assert.equal(container.Name, '/' + name);
+    // Docker emits a tar archive. Bound both transfer and extraction in memory;
+    // never materialize an unbounded container log on the runner filesystem.
+    const archive = execFileSync('docker', ['cp', container.Id + ':/home/node/Steam/logs/bootstrap_log.txt', '-'], {
+      timeout: 15000, maxBuffer: 300 * 1024,
+    });
+    const log = execFileSync('tar', ['--extract', '--to-stdout', '--file', '-'], {
+      input: archive, encoding: 'utf8', timeout: 15000, maxBuffer: 256 * 1024,
+    });
+    console.error('SteamCMD bootstrap diagnostic: ' + JSON.stringify(bootstrapFailureSummary(log)));
+  } catch {
+    console.error('SteamCMD bootstrap diagnostic unavailable.');
+  }
+}
 try {
   const output = run([
     'run',
-    '--rm',
     '--name',
     name,
     '--label',
@@ -117,6 +135,13 @@ try {
       );
     });
   }
+} catch (error) {
+  try {
+    await reportBootstrapFailure();
+  } catch {
+    console.error('SteamCMD bootstrap diagnostic unavailable.');
+  }
+  throw error;
 } finally {
   try {
     run(['rm', '-f', installer]);
