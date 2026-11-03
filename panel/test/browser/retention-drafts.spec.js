@@ -96,6 +96,7 @@ async function moduleFixture(page) {
         if (url === '/backups') {
           h.reads++;
           if (h.failRead) {h.failRead = false; throw Error('Synthetic reload failure');}
+          if (h.holdRead) return new Promise(resolve => {h.releaseRead = () => resolve(structuredClone(record));});
           return structuredClone(record);
         }
         if (url !== '/backup-retention') throw Error('Unexpected synthetic request');
@@ -132,9 +133,13 @@ test('a late cleanup preview cannot restore a review or open confirmation after 
   await page.evaluate(() => {globalThis.retentionFixture.holdPreview = true;});
   await page.getByRole('button', {name: 'Save cleanup settings', exact: true}).click();
   await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.plans)).toBe(1);
-  await refreshModule(page);
+  await page.evaluate(() => {
+    const h = globalThis.retentionFixture; h.holdRead = true;
+    h.pendingRead = h.controls.load({preserveSchedule: true});
+  });
   await page.evaluate(async () => {globalThis.retentionFixture.releasePreview(); await new Promise(resolve => setTimeout(resolve, 0));});
   expect(await page.evaluate(() => ({confirms: globalThis.retentionFixture.confirms.length, saves: globalThis.retentionFixture.saves.length, jobs: globalThis.retentionFixture.jobs.length}))).toEqual({confirms: 0, saves: 0, jobs: 0});
+  await page.evaluate(async () => {const h = globalThis.retentionFixture; h.holdRead = false; h.releaseRead(); await h.pendingRead;});
   await expect(page.locator('#retention-review')).toBeHidden();
   await expect(page.getByLabel('Keep backups for (days)', {exact: true})).toHaveValue('7');
 });
@@ -145,8 +150,14 @@ test('refresh invalidates a pending delete confirmation and requires a fresh rev
   await page.getByRole('button', {name: 'Review cleanup', exact: true}).click();
   await page.locator('#delete-old-backups').click();
   await expect.poll(() => page.evaluate(() => globalThis.retentionFixture.confirms.length)).toBe(1);
-  await refreshModule(page); await settleConfirmation(page, 0, true);
+  await page.evaluate(() => {
+    const h = globalThis.retentionFixture; h.holdRead = true;
+    h.pendingRead = h.controls.load({preserveSchedule: true});
+  });
+  await expect.poll(() => page.evaluate(() => typeof globalThis.retentionFixture.releaseRead)).toBe('function');
+  await settleConfirmation(page, 0, true);
   expect(await page.evaluate(() => globalThis.retentionFixture.jobs)).toEqual([]);
+  await page.evaluate(async () => {const h = globalThis.retentionFixture; h.holdRead = false; h.releaseRead(); await h.pendingRead;});
   await expect(page.locator('#delete-old-backups')).toHaveCount(0);
   await page.getByRole('button', {name: 'Review cleanup', exact: true}).click();
   await page.locator('#delete-old-backups').click();

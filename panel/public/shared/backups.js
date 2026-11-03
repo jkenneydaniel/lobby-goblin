@@ -65,8 +65,9 @@ export function mountBackups(
     retentionControls?.setBusy();
   }
   async function load({preserveSchedule = false} = {}) {
-    const version = ++loading,
-      result = await request('/backups', {signal: abort.signal});
+    const version = ++loading;
+    retentionControls?.invalidateReview();
+    const result = await request('/backups', {signal: abort.signal});
     if (disposed || version !== loading) return;
     const oldForm = view.querySelector('#schedule-form'),
       draft =

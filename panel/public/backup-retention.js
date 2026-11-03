@@ -38,6 +38,7 @@ export function bindRetention({
   const review = root.querySelector('#retention-review'),
     status = root.querySelector('#retention-status');
   let plan = null,
+    reviewEpoch = 0,
     working = false,
     dirty = draft !== null,
     disposed = false;
@@ -58,6 +59,7 @@ export function bindRetention({
   setWorking(false);
   const clearReview = () => {
     if (disposed) return;
+    reviewEpoch++;
     plan = null;
     review.hidden = true;
     review.replaceChildren();
@@ -69,11 +71,12 @@ export function bindRetention({
     clearReview();
   });
   async function preview() {
+    const epoch = ++reviewEpoch;
     const value = await api('/backup-retention', {
       method: 'POST',
       body: {operation: 'preview', policy: policy()},
     });
-    if (disposed) return null;
+    if (disposed || epoch !== reviewEpoch) return null;
     plan = value;
     review.innerHTML = `<h3 tabindex="-1">${value.candidates.length ? value.candidates.length + ' old backup' + (value.candidates.length === 1 ? '' : 's') + ' ready to clear' : 'Nothing to clean up'}</h3><p class="form-note">${esc(bytes(value.bytes))} to free · Older than ${esc(date(value.cutoff))}. This review expires in 10 minutes.</p>${value.candidates.length ? `<ul class="retention-files" aria-label="Backups to delete">${value.candidates.map((item) => `<li><span>${esc(item.relative)}</span><span>${esc(bytes(item.size))}</span></li>`).join('')}</ul><p class="hint">Deletion is permanent. Download any copies you want to keep first. Newest and protected backups stay in place.</p><button class="button danger" type="button" id="delete-old-backups">Delete ${value.candidates.length} old backup${value.candidates.length === 1 ? '' : 's'}</button>` : '<p class="hint">All backup archives are within the window, excluded, or protected.</p>'}<details class="retention-protected"><summary>${value.protected.length} backup${value.protected.length === 1 ? '' : 's'} kept — see why</summary><ul class="retention-files">${value.protected.map((item) => `<li><span>${esc(item.relative)}<small>${esc(item.reason)}</small></span></li>`).join('')}</ul></details>`;
     review.hidden = false;
@@ -192,6 +195,7 @@ export function bindRetention({
     });
   return {
     setBusy: () => setWorking(working),
+    invalidateReview: clearReview,
     get draft() {
       return dirty
         ? {
@@ -202,6 +206,7 @@ export function bindRetention({
     },
     dispose() {
       disposed = true;
+      reviewEpoch++;
       plan = null;
     },
   };
