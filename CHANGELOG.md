@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.22-alpha — 2026-11-03
+
+- Disable Overview actions until controller status is available, including after a disconnection.
+- Preserve backup schedule choices and in-progress numeric settings drafts during refreshes.
+- Retain cleanup review drafts and reject stale confirmations after configuration changes.
+- Require Rust player-limit and autosave settings before submitting a job.
+- Repair SteamCMD bootstrap with the pinned official native64 client and select the qualified preparation worker.
+- Validate the same frozen worker artifact across classic and multi-platform Docker image stores while preserving ownership, private mounts, resource reservations and startup/cleanup fencing.
+- Keep existing game-image defaults and management/world formats; supported management upgrades still require retained preparation workers to be settled first.
+
 ## 0.3.21-alpha — 2026-10-30
 
 - Export Factorio map snapshots in one isolated offline process, preserving the
