@@ -32,6 +32,9 @@ export async function runSteamCommand(
         HOME: process.env.HOME || '/home/node',
         LANG: 'C.UTF-8',
         LC_ALL: 'C.UTF-8',
+        ...(process.env.STEAM_PLATFORM === 'linux64'
+          ? {STEAM_PLATFORM: 'linux64'}
+          : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

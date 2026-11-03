@@ -612,6 +612,27 @@ test('Steam workers use a clean environment, bounded output and complete cancell
   }
 });
 
+test('the reviewed native platform survives clean worker execution without forwarding arbitrary environment', async () => {
+  const previous = process.env.STEAM_PLATFORM;
+  process.env.LOBBY_STEAM_PLATFORM_FIXTURE_SECRET = 'must-not-inherit';
+  try {
+    for (const platform of ['linux64', 'linux32', 'unreviewed-platform']) {
+      process.env.STEAM_PLATFORM = platform;
+      const environment = JSON.parse(await runSteamCommand(
+        ['-e', 'console.log(JSON.stringify(process.env))'],
+        {program: process.execPath, timeout: 10000},
+      ));
+      assert.equal(environment.STEAM_PLATFORM, platform === 'linux64' ? 'linux64' : undefined);
+      assert.equal(environment.LOBBY_STEAM_PLATFORM_FIXTURE_SECRET, undefined);
+      assert.deepEqual(Object.keys(environment).sort(), ['HOME', 'LANG', 'LC_ALL', 'PATH', ...(platform === 'linux64' ? ['STEAM_PLATFORM'] : [])].sort());
+    }
+  } finally {
+    if (previous === undefined) delete process.env.STEAM_PLATFORM;
+    else process.env.STEAM_PLATFORM = previous;
+    delete process.env.LOBBY_STEAM_PLATFORM_FIXTURE_SECRET;
+  }
+});
+
 test('an interrupted partial download can be reviewed and resumed without claiming an empty installation', async (t) => {
   const f = await fixture(t),
     selected = await f.provider.resolve({channel: 'public'});

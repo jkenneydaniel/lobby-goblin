@@ -14,8 +14,12 @@ Runtime revision 2 pins Valve's modern bootstrap ZIP from the official
 `cdn.steamstatic.com/client/steam_cmd_linux` manifest (version `1792617903`).
 Its exact package name and SHA-256 live in `images/image.json`; the build checks
 the checksum before extraction. This replaces the December 2017 installer
-archive without changing the anonymous commands or existing Linux client
-selection. Both upstream Linux executables are retained. Native acceptance,
+archive without changing the anonymous commands. This amd64-only image selects
+Valve's native Linux 64-bit client through `STEAM_PLATFORM=linux64`, preserving
+the upstream launcher and its library-path and restart handling. Workers forward
+only that exact reviewed platform selector into their otherwise clean environment;
+older base images without it retain their original launcher default until their
+pins are updated. Both upstream Linux executables are retained. Native acceptance,
 not a successful download alone, must qualify the new runtime before publication;
 consumers continue using their recorded immutable base digest until separately
 updated to the qualified published image.

@@ -18,7 +18,7 @@ LABEL org.opencontainers.image.title="Lobby Goblin SteamCMD runtime" \
  org.opencontainers.image.source="https://github.com/jkenneydaniel/lobby-goblin" \
  org.opencontainers.image.licenses="MIT" \
  io.lobby-goblin.provider="steamcmd" io.lobby-goblin.compatibility="1" io.lobby-goblin.image-revision="2"
-ENV HOME=/home/node
+ENV HOME=/home/node STEAM_PLATFORM=linux64
 USER 1000:1000
 WORKDIR /home/node
 ENTRYPOINT ["/opt/steamcmd/steamcmd.sh"]
