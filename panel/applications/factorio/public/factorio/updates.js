@@ -2,6 +2,16 @@ import {bindGameUpdate} from '../game-update.js';
 import {mountVersionPicker, versionLabel} from '../shared/version-picker.js';
 import {compareVersions, reportedVersion} from '../shared/versions.js';
 
+function viewStatusKey(status) {
+  return JSON.stringify([
+    status?.software?.mode,
+    status?.version,
+    status?.softwareRecovery,
+    status?.activeJob?.id,
+    status?.activeJob?.state,
+  ]);
+}
+
 export function createUpdateWorkflow({
   getState,
   request: api,
@@ -49,13 +59,7 @@ export function createUpdateWorkflow({
       const result = await api('/update-status');
       if (getState().user !== signedUser) return;
       const {status} = getState();
-      const nextStatusKey = JSON.stringify([
-        status?.software?.mode,
-        status?.version,
-        status?.softwareRecovery,
-        status?.activeJob?.id,
-        status?.activeJob?.state,
-      ]);
+      const nextStatusKey = viewStatusKey(status);
       const changed =
         JSON.stringify(result) !== JSON.stringify(updateState) ||
         nextStatusKey !== statusViewKey;
@@ -69,6 +73,9 @@ export function createUpdateWorkflow({
     controls.abort();
     controls = new AbortController();
     const {status} = getState();
+    // The freshly rendered view already represents this status. Remember it on
+    // the initial bind too, so a queued status poll cannot replace a ready picker.
+    statusViewKey = viewStatusKey(status);
     const listen = (element, type, listener) =>
       element?.addEventListener(type, listener, {
         signal: AbortSignal.any([ctx.signal, controls.signal]),
