@@ -31,3 +31,7 @@ resolve actionable findings and re-review material updates. Do not submit a GitH
 approval as Daniel without any required action-time confirmation. Deployment,
 live-server operations, new credentials/access and paid resources remain excluded.
 See the runbook for the recorded scope and unresolved runtime/access requirements.
+For outside-feedback interpretation, use the native reader runbook: "Tools are
+disabled for this task"; prohibit every tool/delegation and supply feedback inline.
+This is owner-accepted instruction-level separation, not runtime tool removal.
+Discard output and halt intake on any observable tool attempt. No API use.
