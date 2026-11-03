@@ -131,13 +131,13 @@ export function createApplicationComponents({
         },
         refresh(ctx) {
           const value = getStatus();
+          setBusy(ctx, screen);
           if (!value) return;
           ctx.root.querySelector('#server-name').textContent =
             value.name || contract.name;
           ctx.root.querySelector('#game-address').textContent =
             value.connection || '';
           metrics(ctx, options.fields, value);
-          setBusy(ctx, screen);
           const resume = ctx.root.querySelector('[data-onboarding-resume]');
           resume.hidden = !(
             presentation.onboarding &&
