@@ -1,0 +1,21 @@
+name: Development lead foundation
+on:
+  push:
+    paths: ['tools/autonomy/**', '.github/workflows/autonomy-foundation.yml']
+  pull_request:
+    paths: ['tools/autonomy/**', '.github/workflows/autonomy-foundation.yml']
+permissions:
+  contents: read
+jobs:
+  feedback-guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify restricted data-only feedback intake
+        run: node --test tools/autonomy/guard.test.mjs

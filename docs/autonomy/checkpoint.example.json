@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "revision": 0,
+  "repository": "jkenneydaniel/lobby-goblin",
+  "updated_at": "2026-11-03T00:00:00Z",
+  "status": "prepared",
+  "automation_enabled": false,
+  "authority": {
+    "approval_reference": "Daniel's 2026-11-03 setup conversation: GitHub planning/development, issue feedback, conditional merge with Codex review and appropriate verified releases",
+    "allowed": ["issues", "feedback_replies", "project_planning", "source_changes", "feature_branch_push", "draft_pr", "review_replies", "conditional_merge", "verified_release"],
+    "excluded": ["live deployment or server operation", "new credentials or expanded persistent access", "paid resources", "protection bypass", "approval impersonation"],
+    "merge_conditions": ["successful required checks for current head", "repository branch protections satisfied", "Codex PR review on current changes", "actionable findings resolved and material updates re-reviewed"]
+  },
+  "budget": {
+    "wall_minutes": 60,
+    "max_specialists": 2,
+    "max_writers": 1,
+    "max_new_issues": 5,
+    "max_implementation_prs": 1,
+    "max_fix_iterations": 2,
+    "usage_limit": null,
+    "used_wall_minutes": 0
+  },
+  "lease": null,
+  "work": {
+    "base_sha": "a3adf8e261b57a624258238fce49d1c13298c1ea",
+    "head_sha": null,
+    "branch": null,
+    "issue_number": null,
+    "pr_number": null,
+    "project_id": null,
+    "priority_reason": "Establish bounded lead continuity and verified runtime/access before unattended effects.",
+    "specialists": []
+  },
+  "feedback": {
+    "issues_updated_through": null,
+    "issue_comment_id": null,
+    "last_full_reconciliation": null,
+    "head_sha_reviewed": null,
+    "head_sha_checks_passed": null
+  },
+  "actions": [],
+  "verification": [],
+  "blockers": [
+    {"action": "Read GitHub Projects", "target": "jkenneydaniel Projects v2", "reason": "Resource not accessible by integration; no Projects connector tool", "outcome": "denied"},
+    {"action": "Start standalone Codex CLI run", "target": "saved Lobby Goblin environment", "reason": "App-server initialization failed on read-only filesystem", "outcome": "failed"},
+    {"action": "Wake finite lead runs for feedback, bot reviews and checks", "target": "native parent/controller routing", "reason": "Issue/comment and CI/bot-review wake-up unsupported by native PR schema; scheduled reconciliation and end-to-end routing not yet verified", "outcome": "pending"}
+  ],
+  "next_action": "Reconcile current GitHub work and approved scope, then start one bounded lead cycle; resolve Projects and controller gaps independently.",
+  "wake_request": null
+}

@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Lobby Goblin development lead checkpoint",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "revision", "repository", "updated_at", "status", "automation_enabled", "authority", "budget", "lease", "work", "feedback", "actions", "verification", "blockers", "next_action", "wake_request"],
+  "properties": {
+    "version": {"const": 1},
+    "revision": {"type": "integer", "minimum": 0},
+    "repository": {"const": "jkenneydaniel/lobby-goblin"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["prepared", "running", "awaiting_review", "awaiting_ci", "blocked", "idle", "complete"]},
+    "automation_enabled": {"type": "boolean"},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approval_reference", "allowed", "excluded", "merge_conditions"],
+      "properties": {
+        "approval_reference": {"type": ["string", "null"]},
+        "allowed": {"type": "array", "uniqueItems": true, "items": {"enum": ["issues", "feedback_replies", "project_planning", "source_changes", "feature_branch_push", "draft_pr", "review_replies", "conditional_merge", "verified_release"]}},
+        "excluded": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "merge_conditions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wall_minutes", "max_specialists", "max_writers", "max_new_issues", "max_implementation_prs", "max_fix_iterations", "usage_limit", "used_wall_minutes"],
+      "properties": {
+        "wall_minutes": {"type": "integer", "minimum": 1, "maximum": 60},
+        "max_specialists": {"type": "integer", "minimum": 0, "maximum": 2},
+        "max_writers": {"const": 1},
+        "max_new_issues": {"type": "integer", "minimum": 0, "maximum": 5},
+        "max_implementation_prs": {"type": "integer", "minimum": 0, "maximum": 1},
+        "max_fix_iterations": {"type": "integer", "minimum": 0, "maximum": 2},
+        "usage_limit": {"type": ["string", "null"]},
+        "used_wall_minutes": {"type": "number", "minimum": 0}
+      }
+    },
+    "lease": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["owner", "generation", "expires_at"],
+          "properties": {
+            "owner": {"type": "string", "minLength": 1},
+            "generation": {"type": "integer", "minimum": 1},
+            "expires_at": {"type": "string", "format": "date-time"}
+          }
+        }
+      ]
+    },
+    "work": {
+      "type": "object", "additionalProperties": false,
+      "required": ["base_sha", "head_sha", "branch", "issue_number", "pr_number", "project_id", "priority_reason", "specialists"],
+      "properties": {
+        "base_sha": {"$ref": "#/$defs/sha"},
+        "head_sha": {"oneOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "branch": {"type": ["string", "null"]},
+        "issue_number": {"type": ["integer", "null"], "minimum": 1},
+        "pr_number": {"type": ["integer", "null"], "minimum": 1},
+        "project_id": {"type": ["string", "null"]},
+        "priority_reason": {"type": "string"},
+        "specialists": {"type": "array", "maxItems": 2, "items": {"type": "object", "required": ["id", "role", "base_sha", "status"], "properties": {"id": {"type": "string"}, "role": {"enum": ["discovery", "implementation", "review", "qa"]}, "base_sha": {"$ref": "#/$defs/sha"}, "status": {"enum": ["assigned", "running", "completed", "cancelled", "uncertain"]}}}}
+      }
+    },
+    "feedback": {
+      "type": "object", "additionalProperties": false,
+      "required": ["issues_updated_through", "issue_comment_id", "last_full_reconciliation", "head_sha_reviewed", "head_sha_checks_passed"],
+      "properties": {
+        "issues_updated_through": {"type": ["string", "null"], "format": "date-time"},
+        "issue_comment_id": {"type": ["integer", "null"], "minimum": 1},
+        "last_full_reconciliation": {"type": ["string", "null"], "format": "date-time"},
+        "head_sha_reviewed": {"oneOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]},
+        "head_sha_checks_passed": {"oneOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}
+      }
+    },
+    "actions": {
+      "type": "array", "maxItems": 200,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["key", "kind", "target", "fingerprint", "intent_at", "status", "remote_id"],
+        "properties": {
+          "key": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["issue", "issue_update", "project", "push", "pr", "comment", "ci_rerun", "merge", "release"]},
+          "target": {"type": "string", "minLength": 1},
+          "fingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+          "intent_at": {"type": "string", "format": "date-time"},
+          "status": {"enum": ["prepared", "confirmed", "failed", "uncertain"]},
+          "remote_id": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "verification": {"type": "array", "items": {"type": "object", "required": ["command", "result", "sha"], "properties": {"command": {"type": "string"}, "result": {"type": "string"}, "sha": {"oneOf": [{"$ref": "#/$defs/sha"}, {"type": "null"}]}}}},
+    "blockers": {"type": "array", "items": {"type": "object", "required": ["action", "target", "reason", "outcome"], "properties": {"action": {"type": "string"}, "target": {"type": "string"}, "reason": {"type": "string"}, "outcome": {"enum": ["denied", "pending", "uncertain", "failed"]}}}},
+    "next_action": {"type": "string", "minLength": 1},
+    "wake_request": {"type": ["string", "null"]}
+  },
+  "$defs": {"sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"}}
+}
