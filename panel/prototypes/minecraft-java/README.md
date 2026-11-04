@@ -11,6 +11,16 @@ temporary root with fixed filenames, a read-only non-executable artifact and
 private durable receipts. Callers supply a trusted fake transport and a synthetic
 40-character management credential; public receipts contain neither.
 
+`metadata.js` checks an already-parsed synthetic catalogue: exactly format, kind
+and releases, at most 64 entries and 64 KiB when serialized as UTF-8. Every entry
+must satisfy the existing Java release contract; duplicate version IDs and
+invalid unselected entries reject the catalogue. Selection requires an exact
+version and returns a private immutable release for the existing worker and
+preparation APIs. There is no latest-version fallback. A replacement catalogue
+cannot mutate an earlier selected artifact or satisfy it with different bytes.
+This is a fixture data contract, not actual Mojang JSON compatibility, wire-JSON
+parsing, publisher authentication, TLS or transfer verification.
+
 Preparation and save/stop intent precede effects. Interrupted outcomes survive
 reconstruction as unknown and cannot be replayed automatically. An exclusive
 private lock fences concurrent controllers. Preserve pending roots for inspection.
@@ -25,6 +35,7 @@ are not proof of real resource isolation or a sandbox. Production dispatch and
 managed-definition secret admission remain closed. The management Dockerfile
 does not copy this development-only directory.
 
-Archive/clone and permission/browser conformance remain follow-up Phase A work.
+Upstream format/transfer and authenticated-control modelling, archive/clone and
+permission/browser conformance remain follow-up Phase A work.
 Native bundler/storage, authentication, save and world/client acceptance remain
 unverified. See the [edition/content plan](../../../docs/MINECRAFT.md).
