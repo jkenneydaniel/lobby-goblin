@@ -18,8 +18,19 @@ invalid unselected entries reject the catalogue. Selection requires an exact
 version and returns a private immutable release for the existing worker and
 preparation APIs. There is no latest-version fallback. A replacement catalogue
 cannot mutate an earlier selected artifact or satisfy it with different bytes.
-This is a fixture data contract, not actual Mojang JSON compatibility, wire-JSON
-parsing, publisher authentication, TLS or transfer verification.
+`parseJavaFixtureCatalogue` additionally accepts only a Buffer containing that
+synthetic JSON format. Its 64 KiB limit applies to raw bytes before decoding,
+including whitespace. It rejects malformed UTF-8, leading BOMs, malformed or
+trailing JSON, duplicate object fields (including escaped aliases), nesting past
+32 containers and invalid unselected entries. Ordinary whitespace and field order
+are accepted. Decoder errors use fixed messages without source excerpts. The
+returned catalogue is private and immutable; exact selection and preparation
+retain their existing checks. Run `node --test panel/test/minecraft-catalogue-bytes.test.js`
+for the byte-decoding and disposable preparation fixtures.
+
+This is a synthetic JSON fixture contract, not actual Mojang manifest
+compatibility, publisher authentication, TLS or transfer verification. Input
+bytes are supplied by the caller; there is no fetcher, stream or downloader.
 
 Preparation and save/stop intent precede effects. Interrupted outcomes survive
 reconstruction as unknown and cannot be replayed automatically. An exclusive
