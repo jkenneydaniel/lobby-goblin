@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {constants} from 'node:fs';
 import crypto from 'node:crypto';
+import {performance} from 'node:perf_hooks';
 import {isDeepStrictEqual} from 'node:util';
 import {assert} from '../../common.js';
 import {definitionData, freezeDefinition} from '../../core/definition-data.js';
@@ -46,6 +47,7 @@ export async function createJavaFixture({
   release,
   credentials,
   exchange,
+  exchangeTimeoutMs = 5000,
   fault = async () => {},
 }) {
   scope = fixtureScope(scope);
@@ -54,6 +56,12 @@ export async function createJavaFixture({
   assert(
     typeof exchange === 'function' && typeof fault === 'function',
     'A synthetic fixture transport is required.',
+  );
+  assert(
+    Number.isSafeInteger(exchangeTimeoutMs) &&
+      exchangeTimeoutMs > 0 &&
+      exchangeTimeoutMs <= 30000,
+    'Choose a fixture exchange timeout from 1 to 30000 ms.',
   );
   root = await directory(root);
   const privateDirectory = async () => {
@@ -249,11 +257,27 @@ export async function createJavaFixture({
   async function call(method) {
     // The injected function is a trusted fake transport, not an MSMP adapter.
     // There are no sockets, downloads, subprocesses or arbitrary RPC methods.
+    const controller = new AbortController(),
+      deadline = performance.now() + exchangeTimeoutMs,
+      timer = setTimeout(() => controller.abort(), exchangeTimeoutMs);
     let raw;
     try {
-      raw = await exchange({method, scope, environment});
+      // Await the callback itself, including abort cleanup. Racing its promise
+      // against a timeout would release the operation lock while work continues.
+      raw = await exchange({
+        method,
+        scope,
+        environment,
+        signal: controller.signal,
+      });
+      assert(
+        !controller.signal.aborted && performance.now() < deadline,
+        'Synthetic Minecraft reply exceeded its exchange deadline.',
+      );
     } catch {
       throw Error('Synthetic Minecraft transport failed.');
+    } finally {
+      clearTimeout(timer);
     }
     assert(
       typeof raw === 'string' && Buffer.byteLength(raw) <= 16384,
