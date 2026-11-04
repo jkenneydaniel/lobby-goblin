@@ -2,7 +2,7 @@ import {escapeHTML as esc, formatBytes} from '../shared/view.js';
 import {playerCount} from '../client.js';
 import {serverKey} from './host-paths.js';
 const connectionAddress = (server) =>
-  `<p class="server-address"><code>${esc(server.address || '')}</code>${server.address ? `<button type="button" class="quiet" data-copy-address="${esc(serverKey(server))}">Copy address</button>` : ''}</p>`;
+  `<p class="server-address"><code>${esc(server.address || '')}</code>${server.address ? `<button type="button" class="quiet" data-copy-address="${esc(server.manageUrl)}">Copy address</button>` : ''}</p>`;
 export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
   const hostBusy = (id) => !!hostJobs.get(id);
   if (assigned)

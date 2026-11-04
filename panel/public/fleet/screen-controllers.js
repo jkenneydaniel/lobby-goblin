@@ -114,8 +114,9 @@ export function createFleetScreens({
     ctx.on(ctx.root, 'click', async (event) => {
       const copy = event.target.closest('[data-copy-address]');
       if (copy && ctx.root.contains(copy)) {
+        // Assigned records omit hostId but retain their scoped management URL.
         const item = model.snapshot.servers.find(
-          (server) => serverKey(server) === copy.dataset.copyAddress,
+          (server) => server.manageUrl === copy.dataset.copyAddress,
         );
         if (!item?.address) return;
         notice('');

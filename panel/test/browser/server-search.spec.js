@@ -184,10 +184,18 @@ test('copy address uses the exact selected host and supports keyboard and read-o
   await expect(search(page)).toHaveValue('Other factory');
   await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
   await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  // The minimal assigned projection deliberately omits hostId. Its scoped
+  // management URL still distinguishes identical IDs across hosts.
+  await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: [
+    {...state.local[0], manageUrl: '/servers/' + state.local[0].id + '/'},
+    {...state.remote[0], manageUrl: '/hosts/' + remote + '/servers/' + state.remote[0].id + '/'},
+  ]}}));
   await login(page, 'Assigned');
-  await cards(page).getByRole('button', {name: 'Copy address', exact: true}).click();
+  const assignedRemote = cards(page).filter({has: page.getByRole('heading', {name: 'Other factory <crew>', exact: true})});
+  await assignedRemote.getByRole('button', {name: 'Copy address', exact: true}).click();
   await expect(page.locator('#notice')).toHaveText('Server address copied.');
-  expect(await page.evaluate(() => globalThis.copiedAddresses)).toEqual(['localhost:35000']);
+  expect(await page.evaluate(() => globalThis.copiedAddresses)).toEqual(['weekend.example.test:35006']);
+  await expect(assignedRemote.getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
 });
 
 test('clipboard failure keeps the address visible and does not claim success or mutate servers', async ({page}) => {
