@@ -40,10 +40,12 @@ test('managed Carbon disables framework and hook downloads before boot without c
 test('Carbon pinning preserves existing settings and becomes read-only after its first preparation',async t=>{
  const f=await carbonFixture(t),target=path.join(f.root,'carbon/config.json');
  await fs.writeFile(target,JSON.stringify({Language:'de',SelfUpdating:{Enabled:true,HookUpdates:true,RedirectUri:'preserved'},Compiler:{EnableProxy:false}}),{mode:0o640});
+ // Creation applies the inherited umask; preserve the actual seed permissions.
+ const originalMode=(await fs.stat(target)).mode&0o777;
  await startup(f.env,f.root);const prepared=await fs.readFile(target,'utf8');
  assert.deepEqual(JSON.parse(prepared),{Language:'de',SelfUpdating:{Enabled:false,HookUpdates:false,RedirectUri:'preserved'},Compiler:{EnableProxy:false}});
- assert.equal((await fs.stat(target)).mode&0o777,0o640);await fs.utimes(target,1,1);await startup(f.env,f.root);
- assert.equal(await fs.readFile(target,'utf8'),prepared);assert.equal((await fs.stat(target)).mtimeMs,1000);
+ assert.equal((await fs.stat(target)).mode&0o777,originalMode);await fs.utimes(target,1,1);await startup(f.env,f.root);
+ assert.equal(await fs.readFile(target,'utf8'),prepared);assert.equal((await fs.stat(target)).mtimeMs,1000);assert.equal((await fs.stat(target)).mode&0o777,originalMode);
 });
 test('Carbon preparation refuses malformed, oversized and linked configuration without changing outside files',async t=>{
  const f=await carbonFixture(t),target=path.join(f.root,'carbon/config.json');
