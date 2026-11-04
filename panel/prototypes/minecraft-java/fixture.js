@@ -286,6 +286,34 @@ export async function createJavaFixture({
     let result;
     try {
       result = JSON.parse(raw);
+      // Both reply schemas are flat objects. Native JSON.parse owns grammar;
+      // inspect decoded field names before duplicate fields can be normalized
+      // into a readiness or mutation confirmation. Strings are skipped whole.
+      const keys = new Set();
+      let depth = 0,
+        key = true;
+      for (let i = 0; i < raw.length; i++) {
+        const char = raw[i];
+        if (char === '{' || char === '[') {
+          if (++depth > 1) throw Error();
+        } else if (char === '}' || char === ']') {
+          depth--;
+        } else if (char === ',' && depth === 1) {
+          key = true;
+        } else if (char === '"') {
+          const start = i;
+          while (++i < raw.length) {
+            if (raw[i] === '\\') i++;
+            else if (raw[i] === '"') break;
+          }
+          if (key && depth === 1) {
+            const name = JSON.parse(raw.slice(start, i + 1));
+            if (keys.has(name)) throw Error();
+            keys.add(name);
+            key = false;
+          }
+        }
+      }
     } catch {
       throw Error('Invalid synthetic Minecraft response.');
     }
