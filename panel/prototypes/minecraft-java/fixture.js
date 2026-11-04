@@ -66,13 +66,44 @@ export async function createJavaFixture({
     );
   };
   await privateDirectory();
-  assert(
-    (await fs.readdir(root)).every((name) =>
-      ['fixture.json', 'server.jar', '.fixture.lock'].includes(name),
-    ),
-    'Fixture storage contains unrelated data.',
-    409,
-  );
+  async function interruptedWrites() {
+    await privateDirectory();
+    let entries = 0,
+      pending = 0;
+    for await (const entry of await fs.opendir(root)) {
+      assert(++entries <= 19, 'Fixture storage exceeds its entry budget.', 409);
+      if (['fixture.json', 'server.jar', '.fixture.lock'].includes(entry.name))
+        continue;
+      assert(
+        /^fixture\.json\.[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.tmp$/.test(
+          entry.name,
+        ),
+        'Fixture storage contains unrelated data.',
+        409,
+      );
+      const stat = await fs
+        .lstat(path.join(root, entry.name))
+        .catch((error) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+      // A live atomic rename can remove the temporary entry. Never open, parse,
+      // promote or remove an interrupted write; only inspect bounded metadata.
+      if (!stat) continue;
+      assert(
+        stat.isFile() &&
+          stat.nlink === 1 &&
+          stat.uid === process.getuid() &&
+          (stat.mode & 0o777) === 0o600 &&
+          stat.size <= 16384 &&
+          ++pending <= 16,
+        'Interrupted fixture records must be private bounded files without links.',
+        409,
+      );
+    }
+    return pending;
+  }
+  await interruptedWrites();
   const journal = path.join(root, 'fixture.json'),
     jar = path.join(root, 'server.jar');
   const initial = () => ({
@@ -197,16 +228,22 @@ export async function createJavaFixture({
   }
   async function inspect() {
     const record = await read();
+    const interruptedWrite = (await interruptedWrites()) > 0;
     if (record.preparation === 'complete') await verifyJar();
     return freezeDefinition({
       ...record,
       mode: 'synthetic-only',
       edition: 'java',
+      interruptedWrite,
       preparation:
-        record.preparation === 'preparing' ? 'unknown' : record.preparation,
-      control: ['saving', 'stopping'].includes(record.control)
-        ? 'unknown'
-        : record.control,
+        record.preparation === 'preparing' ||
+        (interruptedWrite && record.preparation === 'absent')
+          ? 'unknown'
+          : record.preparation,
+      control:
+        interruptedWrite || ['saving', 'stopping'].includes(record.control)
+          ? 'unknown'
+          : record.control,
     });
   }
   async function call(method) {
@@ -268,7 +305,7 @@ export async function createJavaFixture({
       return locked(async () => {
         const record = await read();
         assert(
-          record.preparation === 'absent',
+          record.preparation === 'absent' && (await interruptedWrites()) === 0,
           'Inspect the prior fixture preparation before any new attempt.',
           409,
         );

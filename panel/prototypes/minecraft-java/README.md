@@ -14,6 +14,9 @@ private durable receipts. Callers supply a trusted fake transport and a syntheti
 Preparation and save/stop intent precede effects. Interrupted outcomes survive
 reconstruction as unknown and cannot be replayed automatically. An exclusive
 private lock fences concurrent controllers. Preserve pending roots for inspection.
+Bounded private journal temporary files left by process exit are preserved and
+reported as interrupted writes. Inspection stays available, while preparation and
+control replay remain blocked; temporary records are never promoted or removed.
 The root is a fixture binding, not an admitted live game path.
 
 This directory has no production registration, image recipe, real broker adapter,

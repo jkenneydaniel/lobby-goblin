@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {resources} from '../core/instance.js';
 import {softwareWorkerDeclaration} from '../core/software-worker-policy.js';
 import {
@@ -470,5 +471,190 @@ test(
       'synthetic unrelated data',
     );
     await assert.rejects(createJavaFixture(g.options), /unrelated data/);
+  },
+);
+
+test(
+  'process exit during journal publication preserves inspectable uncertainty',
+  linux,
+  async (t) => {
+    for (const phase of [
+      'preparing',
+      'prepared',
+      'saving',
+      'stopping',
+      'complete',
+    ]) {
+      await t.test(phase, async (t) => {
+        const root = await fs.mkdtemp(
+          path.join(os.tmpdir(), 'minecraft-interrupted-'),
+        );
+        t.after(() => fs.rm(root, {recursive: true, force: true}));
+        const child = spawnSync(
+          process.execPath,
+          [
+            '--input-type=module',
+            '-e',
+            `
+        import fs from 'node:fs/promises';
+        import {createJavaFixture} from ${JSON.stringify(new URL('../prototypes/minecraft-java/fixture.js', import.meta.url).href)};
+        const root = process.argv[1], phase = process.argv[2];
+        const rename = fs.rename;
+        fs.rename = async (source, destination) => {
+          if (destination === root + '/fixture.json') {
+            const record = JSON.parse(await fs.readFile(source));
+            if ((phase === 'preparing' && record.preparation === 'preparing') ||
+                (phase === 'prepared' && record.preparation === 'complete' && record.control === 'idle') ||
+                (!['preparing', 'prepared'].includes(phase) && record.control === phase)) process.exit(73);
+          }
+          return rename(source, destination);
+        };
+        let running = true;
+        const api = await createJavaFixture({
+          root, scope: ${JSON.stringify(scope)}, release: ${JSON.stringify(release)},
+          credentials: ${JSON.stringify(credentials)},
+          exchange: async ({method}) => {
+            if (method === 'stop') running = false;
+            return JSON.stringify(method === 'status' ? {
+              format: 1, edition: 'java', gameVersion: 'fixture-1', running, ready: running,
+            } : {format: 1, ok: true});
+          },
+        });
+        await api.prepare(${JSON.stringify(request)}, Buffer.from(${JSON.stringify([...bytes])}));
+        await api.saveAndStop({confirm: true});
+      `,
+            root,
+            phase,
+          ],
+          {timeout: 5000, encoding: 'utf8', maxBuffer: 65536},
+        );
+        assert.equal(child.status, 73, child.stderr);
+        const before = await fs.readdir(root);
+        const temporary = before.find((name) =>
+          /^fixture\.json\..*\.tmp$/.test(name),
+        );
+        assert.ok(temporary);
+        assert.ok(before.includes('.fixture.lock'));
+        const pendingBytes = await fs.readFile(path.join(root, temporary));
+        const calls = [];
+        const api = await createJavaFixture({
+          root,
+          scope,
+          release,
+          credentials,
+          exchange: async ({method}) => {
+            calls.push(method);
+            assert.equal(method, 'status');
+            return JSON.stringify({
+              format: 1,
+              edition: 'java',
+              gameVersion: 'fixture-1',
+              running: phase !== 'complete',
+              ready: phase !== 'complete',
+            });
+          },
+        });
+        const state = await api.inspect();
+        assert.equal(state.interruptedWrite, true);
+        assert.equal(state.control, 'unknown');
+        assert.equal(
+          state.preparation,
+          ['preparing', 'prepared'].includes(phase) ? 'unknown' : 'complete',
+        );
+        assert.deepEqual(calls, []);
+        if (state.preparation === 'complete')
+          assert.equal((await api.observe()).running, phase !== 'complete');
+        else await assert.rejects(api.observe(), /Prepare/);
+        await assert.rejects(api.prepare(request, bytes));
+        await assert.rejects(api.saveAndStop({confirm: true}));
+        assert.deepEqual(
+          calls,
+          state.preparation === 'complete' ? ['status'] : [],
+        );
+        assert.deepEqual(await fs.readdir(root), before);
+        assert.deepEqual(
+          await fs.readFile(path.join(root, temporary)),
+          pendingBytes,
+        );
+      });
+    }
+  },
+);
+
+test(
+  'interrupted journal recognition preserves strict storage and replay fences',
+  linux,
+  async (t) => {
+    const name = 'fixture.json.11111111-1111-4111-8111-111111111111.tmp';
+    const f = await fixture(t);
+    const file = path.join(f.root, name);
+    await fs.writeFile(file, '{partial', {mode: 0o600});
+    const api = await createJavaFixture(f.options);
+    const before = await fs.readFile(file);
+    assert.equal((await api.inspect()).preparation, 'unknown');
+    assert.equal((await api.inspect()).control, 'unknown');
+    await assert.rejects(api.prepare(request, bytes), /prior fixture/);
+    await assert.rejects(api.saveAndStop({confirm: true}), /prior fixture/);
+    assert.deepEqual(f.state.calls, []);
+    assert.deepEqual(await fs.readFile(file), before);
+    assert.deepEqual(await fs.readdir(f.root), [name]);
+
+    for (const kind of [
+      'unrelated',
+      'invalid-name',
+      'symlink',
+      'hardlink',
+      'directory',
+      'public',
+      'oversized',
+      'too-many',
+    ]) {
+      await t.test(kind, async (t) => {
+        const g = await fixture(t);
+        const target = path.join(g.root, name);
+        if (kind === 'unrelated')
+          await fs.writeFile(path.join(g.root, 'world.dat'), 'unrelated');
+        else if (kind === 'invalid-name')
+          await fs.writeFile(
+            path.join(g.root, 'fixture.json.invalid.tmp'),
+            '{}',
+            {mode: 0o600},
+          );
+        else if (kind === 'symlink') await fs.symlink('fixture.json', target);
+        else if (kind === 'directory') await fs.mkdir(target, {mode: 0o700});
+        else if (kind === 'hardlink') {
+          await fs.writeFile(path.join(g.root, 'fixture.json'), '{}', {
+            mode: 0o600,
+          });
+          await fs.link(path.join(g.root, 'fixture.json'), target);
+        } else if (kind === 'too-many') {
+          for (let n = 0; n < 17; n++)
+            await fs.writeFile(
+              path.join(
+                g.root,
+                `fixture.json.${n.toString(16).padStart(8, '0')}-1111-4111-8111-111111111111.tmp`,
+              ),
+              '',
+              {mode: 0o600},
+            );
+        } else {
+          await fs.writeFile(
+            target,
+            kind === 'oversized' ? Buffer.alloc(16385) : '{}',
+            {mode: 0o600},
+          );
+          if (kind === 'public') await fs.chmod(target, 0o640);
+        }
+        await assert.rejects(
+          createJavaFixture(g.options),
+          /unrelated|Interrupted|entry budget/,
+        );
+        await assert.rejects(
+          g.api.inspect(),
+          /unrelated|Interrupted|entry budget|Software records|private binding/,
+        );
+        assert.deepEqual(g.state.calls, []);
+      });
+    }
   },
 );
