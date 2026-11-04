@@ -146,6 +146,17 @@ nav [aria-current='page'] {
   grid-column: 1/-1;
   margin: 0;
 }
+.server-address {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.server-address code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
