@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.24-alpha — 2026-11-04
+
+Milestone: **Find and share fleet servers**.
+
+- Find fleet servers by their displayed status, combined with name, application
+  and host filters. Follow status changes during refresh while retaining the
+  selected filter, including when it has no current matches.
+- Copy the exact connection address and port from local, remote and assigned
+  server cards, with keyboard and narrow-screen support. Keep the address
+  selectable with manual-copy guidance when browser clipboard access fails.
+- Preserve assigned-server scope and the existing minimal view without extra
+  host/status reads. Keep game images, software-provider pins and storage/update
+  formats unchanged. Publication does not update installed hosts or game servers.
+
 ## 0.3.23-alpha — 2026-11-04
 
 - Find fleet servers by name, application, host or connection address, with
