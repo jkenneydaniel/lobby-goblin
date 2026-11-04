@@ -103,11 +103,15 @@ These priorities follow current engineering evidence, not measured demand.
 
 | Priority | Proposed work | Acceptance before a support claim |
 | --- | --- | --- |
-| First | One additional game; Minecraft Java qualification study, then Valheim | Official distribution/terms and exact game/JRE/image identities; explicit operator acknowledgements; version-aware readiness, graceful save/stop, restart, complete backup/clone and interrupted recovery; negative ownership/scope tests. No binaries or native servers were run for this matrix. |
+| First | Minecraft Java and native Bedrock, with edition-appropriate mods/Add-Ons; Valheim follows | Official distribution/terms and exact game/JRE/image identities; explicit operator acknowledgements; version-aware readiness, graceful save/stop, restart, complete backup/clone and interrupted recovery; negative ownership/scope tests. No binaries or native servers were run for this matrix. |
 | Foundation | Production multi-service provider design | Per-service storage/configuration and private references, resource/network boundaries, dependency readiness, partial-start recovery and durable uncertain effects. A failed required worker must prevent whole-stack health. Return concrete sensitive implementation scopes before executing them. |
 | First application pilot | Fixed-version disposable Laravel sample | Web, queue and scheduler lifecycle, correct public root, writable storage, cache generation, worker reload, scheduling coordination, chosen database/cache and migration/recovery evidence. [Deployment](https://laravel.com/framework/docs/13.x/deployment), [queues](https://laravel.com/framework/docs/13.x/queues), [scheduler](https://laravel.com/framework/docs/13.x/scheduling). |
 | Alongside foundations | Bounded Varnish profile | Exact distribution/version, declared origin, generated/validated policy, origin-failure behavior, private-response handling, cache bounds and unauthorized purge rejection. Arbitrary VCL/VMODs are outside the initial profile. [Distribution](https://www.varnish.org/), [VCL](https://www.varnish.org/docs/reference/vcl/), [purge](https://www.varnish.org/docs/tutorials/purge/). |
 | After recovery foundations | Magento Open Source or Adobe Commerce, with an explicit edition/version | Official dependency matrix; database/media backup and recovery; search readiness, cron/indexer/consumer observations and a disposable end-to-end journey. No customer/payment data or production traffic. [Requirements](https://experienceleague.adobe.com/en/docs/commerce-operations/installation-guide/system-requirements), [cron](https://experienceleague.adobe.com/en/docs/commerce-operations/configuration-guide/cli/configure-cron-jobs). |
+
+The [Minecraft edition/content plan](MINECRAFT.md) includes separate Java loader/plugin
+and Bedrock resource/behavior/scripted Add-On tracks. The approved unregistered
+Java fixture slice does not implement native hosting or the other tracks.
 
 Minecraft readiness must match the chosen release: current official
 [26.3 notes](https://www.minecraft.net/en-us/article/minecraft-java-edition-26-3)

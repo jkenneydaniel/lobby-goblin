@@ -88,7 +88,9 @@ The lead owns the backlog and qualification studies. Prioritize:
    single-container package and the limits of its production provider.
 2. One additional game studied against installation, exact software identity,
    readiness, graceful save/stop and backup/recovery requirements. Minecraft Java
-   is the first qualification candidate; Valheim follows. Neither is registered.
+   and native Bedrock are goals, including edition-appropriate mods and Add-Ons.
+   The [edition/content plan](MINECRAFT.md) separates those tracks from the approved
+   Java fixture slice. Valheim follows; neither game is registered.
 3. A reviewed production multi-service design, then a fixed-version disposable
    Laravel pilot with web, worker and scheduler health and recovery.
 4. A bounded Varnish profile with a declared origin and validated cache policy;
