@@ -1,5 +1,5 @@
 import {escapeHTML as esc} from '../shared/view.js';
-import {serverCards} from './cards.js';
+import {serverCards, serverStatus} from './cards.js';
 
 // Presentation only: use the session-scoped model, never fetch more resources.
 export function serverCollection(snapshot, admin, filters) {
@@ -12,6 +12,9 @@ export function serverCollection(snapshot, admin, filters) {
       (item) =>
         (!filters.application || item.game === filters.application) &&
         (!filters.host || item.hostId === filters.host) &&
+        (snapshot.assigned ||
+          !filters.status ||
+          serverStatus(item, snapshot) === filters.status) &&
         (!query ||
           [
             item.name,
@@ -33,7 +36,20 @@ export function serverCollection(snapshot, admin, filters) {
         .filter((item) => item.hostId)
         .map((item) => [item.hostId, item.hostName]),
     ),
-    active = !!(filters.search || filters.application || filters.host);
+    statuses = new Map(
+      snapshot.assigned
+        ? []
+        : snapshot.servers.map((item) => {
+            const state = serverStatus(item, snapshot);
+            return [state, state];
+          }),
+    ),
+    active = !!(
+      filters.search ||
+      filters.application ||
+      filters.host ||
+      filters.status
+    );
   const options = (items, selected, missing) => {
     const values = [...items].sort((a, b) =>
       String(a[1]).localeCompare(String(b[1])),
@@ -46,7 +62,7 @@ export function serverCollection(snapshot, admin, filters) {
       )
       .join('');
   };
-  return `<div class="server-filters" role="search" aria-label="Find servers"><label>Find servers<input type="search" data-server-filter="search" maxlength="200" value="${esc(filters.search)}" placeholder="Name, application, host or address"></label><label>Filter by application<select data-server-filter="application"><option value="">All applications</option>${options(applications, filters.application, 'Selected application (not in current list)')}</select></label>${snapshot.assigned ? '' : `<label>Filter by host<select data-server-filter="host"><option value="">All hosts</option>${options(hosts, filters.host, 'Selected host (not in current list)')}</select></label>`}<button type="button" data-clear-server-filters ${active ? '' : 'disabled'}>Clear filters</button></div>
+  return `<div class="server-filters" role="search" aria-label="Find servers"><label>Find servers<input type="search" data-server-filter="search" maxlength="200" value="${esc(filters.search)}" placeholder="Name, application, host or address"></label><label>Filter by application<select data-server-filter="application"><option value="">All applications</option>${options(applications, filters.application, 'Selected application (not in current list)')}</select></label>${snapshot.assigned ? '' : `<label>Filter by host<select data-server-filter="host"><option value="">All hosts</option>${options(hosts, filters.host, 'Selected host (not in current list)')}</select></label><label>Filter by status<select data-server-filter="status"><option value="">All statuses</option>${options(statuses, filters.status, filters.status)}</select></label>`}<button type="button" data-clear-server-filters ${active ? '' : 'disabled'}>Clear filters</button></div>
     <p class="server-count" role="status" aria-live="polite" aria-atomic="true">Showing ${servers.length} of ${snapshot.servers.length} ${snapshot.servers.length === 1 ? 'server' : 'servers'}</p>
     ${!servers.length && snapshot.servers.length ? '<div class="empty server-no-matches"><h2>No matching servers</h2><p>Try another search or clear the filters to see all your servers.</p></div>' : serverCards({...snapshot, servers}, admin)}`;
 }

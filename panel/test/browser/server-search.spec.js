@@ -34,7 +34,7 @@ async function fleet(page) {
     hosts: [{id: local, name: 'This host', local: true, connected: true}, {id: remote, name: 'Weekend host', local: false, connected: true}],
     local: [server('b'.repeat(32), 'Friday factory', 'factorio', 'factory.example.test:35000'), server('c'.repeat(32), 'Island crew', 'rust', 'island.example.test:35003')],
     remote: [server(remoteServer, 'Other factory <crew>', 'factorio', 'weekend.example.test:35006')],
-    active: null, reads: 0,
+    active: null, reads: 0, status: {},
   };
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -44,7 +44,7 @@ async function fleet(page) {
     if (path === '/api/hosts/' + remote + '/servers') return route.fulfill({json: {servers: state.remote}});
     if (/^\/api\/(?:hosts\/[a-f0-9]{32}\/)?snapshots$/.test(path)) return route.fulfill({json: {snapshots: []}});
     if (/^\/api\/(?:hosts\/[a-f0-9]{32}\/)?jobs$/.test(path)) return route.fulfill({json: {jobs: state.active ? [state.active] : [], active: state.active}});
-    if (/\/servers\/[a-f0-9]{32}\/api\/status$/.test(path)) return route.fulfill({json: {ready: true, running: true, players: []}});
+    if (/\/servers\/[a-f0-9]{32}\/api\/status$/.test(path)) return route.fulfill({json: Object.hasOwn(state.status, path) ? state.status[path] : {ready: true, running: true, players: []}});
     return route.fallback();
   });
   return state;
@@ -113,6 +113,7 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await login(page, 'Assigned');
   await expect(count(page)).toHaveText('Showing 1 of 1 server');
   await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
   await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true}).locator('option')).toHaveText(['All applications', 'Factorio']);
   await search(page).fill('Island'); await expect(cards(page)).toHaveCount(0);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
@@ -230,4 +231,69 @@ test('copy success is announced only after the clipboard write completes', async
   await expect(page.locator('#notice')).toBeHidden();
   await page.evaluate(() => globalThis.completeClipboardWrite());
   await expect(page.locator('#notice')).toHaveText('Server address copied.');
+});
+
+
+test('status filtering combines fleet filters and follows refresh, offline status and session reset', async ({page}, info) => {
+  await page.clock.install(); const state = await fleet(page);
+  const rustStatus = '/servers/' + 'c'.repeat(32) + '/api/status';
+  state.status[rustStatus] = {ready: false, running: false, state: 'exited', players: []};
+  await login(page);
+  const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
+  await expect(status.locator('option')).toHaveText(['All statuses', 'Ready', 'Stopped']);
+  await status.focus(); await status.press('End'); await status.press('Enter');
+  await expect(status).toHaveValue('Stopped');
+  await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Island crew');
+  await search(page).fill('Island');
+  await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('rust');
+  await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(local);
+  await expect(count(page)).toHaveText('Showing 1 of 3 servers');
+  await status.selectOption('Ready'); await expect(cards(page)).toHaveCount(0);
+  await expect(page.getByRole('heading', {name: 'No matching servers'})).toBeVisible();
+  const clear = page.getByRole('button', {name: 'Clear filters', exact: true});
+  await clear.focus(); await clear.press('Enter');
+  await expect(search(page)).toBeFocused(); await expect(cards(page)).toHaveCount(3);
+  await expect(status).toHaveValue('');
+  await status.selectOption('Stopped');
+  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await expect(status).toHaveValue('Stopped');
+  state.status[rustStatus] = {ready: false, running: true, players: []};
+  const before = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(before);
+  await expect(count(page)).toHaveText('Showing 0 of 3 servers');
+  await expect(status).toHaveValue('Stopped');
+  await status.selectOption('Starting'); await expect(cards(page)).toContainText('Island crew');
+  state.hosts[0].connected = false; await page.clock.fastForward(6000);
+  await expect(cards(page)).toHaveCount(0);
+  await status.selectOption('Host unavailable'); await expect(cards(page)).toHaveCount(2);
+  await expect(cards(page).locator('.status')).toHaveText(['Host unavailable', 'Host unavailable']);
+  for (const card of await cards(page).all()) {
+    await expect(card.getByRole('button', {name: 'Remove', exact: true})).toBeDisabled();
+    await expect(card.getByRole('button', {name: 'Publish snapshot', exact: true})).toBeDisabled();
+  }
+  await page.screenshot({path: info.outputPath('fleet-status-filter.png'), fullPage: true});
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
+  state.hosts[0].connected = true;
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await login(page, 'Viewer'); await expect(status).toHaveValue('');
+});
+
+test('viewer status filtering distinguishes unavailable status data, attention and creation without writes', async ({page}) => {
+  const state = await fleet(page);
+  state.local[0].state = 'attention'; state.local[1].state = 'creating';
+  state.status['/servers/' + 'b'.repeat(32) + '/api/status'] = null;
+  state.status['/servers/' + 'c'.repeat(32) + '/api/status'] = null;
+  state.status['/hosts/' + remote + '/servers/' + remoteServer + '/api/status'] = null;
+  await login(page, 'Viewer');
+  const requests = []; page.on('request', request => {if (request.method() !== 'GET') requests.push(request.url());});
+  const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
+  await status.selectOption('Needs attention'); await expect(cards(page)).toContainText('Friday factory');
+  await expect(cards(page)).toHaveCount(1); await expect(cards(page).locator('.status')).toHaveText('Needs attention');
+  await status.selectOption('Creating'); await expect(cards(page)).toContainText('Island crew');
+  await expect(cards(page).locator('.status')).toHaveText('Creating');
+  await status.selectOption('Checking'); await expect(cards(page)).toContainText('Other factory');
+  await expect(cards(page).locator('.status')).toHaveText('Checking');
+  await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
+  expect(requests).toEqual([]);
 });

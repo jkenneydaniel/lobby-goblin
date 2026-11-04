@@ -12,6 +12,11 @@ SSH. The panel holds a pairing-secured connection to each agent on a configurabl
 dedicated port (24443 by default); public, private and VPN addresses are supported.
 See [remote host setup, networking and recovery](REMOTE_HOSTS.md).
 
+On **Servers**, combine search and application/host filters with **Filter by
+status** to find ready, stopped or unavailable servers. Status follows the label
+on each card and updates with ordinary refreshes. Assigned-server lists keep their
+minimal view without live status reads. **Clear filters** restores the full list.
+
 On **Servers**, use **Copy address** on a server card to copy its displayed
 connection address, including the port. It is also available to viewers and
 assigned-server accounts. If the browser blocks clipboard access, the address

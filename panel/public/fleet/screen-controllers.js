@@ -107,7 +107,7 @@ export function createFleetScreens({
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.serverFilter;
-      if (!['application', 'host'].includes(key)) return;
+      if (!['application', 'host', 'status'].includes(key)) return;
       filters[key] = event.target.value;
       paintServers(ctx, filters);
     });
@@ -133,7 +133,11 @@ export function createFleetScreens({
         return;
       }
       if (event.target.closest('[data-clear-server-filters]')) {
-        filters.search = filters.application = filters.host = '';
+        filters.search =
+          filters.application =
+          filters.host =
+          filters.status =
+            '';
         paintServers(ctx, filters, true);
         return;
       }
@@ -183,7 +187,13 @@ export function createFleetScreens({
       };
     },
     servers: () => {
-      const filters = {search: '', application: '', host: '', composing: false};
+      const filters = {
+        search: '',
+        application: '',
+        host: '',
+        status: '',
+        composing: false,
+      };
       return {
         async mount(ctx) {
           await model.refresh();

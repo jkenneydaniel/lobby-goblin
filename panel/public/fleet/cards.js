@@ -3,6 +3,26 @@ import {playerCount} from '../client.js';
 import {serverKey} from './host-paths.js';
 const connectionAddress = (server) =>
   `<p class="server-address"><code>${esc(server.address || '')}</code>${server.address ? `<button type="button" class="quiet" data-copy-address="${esc(server.manageUrl)}">Copy address</button>` : ''}</p>`;
+// Keep fleet filtering and the visible card label on the same classification.
+export function serverStatus(server, {hosts, live}) {
+  const status = live.get(serverKey(server));
+  return server.state === 'removed'
+    ? 'Removed · data kept'
+    : !hosts.find((host) => host.id === server.hostId)?.connected ||
+        server.unavailable
+      ? 'Host unavailable'
+      : status?.ready
+        ? 'Ready'
+        : status?.running
+          ? 'Starting'
+          : status?.state === 'exited'
+            ? 'Stopped'
+            : server.state === 'attention'
+              ? 'Needs attention'
+              : server.state === 'creating'
+                ? 'Creating'
+                : 'Checking';
+}
 export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
   const hostBusy = (id) => !!hostJobs.get(id);
   if (assigned)
@@ -22,21 +42,7 @@ export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
             unavailable =
               !hosts.find((h) => h.id === s.hostId)?.connected || s.unavailable,
             busy = hostBusy(s.hostId),
-            state = removed
-              ? 'Removed · data kept'
-              : unavailable
-                ? 'Host unavailable'
-                : status?.ready
-                  ? 'Ready'
-                  : status?.running
-                    ? 'Starting'
-                    : status?.state === 'exited'
-                      ? 'Stopped'
-                      : s.state === 'attention'
-                        ? 'Needs attention'
-                        : s.state === 'creating'
-                          ? 'Creating'
-                          : 'Checking';
+            state = serverStatus(s, {hosts, live});
           return `<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable || s.state === 'attention' ? 'attention' : ''}">${esc(state)}</span>${connectionAddress(s)}<div class="stats"><div><strong>${unavailable || status?.players == null ? '—' : playerCount(status.players)}</strong>players</div><div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>' : `<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">Open server</a>${admin ? `<button data-snapshot="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`}</article>`;
         })
         .join('')
