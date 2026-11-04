@@ -29,7 +29,7 @@ async function login(page, username = 'Preview') {
   await expect(search(page)).toBeVisible();
 }
 async function fleet(page) {
-  const server = (id, name, game, address) => ({id, name, game, address, state: 'installed', cpu: 1, memoryGiB: 2});
+  const server = (id, name, game, address) => ({id, name, game, applicationName: {factorio: 'Factorio', rust: 'Rust', 'status-page': 'Status Page'}[game], address, state: 'installed', cpu: 1, memoryGiB: 2});
   const state = {
     hosts: [{id: local, name: 'This host', local: true, connected: true}, {id: remote, name: 'Weekend host', local: false, connected: true}],
     local: [server('b'.repeat(32), 'Friday factory', 'factorio', 'factory.example.test:35000'), server('c'.repeat(32), 'Island crew', 'rust', 'island.example.test:35003')],
@@ -107,12 +107,13 @@ test('fleet filters and typing caret survive live refresh, offline/busy fences a
 });
 
 test('assigned server search exposes only the minimal authorized list and session reset drops prior filters', async ({page}) => {
+  const state = await fleet(page); state.hosts.splice(1); state.remote = [];
   const reads = [];
   page.on('request', request => {if (request.url().includes('/api/')) reads.push(new URL(request.url()).pathname);});
   await login(page, 'Assigned');
   await expect(count(page)).toHaveText('Showing 1 of 1 server');
   await expect(page.getByRole('combobox', {name: 'Host', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('combobox', {name: 'Application', exact: true}).locator('option')).toHaveText(['All applications', 'factorio']);
+  await expect(page.getByRole('combobox', {name: 'Application', exact: true}).locator('option')).toHaveText(['All applications', 'Factorio']);
   await search(page).fill('Island'); await expect(cards(page)).toHaveCount(0);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
   await expect(cards(page)).toContainText('Friday factory');
@@ -125,4 +126,40 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await expect(search(page)).toHaveValue('');
   await expect(cards(page)).toHaveCount(2);
   await expect(cards(page).getByRole('button')).toHaveCount(0);
+});
+
+test('background fleet refresh preserves scroll while restoring search focus', async ({page}) => {
+  await page.clock.install(); const state = await fleet(page);
+  for (let i = 16; i < 36; i++) state.local.push({...state.local[0], id: i.toString(16).padStart(32, '0'), name: 'Factory ' + i});
+  await login(page); await search(page).fill('factory');
+  await page.evaluate(() => globalThis.scrollTo(0, 1700));
+  const top = await page.evaluate(() => globalThis.scrollY);
+  expect(top).toBeGreaterThan(500);
+  const before = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(before);
+  await expect(search(page)).toBeFocused();
+  expect(await page.evaluate(() => globalThis.scrollY)).toBe(top);
+});
+
+test('search composition keeps its input mounted through interim typing and a background refresh', async ({page}) => {
+  await page.clock.install(); const state = await fleet(page); await login(page);
+  const input = await search(page).elementHandle();
+  await input.dispatchEvent('compositionstart', {data: ''});
+  await input.evaluate(element => {element.value = '工'; element.dispatchEvent(new globalThis.InputEvent('input', {bubbles: true, isComposing: true}));});
+  const before = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(before);
+  expect(await input.evaluate(element => element.isConnected)).toBe(true);
+  await input.evaluate(element => {element.value = 'Factory'; element.dispatchEvent(new globalThis.CompositionEvent('compositionend', {bubbles: true, data: 'Factory'}));});
+  await expect(search(page)).toHaveValue('Factory');
+  await expect(cards(page)).toHaveCount(2);
+});
+
+for (const username of ['Viewer', 'Assigned']) test('application names are searchable before creation for ' + username, async ({page}) => {
+  const state = await fleet(page), item = {...state.local[0], name: 'Service dashboard', game: 'status-page', applicationName: 'Status Page'};
+  state.local = [item]; state.remote = []; state.hosts.splice(1);
+  if (username === 'Assigned') await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: [{...item, manageUrl: '/servers/' + item.id + '/'}]}}));
+  await login(page, username);
+  await expect(page.getByRole('combobox', {name: 'Application', exact: true})).toContainText('Status Page');
+  await search(page).fill('Status Page');
+  await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Service dashboard');
 });

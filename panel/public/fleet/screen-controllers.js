@@ -72,7 +72,7 @@ export function createFleetScreens({
     ctx.on($('#cancel-remove'), 'click', () => $('#remove-dialog').close());
   }
   function paintServers(ctx, filters, focusSearch = false) {
-    if (!ctx.isCurrent()) return;
+    if (!ctx.isCurrent() || filters.composing) return;
     const active = document.activeElement,
       focused = ctx.root.contains(active)
         ? active?.dataset?.serverFilter
@@ -86,11 +86,22 @@ export function createFleetScreens({
       `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
     );
     if (input) {
-      input.focus();
+      input.focus({preventScroll: !focusSearch});
       if (range && !focusSearch) input.setSelectionRange(...range);
     }
     ctx.on(ctx.root, 'input', (event) => {
       if (event.target.dataset.serverFilter !== 'search') return;
+      filters.search = event.target.value;
+      if (event.isComposing || filters.composing) return;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'compositionstart', (event) => {
+      if (event.target.dataset.serverFilter === 'search')
+        filters.composing = true;
+    });
+    ctx.on(ctx.root, 'compositionend', (event) => {
+      if (event.target.dataset.serverFilter !== 'search') return;
+      filters.composing = false;
       filters.search = event.target.value;
       paintServers(ctx, filters);
     });
@@ -152,12 +163,13 @@ export function createFleetScreens({
       };
     },
     servers: () => {
-      const filters = {search: '', application: '', host: ''};
+      const filters = {search: '', application: '', host: '', composing: false};
       return {
         async mount(ctx) {
           await model.refresh();
           paintServers(ctx, filters);
           ctx.onDispose(() => {
+            filters.composing = false;
             $('#snapshot-dialog').close();
             $('#remove-dialog').close();
             creation.cancel();

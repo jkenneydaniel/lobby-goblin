@@ -3,8 +3,10 @@ import {serverCards} from './cards.js';
 
 // Presentation only: use the session-scoped model, never fetch more resources.
 export function serverCollection(snapshot, admin, filters) {
-  const applicationName = (id) =>
-      snapshot.games.find((game) => game.id === id)?.name || id,
+  const applicationName = (item) =>
+      item.applicationName ||
+      snapshot.games.find((game) => game.id === item.game)?.name ||
+      item.game,
     query = filters.search.trim().toLocaleLowerCase(),
     servers = snapshot.servers.filter(
       (item) =>
@@ -14,7 +16,8 @@ export function serverCollection(snapshot, admin, filters) {
           [
             item.name,
             item.game,
-            applicationName(item.game),
+            applicationName(item),
+            item.game.replaceAll('-', ' '),
             item.hostName,
             item.address,
           ]
@@ -23,7 +26,7 @@ export function serverCollection(snapshot, admin, filters) {
             .includes(query)),
     ),
     applications = new Map(
-      snapshot.servers.map((item) => [item.game, applicationName(item.game)]),
+      snapshot.servers.map((item) => [item.game, applicationName(item)]),
     ),
     hosts = new Map(
       snapshot.servers
