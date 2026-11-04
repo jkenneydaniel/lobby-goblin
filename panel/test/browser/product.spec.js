@@ -1,5 +1,6 @@
 import {test as base, expect} from '@playwright/test';
 import {scope, origins} from './playwright.config.js';
+import {trackPageRoutes} from './route-drain.js';
 import {
   emptySetups,
   changeSetups,
@@ -9,6 +10,7 @@ import {
 // so a fixture regression cannot turn a test into a real host operation.
 const test = base.extend({
   page: async ({page}, use) => {
+    const routes = trackPageRoutes(page);
     const errors = [],
       external = [];
     page.on('pageerror', (error) => errors.push(error.message));
@@ -18,9 +20,9 @@ const test = base.extend({
       external.push(url.origin);
       return route.abort();
     });
-    await use(page);
-    // Finish in-flight response handlers before context teardown disposes them.
-    await page.unrouteAll({behavior: 'wait'});
+    // Unregistering first can make Playwright continue another pending route.
+    try { await use(page); }
+    finally { await routes.dispose(); }
     expect(errors, 'Uncaught browser errors').toEqual([]);
     expect(external, 'Unexpected external requests').toEqual([]);
   },

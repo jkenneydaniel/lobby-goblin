@@ -1,13 +1,17 @@
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
+import {trackPageRoutes} from './route-drain.js';
 const local = 'a'.repeat(32), remote = 'd'.repeat(32), id = 'c'.repeat(32);
 const test = base.extend({page: async ({page}, use) => {
+  const routes = trackPageRoutes(page);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.context().route('**/*', route => new URL(route.request().url()).origin === origins.fleet ? route.continue() : route.abort());
   await page.route('**/api/hosts', route => route.fulfill({json: {hosts: [{id: local, name: 'This host', local: true, connected: true}]}}));
   await page.route('**/api/updates/settings', route => route.fulfill({json: {enabled: true, channel: 'preview', revision: 0, editable: true}}));
   await page.route(/\/api\/updates(?:\/check)?$/, route => route.fulfill({json: {current: '0.3.14-alpha', state: 'available', available: true, latest: {tag: 'v99.0.0-alpha', notes: 'Synthetic management release', url: 'https://github.com/jkenneydaniel/lobby-goblin/releases/tag/v99.0.0-alpha'}}}));
-  await use(page); await page.unrouteAll({behavior: 'wait'}); expect(errors).toEqual([]);
+  try { await use(page); }
+  finally { await routes.dispose(); }
+  expect(errors).toEqual([]);
 }});
 async function open(page, user = 'Preview') {
   await page.goto(origins.fleet); await page.getByLabel('Username', {exact: true}).fill(user);
