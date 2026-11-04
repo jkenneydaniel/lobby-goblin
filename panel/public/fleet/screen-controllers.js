@@ -2,7 +2,7 @@ import {createStorageScreen} from './storage-screen.js';
 import {createUpdatesScreen} from './updates-screen.js';
 import {createSnapshotScreen} from './snapshot-screen.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
-import {serverCards} from './cards.js';
+import {serverCollection} from './server-filters.js';
 import {serverKey} from './host-paths.js';
 import {mountAccounts} from '../shared/accounts.js';
 import {createHostSettings} from './host-settings.js';
@@ -71,10 +71,52 @@ export function createFleetScreens({
     ctx.on($('#cancel-publish'), 'click', () => $('#snapshot-dialog').close());
     ctx.on($('#cancel-remove'), 'click', () => $('#remove-dialog').close());
   }
-  function paintServers(ctx) {
-    if (!ctx.isCurrent()) return;
-    ctx.render(serverCards(model.snapshot, admin()));
+  function paintServers(ctx, filters, focusSearch = false) {
+    if (!ctx.isCurrent() || filters.composing) return;
+    const active = document.activeElement,
+      focused = ctx.root.contains(active)
+        ? active?.dataset?.serverFilter
+        : null,
+      range =
+        focused === 'search' && active.selectionStart != null
+          ? [active.selectionStart, active.selectionEnd]
+          : null;
+    ctx.render(serverCollection(model.snapshot, admin(), filters));
+    const input = ctx.root.querySelector(
+      `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
+    );
+    if (input) {
+      input.focus({preventScroll: !focusSearch});
+      if (range && !focusSearch) input.setSelectionRange(...range);
+    }
+    ctx.on(ctx.root, 'input', (event) => {
+      if (event.target.dataset.serverFilter !== 'search') return;
+      filters.search = event.target.value;
+      if (event.isComposing || filters.composing) return;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'compositionstart', (event) => {
+      if (event.target.dataset.serverFilter === 'search')
+        filters.composing = true;
+    });
+    ctx.on(ctx.root, 'compositionend', (event) => {
+      if (event.target.dataset.serverFilter !== 'search') return;
+      filters.composing = false;
+      filters.search = event.target.value;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'change', (event) => {
+      const key = event.target.dataset.serverFilter;
+      if (!['application', 'host'].includes(key)) return;
+      filters[key] = event.target.value;
+      paintServers(ctx, filters);
+    });
     ctx.on(ctx.root, 'click', (event) => {
+      if (event.target.closest('[data-clear-server-filters]')) {
+        filters.search = filters.application = filters.host = '';
+        paintServers(ctx, filters, true);
+        return;
+      }
       const button = event.target.closest('[data-snapshot],[data-remove]');
       if (!button || !ctx.root.contains(button)) return;
       const item = model.snapshot.servers.find(
@@ -120,21 +162,25 @@ export function createFleetScreens({
         },
       };
     },
-    servers: () => ({
-      async mount(ctx) {
-        await model.refresh();
-        paintServers(ctx);
-        ctx.onDispose(() => {
-          $('#snapshot-dialog').close();
-          $('#remove-dialog').close();
-          creation.cancel();
-        });
-      },
-      async refresh(ctx, options) {
-        if (options.reason !== 'model') await model.refresh();
-        paintServers(ctx);
-      },
-    }),
+    servers: () => {
+      const filters = {search: '', application: '', host: '', composing: false};
+      return {
+        async mount(ctx) {
+          await model.refresh();
+          paintServers(ctx, filters);
+          ctx.onDispose(() => {
+            filters.composing = false;
+            $('#snapshot-dialog').close();
+            $('#remove-dialog').close();
+            creation.cancel();
+          });
+        },
+        async refresh(ctx, options) {
+          if (options.reason !== 'model') await model.refresh();
+          paintServers(ctx, filters);
+        },
+      };
+    },
     storage: () => createStorageScreen({model, notice}),
     library: () => createSnapshotScreen({model, getSession, creation, notice}),
     access: () => {

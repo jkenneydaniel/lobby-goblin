@@ -50,6 +50,13 @@ test('real fleet and scoped web enforce server assignments before proxying, sepa
  assert.equal((await f.request(member,one+'/api/download?kind=backup&name=private.zip')).status,403);
  const viewer=await f.login('Viewer','viewer-fixture-password');for(const user of [member,viewer]){assert.equal((await f.request(user,one+'/api/jobs?workflows=1')).status,403);assert.equal((await f.request(user,'/api/hosts/'+'c'.repeat(32)+'/jobs?workflows=1')).status,403);} assert.equal((await f.request(viewer,two+'/api/status')).status,200);assert.equal((await f.request(viewer,one+'/api/jobs',{action:'save'})).status,403);
 });
+test('assigned lists include only their applications display names without requesting a catalog',async t=>{
+ const f=await fixture(t,{games:{[one]:'status-page'}}),member=await f.login('Assigned','member-fixture-password');
+ const before=f.calls.length,listed=await(await f.request(member,'/api/assigned-servers')).json();
+ assert.deepEqual(listed.servers.map(item=>item.applicationName),['Status Page','Factorio']);
+ assert.deepEqual(f.calls.slice(before).map(call=>call.route),[one,remote]);
+ assert.ok(!JSON.stringify(listed).includes('never-public'));
+});
 test('permission changes revoke existing sessions and refresh available tools after reauthentication',async t=>{
  const f=await fixture(t),owner=await f.login('Owner','owner-fixture-password'),member=await f.login('Assigned','member-fixture-password');
  assert.equal((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'grants',grants:{[remote]:['server.view']},revision:0,confirm:true})).status,200);

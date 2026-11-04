@@ -1,0 +1,52 @@
+import {escapeHTML as esc} from '../shared/view.js';
+import {serverCards} from './cards.js';
+
+// Presentation only: use the session-scoped model, never fetch more resources.
+export function serverCollection(snapshot, admin, filters) {
+  const applicationName = (item) =>
+      item.applicationName ||
+      snapshot.games.find((game) => game.id === item.game)?.name ||
+      item.game,
+    query = filters.search.trim().toLocaleLowerCase(),
+    servers = snapshot.servers.filter(
+      (item) =>
+        (!filters.application || item.game === filters.application) &&
+        (!filters.host || item.hostId === filters.host) &&
+        (!query ||
+          [
+            item.name,
+            item.game,
+            applicationName(item),
+            item.game.replaceAll('-', ' '),
+            item.hostName,
+            item.address,
+          ]
+            .join(' ')
+            .toLocaleLowerCase()
+            .includes(query)),
+    ),
+    applications = new Map(
+      snapshot.servers.map((item) => [item.game, applicationName(item)]),
+    ),
+    hosts = new Map(
+      snapshot.servers
+        .filter((item) => item.hostId)
+        .map((item) => [item.hostId, item.hostName]),
+    ),
+    active = !!(filters.search || filters.application || filters.host);
+  const options = (items, selected, missing) => {
+    const values = [...items].sort((a, b) =>
+      String(a[1]).localeCompare(String(b[1])),
+    );
+    if (selected && !items.has(selected)) values.push([selected, missing]);
+    return values
+      .map(
+        ([value, label]) =>
+          `<option value="${esc(value)}" ${value === selected ? 'selected' : ''}>${esc(label)}</option>`,
+      )
+      .join('');
+  };
+  return `<div class="server-filters" role="search" aria-label="Find servers"><label>Find servers<input type="search" data-server-filter="search" maxlength="200" value="${esc(filters.search)}" placeholder="Name, application, host or address"></label><label>Filter by application<select data-server-filter="application"><option value="">All applications</option>${options(applications, filters.application, 'Selected application (not in current list)')}</select></label>${snapshot.assigned ? '' : `<label>Filter by host<select data-server-filter="host"><option value="">All hosts</option>${options(hosts, filters.host, 'Selected host (not in current list)')}</select></label>`}<button type="button" data-clear-server-filters ${active ? '' : 'disabled'}>Clear filters</button></div>
+    <p class="server-count" role="status" aria-live="polite" aria-atomic="true">Showing ${servers.length} of ${snapshot.servers.length} ${snapshot.servers.length === 1 ? 'server' : 'servers'}</p>
+    ${!servers.length && snapshot.servers.length ? '<div class="empty server-no-matches"><h2>No matching servers</h2><p>Try another search or clear the filters to see all your servers.</p></div>' : serverCards({...snapshot, servers}, admin)}`;
+}

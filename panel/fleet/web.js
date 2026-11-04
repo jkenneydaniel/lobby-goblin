@@ -29,7 +29,7 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
     const servers=[];
     for(const scope of Object.keys(user.grants||{}).slice(0,64)){
      if(scope==='standalone'||!validScope(scope)||!user.grants[scope].includes('server.view'))continue;
-     try{const item=await read(scope);if(item.state!=='removed')servers.push({id:item.id,name:item.name,game:item.game,state:item.state,address:item.address,manageUrl:scope+'/'});}catch{}
+     try{const item=await read(scope);if(item.state!=='removed')servers.push({id:item.id,name:item.name,game:item.game,applicationName:registeredApplications().find(module=>module.id===item.game)?.name||item.applicationName||item.game,state:item.state,address:item.address,manageUrl:scope+'/'});}catch{}
     }
     json(res,200,{servers});return true;
    }

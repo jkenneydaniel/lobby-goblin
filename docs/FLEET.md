@@ -53,6 +53,12 @@ Keep the invitation private; it expires after 24 hours. It is stored at
 
 ## Create and manage
 
+The Servers view can search by server name, application, host name or connection
+address, with application and host filters that combine with the search. The
+matching count and Clear filters help return to the full list. Choices stay while
+you navigate the panel and through background refreshes; signing out clears them.
+Assigned-server accounts search only their assigned list and have no host filter.
+
 Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
 Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
 port use; Rust gets a separate query port. Port clashes outside Docker fail

@@ -16,6 +16,11 @@ test('creation rejects commands, unsupported games, resource overcommit inputs a
  for(const input of [{game:'other',name:'x'},{game:'factorio',name:'name\nquit'},{game:'rust',name:'x',memoryGiB:2},{game:'factorio',name:'x',cpu:.7},{game:'rust',name:'x',worldSize:1337},{game:'factorio',name:'x',seed:0}])assert.throws(()=>validateCreation(input));
  const value=validateCreation({game:'factorio',name:'Friday',image:'evil/image',hostPath:'/production'});assert.equal(value.image,undefined);assert.equal(value.hostPath,undefined);
 });
+test('public server labels come from the registered application without exposing secrets or changing stored data',async t=>{
+ const f=await fakeManager(t),item={id:one,game:'status-page',name:'Service dashboard',gamePort:35000,controllerToken:'never-public',rconPassword:'never-public'},before=structuredClone(item);
+ const shown=f.manager.publicServer(item);assert.equal(shown.applicationName,'Status Page');assert.equal(shown.manageUrl,`/servers/${one}/`);assert.ok(!JSON.stringify(shown).includes('never-public'));assert.deepEqual(item,before);
+ assert.equal(f.manager.publicServer({...item,game:'legacy-application'}).applicationName,'legacy-application');
+});
 test('Factorio snapshots strip credentials and clone into independent initialized storage',async t=>{
  const f=await fixture(t),a=await directory(f.root,'a'),b=await directory(f.root,'b');await runWorker(provision(one),{instance:a,library:f.library});
  const backup=await factorioBackup(a),result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Shared world',sourceName:'Source',game:'factorio',image:catalog.factorio.image}});

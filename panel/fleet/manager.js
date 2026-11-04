@@ -45,7 +45,7 @@ export class FleetManager{
  persist(state=this.state){const data=structuredClone(state);const next=this.queue.then(()=>this.repository.save(this.storageSnapshot,data));this.queue=next.catch(()=>{});return next;}
  server(id){assert(validId(id),'Invalid server.');const item=this.state.servers.find(s=>s.id===id);assert(item,'Server not found.',404);return item;}
  snapshot(id){assert(validId(id),'Invalid snapshot.');const item=this.state.snapshots.find(s=>s.id===id);assert(item,'Snapshot not found.',404);return item;}
- publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
+ publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),applicationName:this.catalog[item.game]?.name||item.game,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
  list(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>this.publicServer(s));}
  removedServers(){return this.state.servers.filter(s=>s.state==='removed').map(({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,storageReview})=>({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,...(storageReview?{storageReview:((({identity:_identity,...review})=>review)(storageReview))}:{})}));}
  allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:1,totalGiB:s.memoryGiB+1}));}
