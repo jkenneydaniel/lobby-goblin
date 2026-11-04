@@ -14,6 +14,13 @@ It implements exact Java selection/digest checks, read-only non-executable
 staging, scoped abstract worker intents, a fixed private management binding and
 durable fake status/save/stop outcomes with confirmation and no automatic replay.
 
+An already-parsed synthetic catalogue now validates all entries within fixed
+entry/serialized-size bounds, rejects duplicate version IDs and selects only an
+explicit exact version. The immutable selection feeds the existing fake worker
+and preparation contracts; different bytes cannot replace an earlier plan.
+This does not establish actual Mojang JSON compatibility, wire parsing, publisher
+authentication or transfer/TLS behaviour.
+
 The production registry, SteamCMD dispatcher and managed-definition credential
 whitelist remain closed to Minecraft. The management Dockerfile does not copy
 the development-only prototype directory. There is no downloader, image recipe,
