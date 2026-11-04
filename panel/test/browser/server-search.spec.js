@@ -117,7 +117,8 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await search(page).fill('Island'); await expect(cards(page)).toHaveCount(0);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
   await expect(cards(page)).toContainText('Friday factory');
-  await expect(cards(page).getByRole('button')).toHaveCount(0);
+  await expect(cards(page).getByRole('button', {name: 'Copy address', exact: true})).toHaveCount(1);
+  await expect(cards(page).getByRole('button')).toHaveCount(1);
   await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/servers/' + 'b'.repeat(32) + '/');
   expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
   await search(page).fill('Friday');
@@ -125,7 +126,8 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await login(page, 'Viewer');
   await expect(search(page)).toHaveValue('');
   await expect(cards(page)).toHaveCount(2);
-  await expect(cards(page).getByRole('button')).toHaveCount(0);
+  await expect(cards(page).getByRole('button', {name: 'Copy address', exact: true})).toHaveCount(2);
+  await expect(cards(page).getByRole('button')).toHaveCount(2);
 });
 
 test('background fleet refresh preserves scroll while restoring search focus', async ({page}) => {
@@ -162,4 +164,70 @@ for (const username of ['Viewer', 'Assigned']) test('application names are searc
   await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true})).toContainText('Status Page');
   await search(page).fill('Status Page');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Service dashboard');
+});
+
+
+test('copy address uses the exact selected host and supports keyboard and read-only accounts', async ({page}) => {
+  await page.addInitScript(() => {
+    globalThis.copiedAddresses = [];
+    Object.defineProperty(navigator, 'clipboard', {value: {writeText: async value => globalThis.copiedAddresses.push(value)}});
+  });
+  const state = await fleet(page);
+  // IDs overlap across hosts; the button must resolve both host and server.
+  state.remote[0].id = state.local[0].id;
+  await login(page, 'Viewer');
+  await search(page).fill('Other factory');
+  const copy = cards(page).getByRole('button', {name: 'Copy address', exact: true});
+  await copy.focus(); await copy.press('Enter');
+  await expect(page.locator('#notice')).toHaveText('Server address copied.');
+  expect(await page.evaluate(() => globalThis.copiedAddresses)).toEqual(['weekend.example.test:35006']);
+  await expect(search(page)).toHaveValue('Other factory');
+  await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  // The minimal assigned projection deliberately omits hostId. Its scoped
+  // management URL still distinguishes identical IDs across hosts.
+  await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: [
+    {...state.local[0], manageUrl: '/servers/' + state.local[0].id + '/'},
+    {...state.remote[0], manageUrl: '/hosts/' + remote + '/servers/' + state.remote[0].id + '/'},
+  ]}}));
+  await login(page, 'Assigned');
+  const assignedRemote = cards(page).filter({has: page.getByRole('heading', {name: 'Other factory <crew>', exact: true})});
+  await assignedRemote.getByRole('button', {name: 'Copy address', exact: true}).click();
+  await expect(page.locator('#notice')).toHaveText('Server address copied.');
+  expect(await page.evaluate(() => globalThis.copiedAddresses)).toEqual(['weekend.example.test:35006']);
+  await expect(assignedRemote.getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
+});
+
+test('clipboard failure keeps the address visible and does not claim success or mutate servers', async ({page}) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {value: {writeText: async () => {throw new Error('Denied');}}}));
+  const state = await fleet(page); state.local[1].address = '';
+  await login(page);
+  const mutations = [];
+  page.on('request', request => {if (request.method() !== 'GET') mutations.push(request.url());});
+  const card = cards(page).filter({has: page.getByRole('heading', {name: 'Friday factory', exact: true})});
+  await card.getByRole('button', {name: 'Copy address', exact: true}).click();
+  await expect(page.locator('#error')).toHaveText('Clipboard unavailable. Select and copy the address shown on the server card.');
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(card.locator('.server-address code')).toHaveText('factory.example.test:35000');
+  await expect(cards(page).filter({has: page.getByRole('heading', {name: 'Island crew', exact: true})}).getByRole('button', {name: 'Copy address', exact: true})).toHaveCount(0);
+  expect(mutations).toEqual([]);
+});
+
+test('missing clipboard API provides manual copy guidance', async ({page}) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {value: undefined}));
+  await fleet(page); await login(page);
+  await cards(page).first().getByRole('button', {name: 'Copy address', exact: true}).click();
+  await expect(page.locator('#error')).toContainText('Select and copy the address');
+  await expect(page.locator('#notice')).toBeHidden();
+});
+
+
+test('copy success is announced only after the clipboard write completes', async ({page}) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', {value: {writeText: () => new Promise(resolve => {globalThis.completeClipboardWrite = resolve;})}}));
+  await fleet(page); await login(page);
+  await cards(page).first().getByRole('button', {name: 'Copy address', exact: true}).click();
+  await expect.poll(() => page.evaluate(() => typeof globalThis.completeClipboardWrite)).toBe('function');
+  await expect(page.locator('#notice')).toBeHidden();
+  await page.evaluate(() => globalThis.completeClipboardWrite());
+  await expect(page.locator('#notice')).toHaveText('Server address copied.');
 });

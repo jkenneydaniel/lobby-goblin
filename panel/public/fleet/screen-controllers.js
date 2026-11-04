@@ -111,7 +111,27 @@ export function createFleetScreens({
       filters[key] = event.target.value;
       paintServers(ctx, filters);
     });
-    ctx.on(ctx.root, 'click', (event) => {
+    ctx.on(ctx.root, 'click', async (event) => {
+      const copy = event.target.closest('[data-copy-address]');
+      if (copy && ctx.root.contains(copy)) {
+        // Assigned records omit hostId but retain their scoped management URL.
+        const item = model.snapshot.servers.find(
+          (server) => server.manageUrl === copy.dataset.copyAddress,
+        );
+        if (!item?.address) return;
+        notice('');
+        error('');
+        try {
+          await navigator.clipboard.writeText(item.address);
+          if (ctx.isCurrent()) notice('Server address copied.');
+        } catch {
+          if (ctx.isCurrent())
+            error(
+              'Clipboard unavailable. Select and copy the address shown on the server card.',
+            );
+        }
+        return;
+      }
       if (event.target.closest('[data-clear-server-filters]')) {
         filters.search = filters.application = filters.host = '';
         paintServers(ctx, filters, true);

@@ -12,6 +12,11 @@ SSH. The panel holds a pairing-secured connection to each agent on a configurabl
 dedicated port (24443 by default); public, private and VPN addresses are supported.
 See [remote host setup, networking and recovery](REMOTE_HOSTS.md).
 
+On **Servers**, use **Copy address** on a server card to copy its displayed
+connection address, including the port. It is also available to viewers and
+assigned-server accounts. If the browser blocks clipboard access, the address
+stays visible and selectable for manual copying.
+
 v0.3.4 automatically migrates this manager's registered older images after a
 verified backup and clean stop. It preserves each server's storage and previous
 running/stopped state. Unrelated standalone installations remain outside its
