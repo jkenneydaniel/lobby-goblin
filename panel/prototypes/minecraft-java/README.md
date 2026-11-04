@@ -40,6 +40,24 @@ reported as interrupted writes. Inspection stays available, while preparation an
 control replay remain blocked; temporary records are never promoted or removed.
 The root is a fixture binding, not an admitted live game path.
 
+Each trusted fake exchange receives an `AbortSignal`. The factory option
+`exchangeTimeoutMs` is a per-call budget (default 5,000 ms, integer 1–30,000).
+Expiry requests cooperative cancellation. Replies are checked against both the
+signal and a monotonic deadline, so a callback that blocks the event loop cannot
+turn an overdue reply into success before the timer runs. Timers are cleared on
+every outcome. Initial-status expiry starts no save/stop; expiry during save,
+stop or shutdown confirmation leaves the mutation outcome unknown and prevents
+automatic replay or further controller-issued commands.
+
+The operation lock remains held until the injected exchange settles. Its promise
+must include all work and abort cleanup; it must not resolve while detached
+effects continue. An exchange that ignores abort can keep completion pending
+indefinitely. This is not a hard completion deadline or a whole-operation budget,
+and cancellation cannot undo an already-applied effect. Abandoning an outer
+caller's wait alone still does not cancel the operation before an internal
+deadline expires. These are synthetic transport contracts, not real network or
+MSMP/TLS qualification.
+
 This directory has no production registration, image recipe, real broker adapter,
 Mojang downloader, JAR semantic validator or MSMP/TLS adapter. Intent schema checks
 are not proof of real resource isolation or a sandbox. Production dispatch and
