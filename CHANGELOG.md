@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.23-alpha — 2026-11-04
+
+- Find fleet servers by name, application, host or connection address, with
+  combined application/host filters, matching counts and clear controls.
+- Keep search choices across navigation, and preserve typing composition, caret
+  and scrolling during background refreshes. Assigned accounts search only their
+  existing server list.
+- Keep the Factorio software version picker available during routine status
+  refreshes without replacing a selection that is already ready.
+- Add a checked workload support matrix and offline Java qualification fixtures.
+  Minecraft hosting, Bedrock and mod/Add-On installation remain planned.
+- Keep game images, software-provider pins and storage/update formats unchanged.
+  Publishing this release does not update installed hosts or game servers.
+
 ## 0.3.22-alpha — 2026-11-03
 
 - Disable Overview actions until controller status is available, including after a disconnection.
