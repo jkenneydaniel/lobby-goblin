@@ -55,8 +55,8 @@ test('fleet server search combines application and host filters, clears with the
   await expect(count(page)).toHaveText('Showing 3 of 3 servers');
   await search(page).fill('FACTORY');
   await expect(cards(page)).toHaveCount(2);
-  await page.getByRole('combobox', {name: 'Application', exact: true}).selectOption('factorio');
-  await page.getByRole('combobox', {name: 'Host', exact: true}).selectOption(remote);
+  await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
+  await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(remote);
   await expect(count(page)).toHaveText('Showing 1 of 3 servers');
   await expect(cards(page)).toContainText('Other factory <crew>');
   await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + remoteServer + '/');
@@ -76,7 +76,7 @@ test('fleet server search combines application and host filters, clears with the
 
 test('fleet filters and typing caret survive live refresh, offline/busy fences and navigation', async ({page}) => {
   await page.clock.install(); const state = await fleet(page); await login(page);
-  await page.getByRole('combobox', {name: 'Application', exact: true}).selectOption('factorio');
+  await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
   await search(page).fill('Friday');
   await search(page).evaluate(input => {input.focus(); input.setSelectionRange(2, 5);});
   state.local[0].name = 'Friday factory revised';
@@ -85,7 +85,7 @@ test('fleet filters and typing caret survive live refresh, offline/busy fences a
   await expect(cards(page)).toContainText('Friday factory revised');
   await expect(search(page)).toBeFocused();
   expect(await search(page).evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([2, 5]);
-  await expect(page.getByRole('combobox', {name: 'Application', exact: true})).toHaveValue('factorio');
+  await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true})).toHaveValue('factorio');
   state.active = {id: 'fixture-busy', state: 'running', action: 'create', message: 'Synthetic host busy'};
   await page.clock.fastForward(6000);
   await expect(cards(page).getByRole('button', {name: 'Publish snapshot'})).toBeDisabled();
@@ -96,7 +96,7 @@ test('fleet filters and typing caret survive live refresh, offline/busy fences a
   await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
   await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
   await expect(search(page)).toHaveValue('Friday');
-  await expect(page.getByRole('combobox', {name: 'Application', exact: true})).toHaveValue('factorio');
+  await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true})).toHaveValue('factorio');
   state.hosts[0].connected = true; state.local = [];
   await page.clock.fastForward(6000);
   await expect(count(page)).toHaveText('Showing 0 of 1 server');
@@ -112,8 +112,8 @@ test('assigned server search exposes only the minimal authorized list and sessio
   page.on('request', request => {if (request.url().includes('/api/')) reads.push(new URL(request.url()).pathname);});
   await login(page, 'Assigned');
   await expect(count(page)).toHaveText('Showing 1 of 1 server');
-  await expect(page.getByRole('combobox', {name: 'Host', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('combobox', {name: 'Application', exact: true}).locator('option')).toHaveText(['All applications', 'Factorio']);
+  await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true}).locator('option')).toHaveText(['All applications', 'Factorio']);
   await search(page).fill('Island'); await expect(cards(page)).toHaveCount(0);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
   await expect(cards(page)).toContainText('Friday factory');
@@ -159,7 +159,7 @@ for (const username of ['Viewer', 'Assigned']) test('application names are searc
   state.local = [item]; state.remote = []; state.hosts.splice(1);
   if (username === 'Assigned') await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: [{...item, manageUrl: '/servers/' + item.id + '/'}]}}));
   await login(page, username);
-  await expect(page.getByRole('combobox', {name: 'Application', exact: true})).toContainText('Status Page');
+  await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true})).toContainText('Status Page');
   await search(page).fill('Status Page');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Service dashboard');
 });
