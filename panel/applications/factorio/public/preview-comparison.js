@@ -14,10 +14,11 @@ const canonical = (value) =>
 const settingsKey = (value) => JSON.stringify(canonical(value));
 const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10];
 
-export function mountPreviewComparison(form, {api}) {
+export function mountPreviewComparison(form, {api, onUse = async () => false}) {
   const aside = form.querySelector('.world-draft-preview'),
     button = form.querySelector('#keep-draft-preview'),
     remove = form.querySelector('#remove-kept-preview'),
+    use = form.querySelector('#use-kept-preview'),
     panel = form.querySelector('#kept-preview'),
     image = form.querySelector('#kept-preview-image'),
     caption = form.querySelector('#kept-preview-caption'),
@@ -26,6 +27,7 @@ export function mountPreviewComparison(form, {api}) {
   let ready = null,
     reference = null,
     capturing = false,
+    choosing = false,
     controller = null,
     epoch = 0,
     disposed = false,
@@ -39,7 +41,9 @@ export function mountPreviewComparison(form, {api}) {
     aside.classList.toggle('has-kept-preview', !!reference);
     panel.hidden = !reference;
     remove.hidden = !reference;
-    button.disabled = !ready || capturing;
+    use.hidden = !reference;
+    use.disabled = choosing;
+    button.disabled = !ready || capturing || choosing;
     button.textContent = capturing
       ? 'Keeping preview…'
       : reference
@@ -130,6 +134,25 @@ export function mountPreviewComparison(form, {api}) {
     releaseReference();
     message = 'Kept preview removed. Your current draft is unchanged.';
     render();
+  });
+  events.set(use, 'click', async () => {
+    if (!reference || choosing || disposed) return;
+    const selected = reference,
+      isCurrent = () => !disposed && reference === selected;
+    choosing = true;
+    render();
+    try {
+      const applied = await onUse(
+        {seed: selected.seed, configuration: clone(selected.configuration)},
+        isCurrent,
+      );
+      if (applied && isCurrent())
+        message =
+          'Kept seed and settings applied. Review your draft before creating a world.';
+    } finally {
+      choosing = false;
+      render();
+    }
   });
   function expand() {
     if (!reference || disposed) return;

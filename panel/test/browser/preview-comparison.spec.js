@@ -42,6 +42,7 @@ async function fixture(page, {samePreviewId = false} = {}) {
     hold: null,
   };
   let setups = emptySetups();
+  state.savedSetups = () => structuredClone(setups);
   page.on('console', (message) => {
     const value = message.text();
     if (value.startsWith('c52-revoked:'))
@@ -336,5 +337,147 @@ test('a later change-only edit is not confused with an already consumed blur eve
   await expect(keep(page)).toBeEnabled();
   await expect(page.locator('#draft-preview-state')).toContainText('Seed 1001');
   expect(state.previews.at(-1).seed).toBe(1001);
+  expect(state.jobs).toEqual([]);
+});
+
+const useKept = (page) =>
+  page.getByRole('button', {name: 'Use kept seed and settings', exact: true});
+const chooseDialog = (page) =>
+  page.getByRole('dialog', {name: 'Use kept seed 1001?'});
+async function editConfiguration(page, configuration) {
+  await page.locator('#world-settings-json').evaluate((node) => {
+    node.closest('details').open = true;
+  });
+  await page
+    .locator('#world-settings-json')
+    .fill(JSON.stringify(configuration));
+  await page.locator('#apply-world-json').click();
+  await expect(keep(page)).toBeEnabled();
+}
+test('choose the kept seed and full gameplay configuration, preserve the name, autosave and review without switching', async ({
+  page,
+}, info) => {
+  const state = await fixture(page, {samePreviewId: true});
+  await page.getByRole('textbox', {name: /^World name/}).fill('Chosen map');
+  await page
+    .getByRole('button', {name: 'Customize world', exact: true})
+    .click();
+  const chosen = structuredClone(state.previews.at(-1).configuration);
+  chosen.map_settings.pollution.enabled = false;
+  chosen.map_gen_settings.width = 1024;
+  await editConfiguration(page, chosen);
+  await pin(page);
+  const other = structuredClone(chosen);
+  other.map_settings.pollution.enabled = true;
+  other.map_gen_settings.width = 2048;
+  await editConfiguration(page, other);
+  await seed(page).fill('2002');
+  await expect(keep(page)).toBeEnabled();
+  await page.getByRole('button', {name: 'Review world', exact: true}).click();
+  await page.locator('[name=activate]').check();
+  await useKept(page).click();
+  await expect(chooseDialog(page)).toContainText(
+    'replaces your current seed, terrain and gameplay settings',
+  );
+  await chooseDialog(page)
+    .getByRole('button', {name: 'Use kept seed', exact: true})
+    .click();
+  await expect(seed(page)).toHaveValue('1001');
+  await expect(page.getByRole('textbox', {name: /^World name/})).toHaveValue(
+    'Chosen map',
+  );
+  await expect(page.locator('[name=activate]')).not.toBeChecked();
+  await expect(page.locator('#preview-comparison-state')).toContainText(
+    'applied',
+  );
+  expect(
+    JSON.parse(await page.locator('#world-settings-json').inputValue()),
+  ).toEqual(chosen);
+  await expect(keep(page)).toBeEnabled();
+  expect(state.previews.at(-1).configuration).toEqual(chosen);
+  await page.getByRole('button', {name: 'Review world', exact: true}).click();
+  await expect(page.locator('#world-review')).toContainText('1001');
+  await expect(page.locator('#world-review')).toContainText('Chosen map');
+  await expect(page.locator('[name=activate]')).not.toBeChecked();
+  await expect.poll(() => state.savedSetups().draft?.seed).toBe('1001');
+  expect(JSON.parse(state.savedSetups().draft.configuration)).toEqual(chosen);
+  expect(state.savedSetups().draft.name).toBe('Chosen map');
+  expect(state.jobs).toEqual([]);
+  await page.screenshot({
+    path: info.outputPath('chosen-seed-review.png'),
+    fullPage: true,
+  });
+  await page.reload();
+  await expect(seed(page)).toHaveValue('1001');
+  await expect(page.locator('[name=activate]')).not.toBeChecked();
+  await expect(kept(page)).toBeHidden();
+  expect(
+    JSON.parse(await page.locator('#world-settings-json').inputValue()),
+  ).toEqual(chosen);
+  expect(state.jobs).toEqual([]);
+});
+test('cancel preserves the current candidate and unapplied edits, then explicit use replaces them', async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  const chosen = structuredClone(state.previews.at(-1).configuration);
+  await pin(page);
+  await seed(page).fill('2002');
+  await page
+    .getByRole('button', {name: 'Customize world', exact: true})
+    .click();
+  await page.locator('#world-settings-json').evaluate((node) => {
+    node.closest('details').open = true;
+  });
+  await page.locator('#world-settings-json').fill('{');
+  await expect(keep(page)).toBeDisabled();
+  await useKept(page).focus();
+  await useKept(page).press('Enter');
+  await chooseDialog(page)
+    .getByRole('button', {name: 'Cancel', exact: true})
+    .click();
+  await expect(seed(page)).toHaveValue('2002');
+  await expect(page.locator('#world-settings-json')).toHaveValue('{');
+  await expect(kept(page)).toBeVisible();
+  await useKept(page).click();
+  await chooseDialog(page)
+    .getByRole('button', {name: 'Use kept seed', exact: true})
+    .click();
+  await expect(seed(page)).toHaveValue('1001');
+  expect(
+    JSON.parse(await page.locator('#world-settings-json').inputValue()),
+  ).toEqual(chosen);
+  await expect(keep(page)).toBeEnabled();
+  await expect.poll(() => state.savedSetups().draft?.advancedDirty).toBe(false);
+  expect(state.jobs).toEqual([]);
+});
+test('leaving the editor with a choice confirmation open cannot apply it to a later draft', async ({
+  page,
+}) => {
+  const state = await fixture(page);
+  await pin(page);
+  await seed(page).fill('2002');
+  await expect(page.locator('#draft-save-state')).toContainText('Draft saved');
+  const before = state.savedSetups().draft.configuration;
+  await useKept(page).click();
+  await expect(chooseDialog(page)).toBeVisible();
+  await page.evaluate(() => {
+    globalThis.location.hash = '#overview';
+  });
+  await expect(page.locator('#create-form')).toHaveCount(0);
+  // The shared shell may retain its modal across programmatic navigation.
+  // Accepting that stale choice must not touch the disposed editor or draft.
+  await chooseDialog(page)
+    .getByRole('button', {name: 'Use kept seed', exact: true})
+    .click();
+  await expect(chooseDialog(page)).toBeHidden();
+  await page.evaluate(() => {
+    globalThis.location.hash = '#worlds/create';
+  });
+  await expect(seed(page)).toHaveValue('2002');
+  expect(
+    JSON.parse(await page.locator('#world-settings-json').inputValue()),
+  ).toEqual(JSON.parse(before));
+  await expect(kept(page)).toBeHidden();
   expect(state.jobs).toEqual([]);
 });

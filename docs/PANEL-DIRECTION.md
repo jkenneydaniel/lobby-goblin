@@ -108,7 +108,7 @@ are tracked in [issue #77](https://github.com/jkenneydaniel/lobby-goblin/issues/
 | Priority | Addition | Acceptance boundary |
 | --- | --- | --- |
 | Next | Installed-engine play-style library | Custom presets are implemented; additional named engine presets must use exact engine values. |
-| Next | Choose a compared seed | One in-editor preview reference is implemented; applying the kept seed/settings and persistent shortlists remain separate work. |
+| Implemented | Choose a compared seed | Keep one in-editor reference and explicitly apply its seed and complete settings to the creation draft before Review/Create. Persistent shortlists remain separate work. |
 | Soon | Richer world metadata | Seed, playtime and last played must come from verified world data. |
 | Soon | Maintenance countdown and scheduled restart | Warn players, save/back up, persist timezone and cancellation. |
 | Soon | Game/mod compatibility planner | Check exact mod/client versions and explain upgrade/recovery limits; no silent game updates. |
@@ -137,5 +137,8 @@ while another seed or applied configuration is tried. The kept reference retains
 its seed and complete request settings; terrain preview identity alone does not
 identify gameplay rules. It stays only while that editor is open and clears when
 leaving, signing out or changing server scope. Keeping/removing a reference does
-not create or switch a world. Applying a kept candidate to the draft and persistent
-shortlists remain separate work.
+not create or switch a world. **Use kept seed and settings** confirms replacement
+of the current seed, terrain and gameplay edits, preserves the world name and
+leaves switching unchecked. The controls, autosaved draft and existing Review/Create
+flow then use the complete captured configuration. Persistent shortlists remain
+separate work.

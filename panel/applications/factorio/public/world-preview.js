@@ -9,10 +9,10 @@ export function cleanWorldPreview() {
 
 export function mountWorldPreview(
   form,
-  {api, getDraft, isValid, onSeed = () => {}},
+  {api, getDraft, isValid, onSeed = () => {}, onUse},
 ) {
   cleanWorldPreview();
-  const comparison = mountPreviewComparison(form, {api});
+  const comparison = mountPreviewComparison(form, {api, onUse});
   let timer = null,
     poll = null,
     stopped = false,
