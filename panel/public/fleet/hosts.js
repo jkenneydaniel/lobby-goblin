@@ -1,3 +1,5 @@
+import {createHostCapacity, hostCapacityView} from './host-capacity.js';
+import {hostRoute} from './host-paths.js';
 import {createEventScope} from '../shared/events.js';
 const $ = (selector) => document.querySelector(selector),
   esc = (value) =>
@@ -11,6 +13,7 @@ const $ = (selector) => document.querySelector(selector),
 export {hostRoute, serverKey} from './host-paths.js';
 export function mountHosts({
   api,
+  readCapacity,
   error,
   notice,
   getSession,
@@ -25,13 +28,29 @@ export function mountHosts({
     setupPlan = null,
     updatePlan = null,
     setupReviewing = false;
+  const capacity = createHostCapacity({
+    request: readCapacity,
+    onChange: paintCapacity,
+  });
+  function paintCapacity() {
+    for (const node of document.querySelectorAll('[data-host-capacity]')) {
+      const host = hosts.find(
+        (item) =>
+          hostRoute(item, '/host-settings') === node.dataset.hostCapacity,
+      );
+      if (host) node.innerHTML = hostCapacityView(host, capacity.get(host));
+    }
+    $('#refresh-capacity').disabled = capacity.loading;
+  }
+  events.set($('#refresh-capacity'), 'click', () => capacity.refresh());
+
   function render() {
     rows.clear();
     const admin = getSession()?.role === 'admin';
     $('#hosts-list').innerHTML = hosts
       .map(
         (host) =>
-          `<article class="card host-card"><span class="game">${host.local ? 'PANEL HOST' : 'GAME HOST'}</span><h3>${esc(host.name)}</h3><span class="status ${host.connected ? '' : 'attention'}">${host.connected ? 'Connected' : 'Unavailable'}</span><p class="host-address">${esc(host.origin || 'Game servers on this machine')}</p>${host.connection === 'persistent' ? '<p class="hint">Persistent encrypted connection</p>' : ''}${host.version ? `<p class="hint">Agent ${esc(host.version)}${host.aligned ? ' · Matches panel' : ' · Panel ' + esc(host.panelVersion)}</p>` : ''}${host.agentUpdateSupported === false && host.aligned === false ? (host.managementUpdateSupported ? '<p class="hint"><a href="/#updates">Review coordinated management updates</a> and choose this host.</p>' : '<p class="hint">An operator must update this host’s broker and management services together.</p>') : ''}${host.agentUpdate ? `<p class="hint">${esc(host.agentUpdate.message)}</p>` : ''}${host.error ? `<p class="hint">${esc(host.error)}</p>` : ''}<div class="actions">${admin ? `<button data-create-on-host="${host.id}" ${host.connected && host.aligned !== false && host.agentUpdate?.state !== 'running' ? '' : 'disabled'}>Create server here</button>${host.local ? '' : `${host.connected && host.aligned === false && host.agentOnly && host.agentUpdateSupported !== false ? `<button data-update-agent="${host.id}">Update agent</button>` : ''}${host.connected && host.agentUpdateSupported !== false && host.agentUpdate?.state === 'attention' ? `<button data-recover-agent="${host.id}">Recover agent update</button>` : ''}<button class="quiet" data-disconnect-host="${host.id}">Disconnect</button>`}` : ''}</div></article>`,
+          `<article class="card host-card"><span class="game">${host.local ? 'PANEL HOST' : 'GAME HOST'}</span><h3>${esc(host.name)}</h3><span class="status ${host.connected ? '' : 'attention'}">${host.connected ? 'Connected' : 'Unavailable'}</span><p class="host-address">${esc(host.origin || 'Game servers on this machine')}</p>${host.connection === 'persistent' ? '<p class="hint">Persistent encrypted connection</p>' : ''}${host.version ? `<p class="hint">Agent ${esc(host.version)}${host.aligned ? ' · Matches panel' : ' · Panel ' + esc(host.panelVersion)}</p>` : ''}${host.agentUpdateSupported === false && host.aligned === false ? (host.managementUpdateSupported ? '<p class="hint"><a href="/#updates">Review coordinated management updates</a> and choose this host.</p>' : '<p class="hint">An operator must update this host’s broker and management services together.</p>') : ''}${host.agentUpdate ? `<p class="hint">${esc(host.agentUpdate.message)}</p>` : ''}${host.error ? `<p class="hint">${esc(host.error)}</p>` : ''}<div class="host-capacity" data-host-capacity="${esc(hostRoute(host, '/host-settings'))}" aria-label="Configured memory capacity">${hostCapacityView(host, capacity.get(host))}</div><div class="actions">${admin ? `<button data-create-on-host="${host.id}" ${host.connected && host.aligned !== false && host.agentUpdate?.state !== 'running' ? '' : 'disabled'}>Create server here</button>${host.local ? '' : `${host.connected && host.aligned === false && host.agentOnly && host.agentUpdateSupported !== false ? `<button data-update-agent="${host.id}">Update agent</button>` : ''}${host.connected && host.agentUpdateSupported !== false && host.agentUpdate?.state === 'attention' ? `<button data-recover-agent="${host.id}">Recover agent update</button>` : ''}<button class="quiet" data-disconnect-host="${host.id}">Disconnect</button>`}` : ''}</div></article>`,
       )
       .join('');
     document
@@ -436,9 +455,13 @@ export function mountHosts({
     progress,
     setHosts(value) {
       hosts = value;
+      capacity.sync(
+        ['admin', 'viewer'].includes(getSession()?.role) ? hosts : [],
+      );
       render();
     },
     dispose() {
+      capacity.dispose();
       events.clear();
       rows.clear();
       for (const id of [

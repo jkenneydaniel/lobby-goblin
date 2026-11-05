@@ -272,6 +272,7 @@ export function createFleetScreens({
         async mount(ctx) {
           component = mountHosts({
             api: apiFor(ctx),
+            readCapacity: (route, options) => ctx.request(route, options),
             getSession,
             error: (message, target) => {
               if (ctx.isCurrent()) error(message, target);

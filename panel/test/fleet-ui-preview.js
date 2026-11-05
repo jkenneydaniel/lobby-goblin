@@ -50,6 +50,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
   if(route==='/agent-update-plan')return json(res,200,{id:'f'.repeat(32),current:remote.version,version:previewVersion});
   if(route==='/agent-update'){await requestJSON(req);remote.version=previewVersion;remote.aligned=true;return json(res,202,{state:'running'});}
  }
+ if(route==='/host-settings'&&req.method==='GET')return json(res,200,{memoryBudgetGiB:16,revision:0,allocatedMemoryGiB:3,availableMemoryGiB:13,dockerMemoryGiB:24,minMemoryBudgetGiB:3,maxMemoryBudgetGiB:22,hostHeadroomGiB:2,allocations:[{id:'e'.repeat(32),name:'Remote Friday factory',game:'factorio',gameGiB:2,controllerGiB:1,totalGiB:3}],updatedAt:null});
  if(route==='/creation-preflight'){const body=await requestJSON(req);return json(res,200,{ready:true,checks:[{label:'Fixture host',status:'pass',message:'Disposable preview only.'}],application:body.game});}
  if(route==='/catalog')return json(res,200,{games:Object.values(catalog)});
  if(route==='/servers'){
