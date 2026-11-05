@@ -1,6 +1,6 @@
 import {hostRoute} from './hosts.js';
 import {sameImageReference} from '../client.js';
-import {escapeHTML as esc} from '../shared/view.js';
+import {escapeHTML as esc, formatDate} from '../shared/view.js';
 export function createServerDialog({
   api,
   getHosts,
@@ -64,9 +64,28 @@ export function createServerDialog({
       : 'Resolve the failed checks before creating this application.';
     return result.ready ? {body, host} : null;
   }
+  const snapshotDate = (snapshot) =>
+    Number.isFinite(Date.parse(snapshot.created))
+      ? formatDate(snapshot.created)
+      : 'Unknown date';
+  function compatibleSnapshots(game) {
+    if (!game) return [];
+    return getSnapshots().filter(
+      (snapshot) =>
+        snapshot.hostId === $('#create').elements.hostId.value &&
+        snapshot.game === game.id &&
+        (sameImageReference(snapshot.image, game.image) ||
+          (game.runtimeImage &&
+            sameImageReference(snapshot.image, game.runtimeImage))) &&
+        !snapshot.unavailable,
+    );
+  }
+  function clearSnapshotContext() {
+    $('#snapshot-context').hidden = true;
+    $('#snapshot-context').replaceChildren();
+  }
   function configureCreation(keepSnapshot = '') {
     invalidateSetup();
-    const snapshots = getSnapshots();
     const f = $('#create'),
       game = creationGames.find((game) => game.id === f.elements.game.value);
     if (!game) return;
@@ -107,19 +126,10 @@ export function createServerDialog({
       .join('');
     f.elements.snapshotId.innerHTML =
       `<option value="">${isGame ? 'New world' : 'New application data'}</option>` +
-      snapshots
-        .filter(
-          (snapshot) =>
-            snapshot.hostId === f.elements.hostId.value &&
-            snapshot.game === game.id &&
-            (sameImageReference(snapshot.image, game.image) ||
-              (game.runtimeImage &&
-                sameImageReference(snapshot.image, game.runtimeImage))) &&
-            !snapshot.unavailable,
-        )
+      compatibleSnapshots(game)
         .map(
           (snapshot) =>
-            `<option value="${snapshot.id}">${esc(snapshot.title)}</option>`,
+            `<option value="${esc(snapshot.id)}">${esc(snapshot.title)} — ${esc(snapshot.sourceName)} · ${esc(snapshotDate(snapshot))}</option>`,
         )
         .join('');
     f.elements.snapshotId.value = keepSnapshot;
@@ -131,12 +141,31 @@ export function createServerDialog({
     invalidateSetup();
     const f = $('#create'),
       clone = !!f.elements.snapshotId.value,
-      game = creationGames.find((game) => game.id === f.elements.game.value);
-    $('#clone-note').hidden = !clone;
-    if (clone && game?.runtimeImage) {
-      const snapshot = getSnapshots().find(
+      game = creationGames.find((game) => game.id === f.elements.game.value),
+      snapshot = compatibleSnapshots(game).find(
         (item) => item.id === f.elements.snapshotId.value,
       );
+    clearSnapshotContext();
+    if (snapshot) {
+      const list = document.createElement('dl'),
+        host = getHosts().find((item) => item.id === snapshot.hostId);
+      for (const [label, value] of [
+        ['Snapshot', snapshot.title],
+        ['Source server', snapshot.sourceName],
+        ['Saved', snapshotDate(snapshot)],
+        ['Snapshot host', host?.name || snapshot.hostName],
+      ]) {
+        const term = document.createElement('dt'),
+          detail = document.createElement('dd');
+        term.textContent = label;
+        detail.textContent = value;
+        list.append(term, detail);
+      }
+      $('#snapshot-context').append(list);
+      $('#snapshot-context').hidden = false;
+    }
+    $('#clone-note').hidden = !clone;
+    if (clone && game?.runtimeImage) {
       f.elements.softwareMode.value =
         snapshot && sameImageReference(snapshot.image, game.runtimeImage)
           ? game.runtimeKey || 'runtime'
@@ -150,6 +179,7 @@ export function createServerDialog({
   }
   async function creationHostChanged(snapshotId = '') {
     invalidateSetup();
+    clearSnapshotContext();
     const hosts = getHosts();
     const revision = ++creationRevision,
       f = $('#create'),
@@ -172,6 +202,7 @@ export function createServerDialog({
         'This application and its data will be created on ' + host.name + '.';
       $('#create-submit').textContent = 'Create on ' + host.name;
       $('#create-submit').disabled = hostBusy(host.id);
+      return revision;
     } catch (e) {
       if (revision === creationRevision) {
         error(e.message, '#creation-error');
@@ -196,7 +227,8 @@ export function createServerDialog({
         ?.id ||
       '';
     $('#create-dialog').showModal();
-    await creationHostChanged(snapshot?.id || '');
+    const revision = await creationHostChanged(snapshot?.id || '');
+    if (revision !== creationRevision || !$('#create-dialog').open) return;
     if (snapshot) {
       f.elements.game.value = snapshot.game;
       configureCreation(snapshot.id);
@@ -210,6 +242,7 @@ export function createServerDialog({
     $('#create-dialog').close();
   };
   $('#create-dialog').addEventListener('close', () => {
+    clearSnapshotContext();
     setupRevision++;
     creationRevision++;
   });
@@ -262,6 +295,7 @@ export function createServerDialog({
   return {
     open: openCreate,
     cancel() {
+      clearSnapshotContext();
       creationRevision++;
       setupRevision++;
       $('#create-dialog').close();

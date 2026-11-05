@@ -119,6 +119,11 @@ backup. Factorio confirms a save; Rust saves, stops, archives and resumes. The
 library then copies only immutable backup content into a separate library volume.
 The combined library labels each snapshot's host. Cloning stays on that host;
 cross-host transfer is not implemented.
+When choosing starting data for a new server, each compatible snapshot choice
+shows its source server and saved date. Selecting one displays its title, source,
+saved date and host before the existing setup checks. Only compatible snapshots
+on the selected host are offered; closing the dialog or choosing new data clears
+the selected snapshot context.
 Search the loaded library by title, source server, application or host, combine
 application and host filters, and order snapshots by newest, oldest or title.
 The matching count and Clear filters help recover from an empty search; clearing
