@@ -50,8 +50,23 @@ jobs:
       - name: Check source lint, frontend formatting, shared contracts and served imports
         run: npm run quality --prefix panel
   browser-regression:
+    # Preserve the required check identity and fail closed for either project.
+    needs: browser-projects
+    if: ${{ always() }}
     runs-on: ubuntu-latest
-    # Budget observed 11m26s setup, 8m23s acceptance and cleanup; keep a hard cap.
+    timeout-minutes: 1
+    steps:
+      - name: Require desktop and mobile acceptance
+        env:
+          BROWSER_RESULT: ${{ needs.browser-projects.result }}
+        run: test "$BROWSER_RESULT" = success
+  browser-projects:
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
+    runs-on: ubuntu-latest
+    # Retain the existing cap for cold setup outliers in either isolated project.
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -66,11 +81,11 @@ jobs:
         working-directory: panel/test/browser
         run: npx playwright install --with-deps chromium
       - name: Exercise desktop and mobile flows with isolated loopback fixtures
-        run: npm run test:browser --prefix panel
+        run: npm test --prefix panel/test/browser -- --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4
         if: ${{ failure() }}
         with:
-          name: browser-regression-failures
+          name: browser-regression-failures-${{ matrix.project }}
           path: output/playwright/
           retention-days: 14
   host-setup:
