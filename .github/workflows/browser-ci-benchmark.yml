@@ -1,0 +1,41 @@
+name: Browser CI experiment
+on:
+  push:
+    branches: [codex/browser-ci-benchmark]
+    paths:
+      - .github/workflows/browser-ci-benchmark.yml
+      - tools/browser-ci-benchmark.mjs
+permissions:
+  contents: read
+jobs:
+  image:
+    name: image-${{ matrix.project }}-${{ matrix.repeat }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --init --shm-size=1g
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
+        repeat: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Measure locked installs, fixtures and acceptance with supplied Chromium
+        env:
+          BENCHMARK_IMAGE: 'true'
+          BENCHMARK_PROJECT: ${{ matrix.project }}
+          BENCHMARK_REPEAT: ${{ matrix.repeat }}
+        run: node tools/browser-ci-benchmark.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-image-${{ matrix.project }}-${{ matrix.repeat }}
+          path: |
+            output/browser-ci-benchmark/
+            output/playwright/
+          retention-days: 14
