@@ -21,6 +21,11 @@ async function login(page, user = 'Preview') {
   await expect(page.locator('.product-shell')).toBeVisible();
   if (user !== 'Assigned') await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
 }
+async function signOut(page) {
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  // Logout clears the session asynchronously; navigation must not abort it.
+  await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
+}
 async function library(page) {
   const record = (id, title, game, sourceName, created) => ({id, title, game, sourceName, created, files: 1, bytes: 25, image: 'synthetic-image'});
   const state = {
@@ -103,13 +108,26 @@ test('snapshot filter focus, caret, IME and choices survive refresh and navigati
 });
 
 test('viewer discovery is read-only, logout resets choices and assigned accounts have no library', async ({page}) => {
+  let releaseLogout, markLogoutStarted;
+  const logoutGate = new Promise(resolve => {releaseLogout = resolve;}),
+    logoutStarted = new Promise(resolve => {markLogoutStarted = resolve;});
+  await page.route('**/api/logout', async route => {
+    markLogoutStarted(); await logoutGate; return route.continue();
+  }, {times: 1});
   await library(page); await login(page, 'Viewer');
   await expect(cards(page)).toHaveCount(3); await expect(cards(page).getByRole('button')).toHaveCount(0);
   await search(page).fill('island'); await expect(cards(page)).toHaveCount(1);
   await sort(page).selectOption('title');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click(); await login(page);
+  try {
+    const signingOut = signOut(page);
+    await logoutStarted;
+    await expect(page.getByLabel('Username', {exact: true})).toBeHidden();
+    releaseLogout();
+    await signingOut;
+  } finally {releaseLogout();}
+  await login(page);
   await expect(search(page)).toHaveValue(''); await expect(sort(page)).toHaveValue('newest');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click(); await login(page, 'Assigned');
+  await signOut(page); await login(page, 'Assigned');
   await expect(nav(page).getByRole('link', {name: 'Snapshot library', exact: true})).toHaveCount(0);
   await expect(search(page)).toHaveCount(0);
 });
