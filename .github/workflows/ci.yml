@@ -66,6 +66,9 @@ jobs:
       matrix:
         project: [desktop, mobile]
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.64.1-noble
+      options: --init --shm-size=1g
     # Retain the existing cap for cold setup outliers in either isolated project.
     timeout-minutes: 25
     steps:
@@ -77,9 +80,6 @@ jobs:
         run: |
           npm ci --prefix panel --ignore-scripts --no-audit --no-fund
           npm ci --prefix panel/test/browser --ignore-scripts --no-audit --no-fund
-      - name: Install Chromium
-        working-directory: panel/test/browser
-        run: npx playwright install --with-deps chromium
       - name: Exercise desktop and mobile flows with isolated loopback fixtures
         run: npm test --prefix panel/test/browser -- --project=${{ matrix.project }}
       - uses: actions/upload-artifact@v4
