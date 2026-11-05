@@ -1775,6 +1775,7 @@ test('extracted fleet host settings preserve a draft across navigation and expli
   await nav(page)
     .getByRole('link', {name: 'Host settings', exact: true})
     .click();
+  await expect(page.locator('#host-budget')).toBeEnabled();
   await expect(page.locator('#host-budget')).toHaveValue('15');
   await page
     .getByRole('button', {name: 'Reload current settings', exact: true})
