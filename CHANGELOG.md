@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.29-alpha — 2026-11-05
+
+Milestone: **Find and share relevant application logs**.
+
+- Search the recent log output already loaded for Factorio, Rust and managed applications. Use literal, case-insensitive line matching, matched/total counts and clear/no-match states without fetching additional history or submitting console commands.
+- Explicitly copy exactly the shown full or filtered excerpt. Announce success only after the clipboard write succeeds, keep visible selectable text with manual-copy guidance when access is unavailable, and never upload logs.
+- Preserve the search through refresh and same-server navigation. Clear output with screen/session disposal, suppress stale copy feedback, and retain existing log bounds, text rendering and account/server permissions.
+
+Game images, software-provider pins and storage/update formats are unchanged. Publishing this alpha does not update installations or running game servers. Minecraft remains fixture-only and unregistered. The intermittent fleet reload browser failure remains separately recorded; no speculative maintenance repair is included.
+
 ## 0.3.28-alpha — 2026-11-05
 
 Milestone: **Compare and choose a Factorio seed**.
