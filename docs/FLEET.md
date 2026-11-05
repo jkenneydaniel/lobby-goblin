@@ -266,3 +266,15 @@ guarantee that creation will succeed. Creation still checks current capacity.
 Use **Refresh capacity** to read a fresh snapshot. Offline or unavailable hosts
 show an explicit unavailable state. Administrators and viewers retain their
 existing host access; assigned-server accounts do not load host capacity.
+
+## Review the selected host’s budget
+
+Host settings can select this host or a paired host. Its heading, allocation
+breakdown and save destination follow that selection. Each host retains its own
+unsaved draft and revision while switching or navigating. Only administrators
+can save; viewers can review, and assigned-server accounts have no host view.
+
+The selector is locked during a save. Disconnected hosts and unknown Docker
+capacity prevent editing. A conflicting or uncertain save requires **Reload
+current settings** before another submission; reload discards only the selected
+host’s draft. Existing servers retain their limits and keep running.
