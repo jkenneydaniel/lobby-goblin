@@ -256,3 +256,13 @@ application action is therefore offered only when its hostname differs from the
 panel hostname. Cards using the panel hostname explain the separate-hostname
 requirement and retain management and address copying. This does not change
 listener configuration or provision a hostname.
+
+## Compare memory across hosts
+
+The Hosts cards show each connected host's configured memory budget, allocated
+memory including instance controllers, and remaining budget for new allocations.
+These snapshots come from that host's settings; they are not live RAM usage or a
+guarantee that creation will succeed. Creation still checks current capacity.
+Use **Refresh capacity** to read a fresh snapshot. Offline or unavailable hosts
+show an explicit unavailable state. Administrators and viewers retain their
+existing host access; assigned-server accounts do not load host capacity.

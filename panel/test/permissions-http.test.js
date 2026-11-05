@@ -255,3 +255,13 @@ test('coordinated panel updates require administrator, CSRF and a displayed rele
  assert.equal((await f.request(owner,routes[0],{action:'plan',version:'evil/runtime:latest'})).status,409);
  for(const route of routes){assert.equal((await f.request(owner,route)).status,200);assert.equal((await f.request(owner,route,{action:'plan',version:'99.0.0-alpha'})).status,200);assert.equal(f.calls.at(-1).user,'Owner');}
 });
+
+test('host capacity reads retain viewer scope while assigned reads and viewer budget writes stay blocked',async t=>{
+ const f=await fixture(t),viewer=await f.login('Viewer','viewer-fixture-password'),member=await f.login('Assigned','member-fixture-password'),paths=['/api/host-settings','/api/hosts/'+'c'.repeat(32)+'/host-settings'];
+ const before=f.calls.length;
+ for(const route of paths)assert.equal((await f.request(viewer,route)).status,200);
+ assert.deepEqual(f.calls.slice(before).filter(x=>x.route.endsWith('/host-settings')).map(x=>x.route),['/host-settings','/hosts/'+'c'.repeat(32)+'/host-settings']);
+ const after=f.calls.length;
+ for(const route of paths){assert.equal((await f.request(member,route)).status,403);assert.equal((await f.request(viewer,route,{memoryBudgetGiB:32,revision:0})).status,403);}
+ assert.equal(f.calls.length,after);
+});
