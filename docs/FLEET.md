@@ -119,6 +119,12 @@ backup. Factorio confirms a save; Rust saves, stops, archives and resumes. The
 library then copies only immutable backup content into a separate library volume.
 The combined library labels each snapshot's host. Cloning stays on that host;
 cross-host transfer is not implemented.
+Search the loaded library by title, source server, application or host, combine
+application and host filters, and order snapshots by newest, oldest or title.
+The matching count and Clear filters help recover from an empty search; clearing
+filters keeps the chosen ordering. Choices persist while navigating the fleet
+and reset at sign-out. Cached snapshots from an unavailable host are labelled
+as last known information and keep their existing disabled actions.
 Factorio snapshots contain its active world ZIP and mod files. Rust snapshots
 contain the identity's world and player databases, maps and related files, but
 exclude the entire `cfg` directory. Neither format copies server configuration,

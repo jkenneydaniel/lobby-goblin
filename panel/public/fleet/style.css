@@ -126,22 +126,27 @@ nav [aria-current='page'] {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 20px;
 }
-.server-filters {
+.server-filters,
+.snapshot-filters {
   grid-column: 1/-1;
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 16px;
 }
-.server-filters label {
+.server-filters label,
+.snapshot-filters label {
   flex: 1 1 180px;
   min-width: 0;
   margin: 0;
 }
-.server-filters label:first-child {
+.server-filters label:first-child,
+.snapshot-filters label:first-child {
   flex-grow: 2;
 }
 .server-count,
+.snapshot-count,
+.snapshot-no-matches,
 .server-no-matches {
   grid-column: 1/-1;
   margin: 0;
