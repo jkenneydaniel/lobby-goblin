@@ -295,6 +295,11 @@ export function createApplicationComponents({
         let controls,
           query = '',
           content = '',
+          shown = '',
+          copyMessage = '',
+          copying = false,
+          copyVersion = 0,
+          copyOperation = 0,
           loaded = false,
           failed = false,
           sequence = 0;
@@ -306,6 +311,17 @@ export function createApplicationComponents({
             matches = term
               ? lines.filter((line) => line.toLowerCase().includes(term))
               : lines;
+          const excerpt =
+            loaded && matches.length
+              ? term
+                ? matches.join('\n')
+                : content
+              : '';
+          if (shown !== excerpt) {
+            shown = excerpt;
+            copyVersion++;
+            copyMessage = '';
+          }
           ctx.root.querySelector('#logs').textContent = !loaded
             ? failed
               ? 'Log output could not be loaded.'
@@ -326,6 +342,11 @@ export function createApplicationComponents({
                 ? ' Refresh failed; showing previously loaded output.'
                 : '');
           ctx.root.querySelector('[data-clear-log-search]').disabled = !query;
+          const copy = ctx.root.querySelector('[data-copy-log-lines]');
+          copy.disabled = !shown || copying;
+          copy.setAttribute('aria-busy', String(copying));
+          ctx.root.querySelector('[data-log-copy-result]').textContent =
+            copyMessage;
         }
         async function load(ctx) {
           const current = ++sequence;
@@ -367,6 +388,33 @@ export function createApplicationComponents({
             ctx.on(ctx.root.querySelector('#refresh-logs'), 'click', () =>
               load(ctx),
             );
+            const copy = ctx.root.querySelector('[data-copy-log-lines]');
+            ctx.on(copy, 'click', async () => {
+              if (!shown || copying || !copy.isConnected) return;
+              const excerpt = shown,
+                version = copyVersion,
+                operation = ++copyOperation;
+              copying = true;
+              copyMessage = 'Copying shown log lines…';
+              show(ctx);
+              const current = () =>
+                ctx.isCurrent() &&
+                operation === copyOperation &&
+                version === copyVersion;
+              try {
+                await navigator.clipboard.writeText(excerpt);
+                if (current()) copyMessage = 'Shown log lines copied.';
+              } catch {
+                if (current())
+                  copyMessage =
+                    'Clipboard unavailable. Select and copy the shown log lines manually.';
+              } finally {
+                if (operation === copyOperation) {
+                  copying = false;
+                  show(ctx);
+                }
+              }
+            });
             controls = forms(ctx, options, drafts);
             controls.setBusy();
             show(ctx);
@@ -378,8 +426,10 @@ export function createApplicationComponents({
           },
           dispose() {
             sequence++;
-            content = '';
-            loaded = failed = false;
+            copyOperation++;
+            copyVersion++;
+            content = shown = copyMessage = '';
+            loaded = failed = copying = false;
           },
         };
       };
