@@ -73,6 +73,15 @@ list by name A–Z or Z–A. Sorting combines with the filters and survives
 refresh/navigation within the session. Clear filters keeps the selected order;
 signing out resets it. Sorting makes no additional requests or server changes.
 
+Administrators and viewers can select **View servers → Table** for a compact
+inventory with the same filtering, ordering, counts, addresses and scoped actions
+as **Cards**. Cards is the default. The table labels CPU and memory as configured
+limits and scrolls horizontally within its own keyboard-focusable region on narrow
+screens. The view choice survives refreshes and navigation for the current session;
+Clear filters keeps both view and sort, and signing out restores Cards. Assigned
+accounts retain their minimal cards without a view selector, host details or
+resource columns. Switching views makes no requests and saves no preference.
+
 Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
 Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
 port use; Rust gets a separate query port. Port clashes outside Docker fail

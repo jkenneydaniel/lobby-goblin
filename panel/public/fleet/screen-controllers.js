@@ -74,6 +74,8 @@ export function createFleetScreens({
   function paintServers(ctx, filters, focusSearch = false) {
     if (!ctx.isCurrent() || filters.composing) return;
     const active = document.activeElement,
+      previousTable = ctx.root.querySelector('.server-table-scroll'),
+      tableScrollLeft = previousTable?.scrollLeft ?? 0,
       focused = ctx.root.contains(active)
         ? active?.dataset?.serverFilter
         : null,
@@ -82,9 +84,15 @@ export function createFleetScreens({
           ? [active.selectionStart, active.selectionEnd]
           : null;
     ctx.render(serverCollection(model.snapshot, admin(), filters));
-    const input = ctx.root.querySelector(
-      `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
-    );
+    const table = ctx.root.querySelector('.server-table-scroll'),
+      input = ctx.root.querySelector(
+        `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
+      );
+    if (previousTable && table) {
+      if (active === previousTable && !focusSearch)
+        table.focus({preventScroll: true});
+      table.scrollLeft = tableScrollLeft;
+    }
     if (input) {
       input.focus({preventScroll: !focusSearch});
       if (range && !focusSearch) input.setSelectionRange(...range);
@@ -107,7 +115,8 @@ export function createFleetScreens({
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.serverFilter;
-      if (!['application', 'host', 'status', 'sort'].includes(key)) return;
+      if (!['application', 'host', 'status', 'sort', 'view'].includes(key))
+        return;
       filters[key] = event.target.value;
       paintServers(ctx, filters);
     });
@@ -127,7 +136,10 @@ export function createFleetScreens({
         } catch {
           if (ctx.isCurrent())
             error(
-              'Clipboard unavailable. Select and copy the address shown on the server card.',
+              'Clipboard unavailable. Select and copy the address shown ' +
+                (filters.view === 'table'
+                  ? 'in the server table.'
+                  : 'on the server card.'),
             );
         }
         return;
@@ -193,6 +205,7 @@ export function createFleetScreens({
         host: '',
         status: '',
         sort: 'host',
+        view: 'cards',
         composing: false,
       };
       return {
