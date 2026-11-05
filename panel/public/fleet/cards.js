@@ -24,8 +24,32 @@ export function serverStatus(server, {hosts, live}) {
                 ? 'Creating'
                 : 'Checking';
 }
-export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
-  const hostBusy = (id) => !!hostJobs.get(id);
+function serverPresentation(server, snapshot) {
+  const status = snapshot.live.get(serverKey(server)),
+    unavailable =
+      !snapshot.hosts.find((host) => host.id === server.hostId)?.connected ||
+      server.unavailable;
+  return {
+    removed: server.state === 'removed',
+    unavailable,
+    busy: !!snapshot.hostJobs.get(server.hostId),
+    state: serverStatus(server, snapshot),
+    players:
+      unavailable || status?.players == null
+        ? '—'
+        : playerCount(status.players),
+  };
+}
+function statusLabel(server, presentation) {
+  return `<span class="status ${presentation.unavailable || server.state === 'attention' ? 'attention' : ''}">${esc(presentation.state)}</span>`;
+}
+function serverActions(server, {removed, unavailable, busy}, admin) {
+  return removed
+    ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>'
+    : `<div class="actions"><a class="button primary" href="${esc(server.manageUrl)}">${server.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a>${applicationLink(server, unavailable)}${admin ? `<button data-snapshot="${serverKey(server)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(server)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`;
+}
+export function serverCards(snapshot, admin) {
+  const {servers, assigned} = snapshot;
   if (assigned)
     return servers.length
       ? servers
@@ -37,17 +61,23 @@ export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
       : '<p>No servers have been assigned to your account yet. Ask an administrator for access.</p>';
   return servers.length
     ? servers
-        .map((s) => {
-          const status = live.get(serverKey(s)),
-            removed = s.state === 'removed',
-            unavailable =
-              !hosts.find((h) => h.id === s.hostId)?.connected || s.unavailable,
-            busy = hostBusy(s.hostId),
-            state = serverStatus(s, {hosts, live});
-          return `<article class="card"><span class="game">${esc((s.applicationName || s.game).toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable || s.state === 'attention' ? 'attention' : ''}">${esc(state)}</span>${connectionAddress(s)}<div class="stats">${s.applicationKind === 'application' ? '' : `<div><strong>${unavailable || status?.players == null ? '—' : playerCount(status.players)}</strong>players</div>`}<div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>' : `<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">${s.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a>${applicationLink(s, unavailable)}${admin ? `<button data-snapshot="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`}</article>`;
+        .map((server) => {
+          const presentation = serverPresentation(server, snapshot);
+          return `<article class="card"><span class="game">${esc((server.applicationName || server.game).toUpperCase())} · ${esc(server.hostName)}</span><h2>${esc(server.name)}</h2>${statusLabel(server, presentation)}${connectionAddress(server)}<div class="stats">${server.applicationKind === 'application' ? '' : `<div><strong>${presentation.players}</strong>players</div>`}<div><strong>${esc(server.cpu)}</strong>CPU cores</div><div><strong>${esc(server.memoryGiB)} GiB</strong>memory limit</div></div>${serverActions(server, presentation, admin)}</article>`;
         })
         .join('')
     : '<div class="empty"><h2>Your first server starts here.</h2><p>Create a Factorio factory or a Rust island on this machine or a paired game host.</p></div>';
+}
+export function serverTable(snapshot, admin) {
+  // Keep assigned records on their minimal cards, even if a stale view is supplied.
+  if (snapshot.assigned || !snapshot.servers.length)
+    return serverCards(snapshot, admin);
+  return `<div class="server-table-scroll" role="region" aria-label="Fleet servers table" tabindex="0"><table class="server-table"><caption>Fleet servers · CPU and memory are configured limits, not current usage.</caption><thead><tr><th scope="col">Name</th><th scope="col">Application</th><th scope="col">Host</th><th scope="col">Status</th><th scope="col">Address</th><th scope="col">Configured CPU</th><th scope="col">Configured memory</th><th scope="col">Players</th><th scope="col">Actions</th></tr></thead><tbody>${snapshot.servers
+    .map((server) => {
+      const presentation = serverPresentation(server, snapshot);
+      return `<tr><th scope="row">${esc(server.name)}</th><td>${esc(server.applicationName || server.game)}</td><td>${esc(server.hostName)}</td><td>${statusLabel(server, presentation)}</td><td>${connectionAddress(server)}</td><td>${esc(server.cpu)} cores</td><td>${esc(server.memoryGiB)} GiB</td><td>${server.applicationKind === 'application' ? '—' : presentation.players}</td><td>${serverActions(server, presentation, admin)}</td></tr>`;
+    })
+    .join('')}</tbody></table></div>`;
 }
 export function snapshotCards({snapshots, hostJobs}, admin) {
   const hostBusy = (id) => !!hostJobs.get(id);

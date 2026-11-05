@@ -107,7 +107,8 @@ export function createFleetScreens({
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.serverFilter;
-      if (!['application', 'host', 'status', 'sort'].includes(key)) return;
+      if (!['application', 'host', 'status', 'sort', 'view'].includes(key))
+        return;
       filters[key] = event.target.value;
       paintServers(ctx, filters);
     });
@@ -127,7 +128,10 @@ export function createFleetScreens({
         } catch {
           if (ctx.isCurrent())
             error(
-              'Clipboard unavailable. Select and copy the address shown on the server card.',
+              'Clipboard unavailable. Select and copy the address shown ' +
+                (filters.view === 'table'
+                  ? 'in the server table.'
+                  : 'on the server card.'),
             );
         }
         return;
@@ -193,6 +197,7 @@ export function createFleetScreens({
         host: '',
         status: '',
         sort: 'host',
+        view: 'cards',
         composing: false,
       };
       return {
