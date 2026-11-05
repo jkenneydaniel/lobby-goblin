@@ -51,7 +51,8 @@ jobs:
         run: npm run quality --prefix panel
   browser-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Allow observed slow Chromium setup plus the complete browser suite.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
