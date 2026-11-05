@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.25-alpha — 2026-11-05
+
+Milestone: **Find and confidently reuse saved snapshots**.
+
+- Find saved states by title, source server, application or host. Combine application and host filters, see matching counts, and order snapshots by newest, oldest or title.
+- Keep library choices and typing intact during refresh/navigation. Clearly identify last-known snapshots when a host is unavailable and retain existing action restrictions.
+- Distinguish starting-snapshot choices by source and saved date, then review the selected title, source, date and host before creating an independent server through the existing setup checks.
+- Preserve host-scoped selection when snapshot IDs repeat, and prevent cancelled catalog responses from refilling a later creation dialog.
+
+Game images, software-provider pins and storage/update formats are unchanged. Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered.
+
 ## 0.3.24-alpha — 2026-11-04
 
 Milestone: **Find and share fleet servers**.
