@@ -50,6 +50,88 @@ async function fleet(page) {
   return state;
 }
 
+test('server name sorting keeps host order by default and combines with filters without requests', async ({page}, info) => {
+  await page.clock.install();
+  const state = await fleet(page);
+  state.local[0].name = 'Zulu service';
+  state.local[1].name = 'Alpha crew';
+  state.remote[0].name = 'alpha crew';
+  state.remote[0].id = state.local[1].id;
+  await login(page);
+  const order = page.getByRole('combobox', {name: 'Sort servers', exact: true});
+  const names = () => cards(page).locator('h2');
+  await expect(order).toHaveValue('host');
+  await expect(names()).toHaveText(['Zulu service', 'Alpha crew', 'alpha crew']);
+  const requests = [];
+  page.on('request', request => {if (request.url().includes('/api/')) requests.push(request.method() + ' ' + new URL(request.url()).pathname);});
+  await order.focus(); await order.press('ArrowDown'); await order.press('Enter');
+  await expect(order).toHaveValue('name'); await expect(order).toBeFocused();
+  await expect(names()).toHaveText(['Alpha crew', 'alpha crew', 'Zulu service']);
+  await expect(cards(page).nth(1).getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
+  await order.selectOption('name-desc');
+  await expect(names()).toHaveText(['Zulu service', 'Alpha crew', 'alpha crew']);
+  await search(page).fill('CREW');
+  await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
+  await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(remote);
+  await page.getByRole('combobox', {name: 'Filter by status', exact: true}).selectOption('Ready');
+  await expect(names()).toHaveText(['alpha crew']);
+  await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
+  await expect(order).toHaveValue('name-desc');
+  await expect(names()).toHaveText(['Zulu service', 'Alpha crew', 'alpha crew']);
+  await expect(count(page)).toHaveText('Showing 3 of 3 servers');
+  expect(requests).toEqual([]);
+  await page.screenshot({path: info.outputPath('fleet-name-order.png'), fullPage: true});
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
+});
+
+test('server name order survives refresh and navigation and resets for the next session', async ({page}) => {
+  await page.clock.install(); const state = await fleet(page); await login(page);
+  const order = page.getByRole('combobox', {name: 'Sort servers', exact: true});
+  await order.selectOption('name-desc'); await order.focus();
+  state.local[0].name = 'Zulu factory';
+  const before = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(before);
+  await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
+  await expect(order).toBeFocused();
+  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await expect(order).toHaveValue('name-desc');
+  await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await login(page, 'Viewer');
+  await expect(order).toHaveValue('host');
+  await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Island crew', 'Other factory <crew>']);
+  await order.selectOption('name');
+  await expect(cards(page).locator('h2')).toHaveText(['Island crew', 'Other factory <crew>', 'Zulu factory']);
+  await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
+});
+
+test('assigned inventory name sorting uses only authorized minimal records', async ({page}) => {
+  await page.clock.install(); await fleet(page);
+  const assigned = [
+    {id: '1'.repeat(32), name: 'Alpha assigned', game: 'factorio', applicationName: 'Factorio', manageUrl: '/hosts/' + remote + '/servers/' + '1'.repeat(32) + '/', address: 'one.example.test:35000'},
+    {id: '1'.repeat(32), name: 'alpha assigned', game: 'status-page', applicationName: 'Status Page', applicationKind: 'application', manageUrl: '/servers/' + '1'.repeat(32) + '/', address: 'two.example.test:35001'},
+  ];
+  await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: assigned}}));
+  const reads = [];
+  page.on('request', request => {if (request.url().includes('/api/')) reads.push(new URL(request.url()).pathname);});
+  await login(page, 'Assigned');
+  const order = page.getByRole('combobox', {name: 'Sort servers', exact: true});
+  const before = [...reads]; await order.selectOption('name');
+  await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
+  await expect(cards(page).first().getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', assigned[0].manageUrl);
+  await expect(cards(page).nth(1).getByRole('link', {name: 'Manage application', exact: true})).toHaveAttribute('href', assigned[1].manageUrl);
+  expect(reads).toEqual(before);
+  assigned.reverse();
+  await page.clock.fastForward(6000);
+  await expect.poll(() => reads.length).toBeGreaterThan(before.length);
+  await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
+  await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
+  await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
+  expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
+});
+
 test('fleet server search combines application and host filters, clears with the keyboard and keeps scoped links', async ({page}, info) => {
   await fleet(page); await login(page);
   await expect(count(page)).toHaveText('Showing 3 of 3 servers');
