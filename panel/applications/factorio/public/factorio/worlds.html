@@ -144,6 +144,7 @@
     <div class="world-build-layout">
       <aside class="world-draft-preview" aria-label="World map preview">
         <div class="draft-preview-picture">
+          <span class="preview-comparison-label">Current preview</span>
           <img
             id="draft-preview-image"
             alt="Map preview for your new world settings"
@@ -157,6 +158,11 @@
             generator.
           </p>
         </div>
+        <section id="kept-preview" class="kept-preview" aria-label="Kept map preview" hidden>
+          <h3 id="kept-preview-caption"></h3>
+          <img id="kept-preview-image" alt="Kept map preview" role="button" tabindex="0" aria-label="Expand kept preview" />
+          <p id="kept-preview-settings" class="hint"></p>
+        </section>
         <div class="preview-controls">
           <div class="world-preview-heading">
             <h3>Map preview</h3>
@@ -168,6 +174,11 @@
               Refresh now
             </button>
           </div>
+          <div class="preview-comparison-actions">
+            <button type="button" class="button small" id="keep-draft-preview" disabled>Keep for comparison</button>
+            <button type="button" class="button small" id="remove-kept-preview" hidden>Remove kept preview</button>
+          </div>
+          <p id="preview-comparison-state" class="hint" role="status"></p>
           <label
             >Seed<span class="world-seed-choice"
               ><input

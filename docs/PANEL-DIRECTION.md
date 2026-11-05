@@ -108,7 +108,7 @@ are tracked in [issue #77](https://github.com/jkenneydaniel/lobby-goblin/issues/
 | Priority | Addition | Acceptance boundary |
 | --- | --- | --- |
 | Next | Installed-engine play-style library | Custom presets are implemented; additional named engine presets must use exact engine values. |
-| Next | Seed shortlist and comparison | Persistent drafts are implemented; compare saved seeds with their exact configuration fingerprint and bound background rendering. |
+| Next | Choose a compared seed | One in-editor preview reference is implemented; applying the kept seed/settings and persistent shortlists remain separate work. |
 | Soon | Richer world metadata | Seed, playtime and last played must come from verified world data. |
 | Soon | Maintenance countdown and scheduled restart | Warn players, save/back up, persist timezone and cancellation. |
 | Soon | Game/mod compatibility planner | Check exact mod/client versions and explain upgrade/recovery limits; no silent game updates. |
@@ -123,9 +123,19 @@ maps are illustrative game art, not verified seed renders. Production continues
 to use the installed Factorio preview and existing sampled map renderer. The
 isolated UI fixture uses clearly synthetic imagery and has no Docker access.
 
-Generated mockup features such as seed comparison, an editable release-channel
+Generated mockup features such as persistent seed shortlists, an editable release-channel
 selector and a complete engine preset library are not claimed as implemented.
 No achievement eligibility badge is inferred from an image. Base-game 2.0.x
 compatibility remains the alpha scope. Browser review and automated checks do
 not establish game execution on Mac/Linux/ARM or live deployment acceptance.
 See [verification](VERIFICATION.md) for the exact tested boundary.
+
+### In-editor seed comparison
+
+Factorio creation can keep one completed map preview beside the current candidate
+while another seed or applied configuration is tried. The kept reference retains
+its seed and complete request settings; terrain preview identity alone does not
+identify gameplay rules. It stays only while that editor is open and clears when
+leaving, signing out or changing server scope. Keeping/removing a reference does
+not create or switch a world. Applying a kept candidate to the draft and persistent
+shortlists remain separate work.
