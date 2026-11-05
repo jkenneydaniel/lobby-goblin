@@ -71,7 +71,7 @@ test('snapshot search combines source, application and host filters; clear prese
   await sort(page).selectOption('title'); await expect(cards(page).first()).toContainText('Alpha island');
   await search(page).fill('Weekend'); await expect(cards(page)).toHaveCount(1);
   await page.screenshot({path: info.outputPath('snapshot-library-search.png'), fullPage: true});
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
 });
 
 test('snapshot filter focus, caret, IME and choices survive refresh and navigation with cached offline fences', async ({page}) => {
@@ -82,10 +82,10 @@ test('snapshot filter focus, caret, IME and choices survive refresh and navigati
   await expect(search(page)).toBeFocused(); expect(await search(page).evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([1, 4]);
   const input = await search(page).elementHandle();
   await input.dispatchEvent('compositionstart', {data: ''});
-  await input.evaluate(element => {element.value = '工'; element.dispatchEvent(new InputEvent('input', {bubbles: true, isComposing: true}));});
+  await input.evaluate(element => {element.value = '工'; element.dispatchEvent(new globalThis.InputEvent('input', {bubbles: true, isComposing: true}));});
   before = state.reads; await page.clock.fastForward(6000); await expect.poll(() => state.reads).toBeGreaterThan(before);
   expect(await input.evaluate(element => element.isConnected)).toBe(true);
-  await input.evaluate(element => {element.value = 'Friday'; element.dispatchEvent(new CompositionEvent('compositionend', {bubbles: true, data: 'Friday'}));});
+  await input.evaluate(element => {element.value = 'Friday'; element.dispatchEvent(new globalThis.CompositionEvent('compositionend', {bubbles: true, data: 'Friday'}));});
   state.hosts[1].connected = false;
   await page.clock.fastForward(6000);
   const cached = cards(page).filter({hasText: 'Weekend host'});
