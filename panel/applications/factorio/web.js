@@ -97,6 +97,7 @@ export const web = {
     '/world-editor.js': ['world-editor.js', 'text/javascript; charset=utf-8'],
     '/world-fields.js': ['world-fields.js', 'text/javascript; charset=utf-8'],
     '/world-preview.js': ['world-preview.js', 'text/javascript; charset=utf-8'],
+    '/preview-comparison.js': ['preview-comparison.js', 'text/javascript; charset=utf-8'],
   },
   diagnosticsReport,
   bodyLimit: (route) => (route === '/upload' ? 128 * 1024 * 1024 : 1024 * 1024),

@@ -1,4 +1,5 @@
 import {serverPath} from './scope.js';
+import {mountPreviewComparison} from './preview-comparison.js';
 const clone = (value) => JSON.parse(JSON.stringify(value));
 let cleanup = () => {};
 export function cleanWorldPreview() {
@@ -11,6 +12,7 @@ export function mountWorldPreview(
   {api, getDraft, isValid, onSeed = () => {}},
 ) {
   cleanWorldPreview();
+  const comparison = mountPreviewComparison(form, {api});
   let timer = null,
     poll = null,
     stopped = false,
@@ -29,9 +31,11 @@ export function mountWorldPreview(
     label.textContent = value;
   }
   function stale() {
+    comparison.stale();
     image.classList.add('preview-stale');
   }
   function cancel() {
+    comparison.stale();
     clearTimeout(timer);
     clearTimeout(poll);
     controller?.abort();
@@ -57,7 +61,7 @@ export function mountWorldPreview(
       !form.querySelector('[data-world-setting]:invalid')
     );
   }
-  function paint(result, current) {
+  function paint(result, current, snapshot) {
     if (stopped || current !== version) return;
     if (result.state === 'ready') {
       lastId = result.id;
@@ -70,6 +74,8 @@ export function mountWorldPreview(
         empty.hidden = true;
         image.classList.remove('preview-stale');
         text('Up to date · Seed ' + result.seed);
+        if (result.seed === snapshot.seed)
+          comparison.ready({...snapshot, id: result.id});
       };
       image.onload = loaded;
       image.onerror = () => {
@@ -110,7 +116,7 @@ export function mountWorldPreview(
               );
             return;
           }
-          paint(next, current);
+          paint(next, current, snapshot);
         } catch (error) {
           if (!stopped && current === version && error.name !== 'AbortError')
             text(error.message);
@@ -129,7 +135,11 @@ export function mountWorldPreview(
       return;
     }
     const chosenSeed = seed(),
-      current = version;
+      current = version,
+      snapshot = {
+        seed: chosenSeed,
+        configuration: clone(getDraft().configuration),
+      };
     controller = new AbortController();
     stale();
     text('Requesting preview…');
@@ -137,12 +147,12 @@ export function mountWorldPreview(
       const result = await api('/world-preview', {
         method: 'POST',
         body: {
-          configuration: clone(getDraft().configuration),
+          configuration: snapshot.configuration,
           seed: chosenSeed,
         },
         signal: controller.signal,
       });
-      paint(result, current);
+      paint(result, current, snapshot);
     } catch (error) {
       if (!stopped && current === version && error.name !== 'AbortError')
         text(error.message);
@@ -166,6 +176,7 @@ export function mountWorldPreview(
     text('Settings changed · updating preview shortly…');
     timer = setTimeout(request, force ? 0 : 900);
   }
+  const editedValues = new WeakMap();
   const input = (event) => {
     if (event.target === automatic) return;
     if (
@@ -174,6 +185,15 @@ export function mountWorldPreview(
       )
     )
       return;
+    // A field's change event follows input when focus leaves it. Do not
+    // invalidate a completed preview again for the same already-applied edit.
+    const value = JSON.stringify([event.target.value, event.target.checked]);
+    if (event.type === 'input') editedValues.set(event.target, value);
+    else {
+      const pendingInput = editedValues.get(event.target);
+      editedValues.delete(event.target);
+      if (pendingInput === value) return;
+    }
     schedule();
   };
   const toggle = () => {
@@ -210,6 +230,7 @@ export function mountWorldPreview(
   cleanup = () => {
     stopped = true;
     cancel();
+    comparison.dispose();
     form.removeEventListener('input', input);
     form.removeEventListener('change', input);
     outer?.removeEventListener('toggle', toggle);
