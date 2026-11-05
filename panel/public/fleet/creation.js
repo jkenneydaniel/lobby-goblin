@@ -202,6 +202,7 @@ export function createServerDialog({
         'This application and its data will be created on ' + host.name + '.';
       $('#create-submit').textContent = 'Create on ' + host.name;
       $('#create-submit').disabled = hostBusy(host.id);
+      return revision;
     } catch (e) {
       if (revision === creationRevision) {
         error(e.message, '#creation-error');
@@ -226,7 +227,8 @@ export function createServerDialog({
         ?.id ||
       '';
     $('#create-dialog').showModal();
-    await creationHostChanged(snapshot?.id || '');
+    const revision = await creationHostChanged(snapshot?.id || '');
+    if (revision !== creationRevision || !$('#create-dialog').open) return;
     if (snapshot) {
       f.elements.game.value = snapshot.game;
       configureCreation(snapshot.id);

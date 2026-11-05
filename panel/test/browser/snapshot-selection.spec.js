@@ -149,3 +149,42 @@ test('snapshot selection adds no creation controls or library reads to restricte
   await expect(nav(page).getByRole('link', {name: 'Snapshot library', exact: true})).toHaveCount(0);
   await expect(context(page)).toBeEmpty(); expect(state.snapshotReads).toBe(reads);
 });
+
+test('a cancelled clone catalogue cannot restore snapshot context in a later dialog', async ({page}) => {
+  const state = await snapshots(page); await login(page);
+  await page.getByRole('button', {name: 'Create server', exact: true}).click();
+  await expect(page.locator('#create-submit')).toBeEnabled();
+  await form(page).getByRole('button', {name: 'Close', exact: true}).click();
+  let releaseOld, releaseCurrent, oldStarted, currentStarted;
+  const oldGate = new Promise(resolve => {releaseOld = resolve;}),
+    currentGate = new Promise(resolve => {releaseCurrent = resolve;}),
+    oldRequest = new Promise(resolve => {oldStarted = resolve;}),
+    currentRequest = new Promise(resolve => {currentStarted = resolve;});
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() !== 'GET' || !path.endsWith('/catalog')) return route.fallback();
+    if (path.includes('/hosts/')) {oldStarted(); await oldGate;}
+    else {currentStarted(); await currentGate;}
+    return route.fulfill({json: {games: Object.values(catalog)}});
+  });
+  try {
+    await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+    await page.getByRole('searchbox', {name: 'Find snapshots', exact: true}).fill('Remote factory');
+    await page.locator('#snapshots article.card').getByRole('button', {name: 'Create server on this host'}).click();
+    await oldRequest;
+    await form(page).getByRole('button', {name: 'Close', exact: true}).click();
+    await page.getByRole('button', {name: 'Create server', exact: true}).click(); await currentRequest;
+    await expect(context(page)).toBeHidden(); await expect(context(page)).toBeEmpty();
+    const response = page.waitForResponse(value => new URL(value.url()).pathname === '/api/hosts/' + remote + '/catalog');
+    releaseOld(); await (await response).finished();
+    // Flush rendering after the deliberately delayed fetch body has arrived.
+    await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+    await expect(context(page)).toBeHidden(); await expect(context(page)).toBeEmpty();
+    await expect(form(page).locator('[name=snapshotId]')).toHaveValue('');
+    await expect(form(page).locator('[name=name]')).toHaveValue('');
+    await expect(page.locator('#create-submit')).toBeDisabled();
+    releaseCurrent(); await expect(page.locator('#create-submit')).toBeEnabled();
+    await expect(context(page)).toBeHidden(); await expect(context(page)).toBeEmpty();
+    expect(state.checked).toEqual([]); expect(state.created).toEqual([]);
+  } finally {releaseOld(); releaseCurrent();}
+});
