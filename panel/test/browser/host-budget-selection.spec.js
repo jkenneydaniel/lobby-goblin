@@ -351,3 +351,66 @@ test('a late read for a previous selection never replaces the visible host', asy
     release();
   }
 });
+
+test('compare hosts, review and adjust the intended budget, then refresh the capacity comparison', async ({
+  page,
+}, info) => {
+  const state = await fixture(page);
+  await nav(page).getByRole('link', {name: 'Hosts', exact: true}).click();
+  const cards = page.locator('#hosts-list article');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.first().locator('.capacity-summary dd')).toHaveText([
+    '24 GiB',
+    '17 GiB',
+    '7 GiB',
+    '32.0 GiB',
+  ]);
+  await expect(cards.nth(1).locator('.capacity-summary dd')).toHaveText([
+    '16 GiB',
+    '3 GiB',
+    '13 GiB',
+    '24.0 GiB',
+  ]);
+  await nav(page)
+    .getByRole('link', {name: 'Host settings', exact: true})
+    .click();
+  await selectRemote(page);
+  await expect(page.locator('#host-allocations')).toContainText(
+    'Remote factory',
+  );
+  await budget(page).fill('20');
+  await save(page).click();
+  await expect(page.locator('#host-saved')).toContainText('Weekend host');
+  await reload(page).click();
+  await expect(budget(page)).toHaveValue('20');
+  await nav(page).getByRole('link', {name: 'Hosts', exact: true}).click();
+  await page
+    .getByRole('button', {name: 'Refresh capacity', exact: true})
+    .click();
+  await expect(cards.nth(1).locator('.capacity-summary dd')).toHaveText([
+    '20 GiB',
+    '3 GiB',
+    '17 GiB',
+    '24.0 GiB',
+  ]);
+  await expect(cards.first().locator('.capacity-summary dd')).toHaveText([
+    '24 GiB',
+    '17 GiB',
+    '7 GiB',
+    '32.0 GiB',
+  ]);
+  expect(state.writes).toEqual([
+    {path: remotePath, body: {memoryBudgetGiB: 20, revision: 7}},
+  ]);
+  expect(
+    await page.evaluate(
+      () =>
+        globalThis.document.documentElement.scrollWidth <=
+        globalThis.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: info.outputPath('capacity-milestone-combined.png'),
+    fullPage: true,
+  });
+});

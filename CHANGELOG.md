@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.27-alpha — 2026-11-05
+
+Milestone: **Plan and adjust memory across hosts**.
+
+- Compare configured memory budgets, allocations and available-to-allocate memory across local and paired hosts. Deliberately refresh capacity and distinguish unknown or offline values from usable headroom; these figures are not live RAM usage.
+- Select a host in Host settings, review its allocation breakdown and adjust its budget through the existing administrator checks. Viewers stay read-only and assigned-server accounts gain no host-settings access.
+- Keep drafts and revisions separate for each host. Prevent late responses from replacing a different host's settings, and require inspection/reload after revision conflicts or uncertain saves. Existing servers retain their limits and stay running.
+
+Game images, software-provider pins, runtime definitions and storage/update formats are unchanged. Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered. Separate browser-interceptor maintenance is not presented as repaired.
+
 ## 0.3.26-alpha — 2026-11-05
 
 Milestone: **Open and manage hosted applications from the fleet**.
