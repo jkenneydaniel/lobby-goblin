@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.30-alpha — 2026-11-05
+
+Milestone: **Compare and organize the fleet inventory**.
+
+- Find loaded servers in name A–Z or Z–A order, or keep the familiar host order. Sorting combines with existing search and application, host and status filters.
+- Switch between Cards and a compact Table to compare application, host, status, connection address and configured CPU/memory limits. Game player counts remain distinct from application rows; configured limits are not live utilization.
+- Keep the chosen view and order through refresh and navigation. The table retains horizontal reading position and keyboard region focus during background updates; signing out resets the choices.
+
+Administrators and viewers retain the existing scoped links, address copying and action restrictions in either view. Assigned accounts retain their minimal cards. Presentation controls make no additional server requests or changes.
+
+This combined milestone includes sorting (LOB-36, #141) and Table view (LOB-37, #142). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Native assistive-technology and OS clipboard acceptance are not claimed.
+
 ## 0.3.29-alpha — 2026-11-05
 
 Milestone: **Find and share relevant application logs**.
