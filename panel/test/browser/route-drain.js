@@ -6,6 +6,7 @@ export function trackPageRoutes(page, {timeout = 5000} = {}) {
   const originalRoute = page.route,
     originalUnroute = page.unroute,
     wrappers = new WeakMap(),
+    registrations = [],
     pending = new Set(),
     errors = [];
   let draining = false;
@@ -33,6 +34,7 @@ export function trackPageRoutes(page, {timeout = 5000} = {}) {
       };
       wrappers.set(handler, wrapped);
     }
+    registrations.push({url, wrapped});
     return originalRoute.call(page, url, wrapped, options);
   };
   page.unroute = function (url, handler) {
@@ -52,14 +54,26 @@ export function trackPageRoutes(page, {timeout = 5000} = {}) {
               while (pending.size && !expired)
                 await Promise.allSettled([...pending]);
               if (expired) return;
-              // Keep this call in the same continuation as the final empty
-              // check: exposing a separate drain promise creates a handoff gap.
               let removalError;
               try {
-                await page.unrouteAll({behavior: 'wait'});
+                // Keep the page interceptor installed through context close.
+                // Removing its last route can automatically continue a request
+                // whose page callback already fell back to the context guard.
+                await originalRoute.call(page, '**/*', (route) =>
+                  route.fallback(),
+                );
+                for (const {url, wrapped} of registrations) {
+                  if (expired) return;
+                  await originalUnroute.call(page, url, wrapped);
+                }
               } catch (error) {
                 removalError = error;
               }
+              // Include callbacks dispatched while the barrier was installed,
+              // even if removing an owned registration failed.
+              while (pending.size && !expired)
+                await Promise.allSettled([...pending]);
+              if (expired) return;
               const failures = removalError
                 ? [...errors, removalError]
                 : errors;
