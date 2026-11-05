@@ -109,8 +109,8 @@ test('server name order survives refresh and navigation and resets for the next 
 test('assigned inventory name sorting uses only authorized minimal records', async ({page}) => {
   await page.clock.install(); await fleet(page);
   const assigned = [
-    {id: '1'.repeat(32), name: 'Zulu assigned', game: 'factorio', applicationName: 'Factorio', manageUrl: '/servers/' + '1'.repeat(32) + '/', address: 'one.example.test:35000'},
-    {id: '2'.repeat(32), name: 'Alpha service', game: 'status-page', applicationName: 'Status Page', applicationKind: 'application', manageUrl: '/servers/' + '2'.repeat(32) + '/', address: 'two.example.test:35001'},
+    {id: '1'.repeat(32), name: 'Alpha assigned', game: 'factorio', applicationName: 'Factorio', manageUrl: '/hosts/' + remote + '/servers/' + '1'.repeat(32) + '/', address: 'one.example.test:35000'},
+    {id: '1'.repeat(32), name: 'alpha assigned', game: 'status-page', applicationName: 'Status Page', applicationKind: 'application', manageUrl: '/servers/' + '1'.repeat(32) + '/', address: 'two.example.test:35001'},
   ];
   await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: assigned}}));
   const reads = [];
@@ -118,12 +118,17 @@ test('assigned inventory name sorting uses only authorized minimal records', asy
   await login(page, 'Assigned');
   const order = page.getByRole('combobox', {name: 'Sort servers', exact: true});
   const before = [...reads]; await order.selectOption('name');
-  await expect(cards(page).locator('h2')).toHaveText(['Alpha service', 'Zulu assigned']);
-  await expect(cards(page).first().getByRole('link', {name: 'Manage application', exact: true})).toHaveAttribute('href', assigned[1].manageUrl);
+  await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
+  await expect(cards(page).first().getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', assigned[0].manageUrl);
+  await expect(cards(page).nth(1).getByRole('link', {name: 'Manage application', exact: true})).toHaveAttribute('href', assigned[1].manageUrl);
+  expect(reads).toEqual(before);
+  assigned.reverse();
+  await page.clock.fastForward(6000);
+  await expect.poll(() => reads.length).toBeGreaterThan(before.length);
+  await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
   await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
   await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
-  expect(reads).toEqual(before);
   expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
 });
 

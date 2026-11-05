@@ -24,6 +24,20 @@ test('name ordering composes with current search, host, application and live sta
   assert.deepEqual(selectServers(assigned, {...filters, sort: 'name', status: 'Ready'}).map(row => row.id), ['1', '2']);
 });
 
+test('assigned equal names and IDs keep scoped host links stable when source order changes', () => {
+  const assigned = [
+    {id: 'same', name: 'Alpha', game: 'factorio', manageUrl: '/hosts/b/servers/same/'},
+    {id: 'same', name: 'alpha', game: 'factorio', manageUrl: '/hosts/a/servers/same/'},
+  ];
+  const urls = rows => rows.map(row => row.manageUrl);
+  for (const sort of ['name', 'name-desc']) {
+    const first = selectServers({...snapshot, assigned: true, servers: assigned}, {...filters, sort});
+    const reversed = selectServers({...snapshot, assigned: true, servers: [...assigned].reverse()}, {...filters, sort});
+    assert.deepEqual(urls(first), ['/hosts/a/servers/same/', '/hosts/b/servers/same/']);
+    assert.deepEqual(urls(reversed), urls(first));
+  }
+});
+
 test('sort choice is presentation-only and does not activate Clear filters or hide empty states', () => {
   const html = serverCollection(snapshot, false, {...filters, sort: 'name-desc'});
   assert.match(html, /Sort servers/);

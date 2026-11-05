@@ -37,7 +37,8 @@ export function selectServers(snapshot, filters) {
           a.name
             .toLocaleLowerCase()
             .localeCompare(b.name.toLocaleLowerCase()) ||
-        serverKey(a).localeCompare(serverKey(b)),
+        serverKey(a).localeCompare(serverKey(b)) ||
+        a.manageUrl.localeCompare(b.manageUrl),
     );
   }
   return servers;
