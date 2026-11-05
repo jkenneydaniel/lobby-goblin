@@ -35,7 +35,7 @@ async function fixture(page,{assigned=false}={}){
 }
 test('application cards distinguish management from a user-opened public endpoint on desktop and mobile',async({page},info)=>{
  const requests=[];
- await page.context().route('http://service.example.test:35000/',route=>{requests.push(route.request().headers());return route.fulfill({contentType:'text/html',body:'<h1>Synthetic public application</h1>'});});
+ await page.context().route('http://service.example.test:35000/',route=>{return route.request().allHeaders().then(headers=>{requests.push(headers);return route.fulfill({contentType:'text/html',body:'<h1>Synthetic public application</h1>'});});});
  await fixture(page);
  await expect(cards(page)).toHaveCount(2);
  const card=cards(page).first(),link=card.getByRole('link',{name:'Open application',exact:true});
@@ -64,5 +64,15 @@ test('offline cached applications lose public actions and unsafe destinations ne
  state.hosts[1].connected=false;state.local[0].address='user:pass@evil.example:80';
  await page.clock.fastForward(6000);await expect(cards(page).nth(1)).toContainText('Host unavailable');
  await expect(page.getByRole('link',{name:'Open application',exact:true})).toHaveCount(0);
+ await expect(cards(page).first().getByRole('button',{name:'Copy address'})).toBeVisible();
+});
+
+for(const assigned of [false,true])test('same-host public applications never expose an action that sends panel cookies '+assigned,async({page})=>{
+ await page.clock.install();const state=await fixture(page,{assigned});
+ state.local[0].address='127.1:35000';state.remote[0].address='127.0.0.1:35003';
+ await page.clock.fastForward(6000);
+ await expect(page.getByRole('link',{name:'Open application',exact:true})).toHaveCount(0);
+ await expect(cards(page).first()).toContainText('keep panel sign-in cookies separate');
+ await expect(cards(page).first().getByRole('link',{name:'Manage application'})).toBeVisible();
  await expect(cards(page).first().getByRole('button',{name:'Copy address'})).toBeVisible();
 });

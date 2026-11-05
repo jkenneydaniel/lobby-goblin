@@ -250,3 +250,9 @@ Panel sign-in does not protect that public listener, and HTTP is not encrypted.
 The action uses the displayed host and allocated application port; it does not
 probe reachability, configure TLS or publish additional ports. Address copying
 remains available. Unavailable hosts do not offer the public application action.
+
+Browsers share cookies between ports on the same hostname. The one-click public
+application action is therefore offered only when its hostname differs from the
+panel hostname. Cards using the panel hostname explain the separate-hostname
+requirement and retain management and address copying. This does not change
+listener configuration or provision a hostname.

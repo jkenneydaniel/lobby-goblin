@@ -22,15 +22,15 @@ test('reviewed presentation retains existing runtime fingerprints and never infe
 test('public links accept only explicit HTTP(S) host and allocated port destinations',()=>{
  assert.equal(applicationURL(service),'http://service.example.test:35000/');
  assert.equal(applicationURL({...service,webProtocol:'https',address:'[::1]:443'}),'https://[::1]/');
- for(const address of ['javascript:alert(1)','user:pass@host:80','host:80/path','host:80?x=1','host:80#x','//host:80','host:0','host:65536','host:80\\evil','host:80\n','host:80" onclick="x','[not-ip]:80','host:80@other:80'])assert.equal(applicationURL({...service,address}),'',address);
+ for(const address of ['javascript:alert(1)','user:pass@host:80','host:80/path','host:80?x=1','host:80#x','//host:80','host:0','host:65536','host:80\\evil','host:80\n','host:80" onclick="x','[not-ip]:80','host:80@other:80','host..example:80','-host.example:80','host-.example:80'])assert.equal(applicationURL({...service,address}),'',address);
  for(const patch of [{webProtocol:'javascript'},{webProtocol:undefined},{applicationKind:'game'},{applicationKind:undefined}])assert.equal(applicationURL({...service,...patch}),'');
- assert.match(applicationLink(service),/rel="noopener noreferrer"/);
- assert.match(applicationLink(service),/separate from panel sign-in.*not encrypted/);
- assert.equal(applicationLink(service,true),'');assert.equal(applicationLink({...service,state:'removed'}),'');
+ assert.match(applicationLink(service,false,'panel.example.test'),/rel="noopener noreferrer"/);
+ assert.match(applicationLink(service,false,'panel.example.test'),/separate from panel sign-in.*not encrypted/);
+ assert.equal(applicationLink(service,true,'panel.example.test'),'');assert.equal(applicationLink(service,false,''),'');assert.ok(!applicationLink(service,false,'service.example.test').includes('Open application'));assert.match(applicationLink(service,false,'SERVICE.EXAMPLE.TEST.'),/cookies separate/);assert.ok(!applicationLink({...service,address:'127.1:35000'},false,'127.0.0.1').includes('Open application'));assert.equal(applicationLink({...service,state:'removed'}),'');
 });
 test('mixed fleet cards preserve game players and scoped management while applications expose distinct public context',()=>{
  const model={servers:[service,{...service,id:'b',game:'factorio',applicationName:'Factorio',applicationKind:'game',webProtocol:undefined}],hosts:[{id:'local',connected:true}],live:new Map(),hostJobs:new Map()};
- const html=serverCards(model,true);assert.equal((html.match(/Open application/g)||[]).length,1);assert.equal((html.match(/players/g)||[]).length,1);assert.match(html,/Manage application/);assert.match(html,/Open server/);assert.match(html,/STATUS PAGE/);
+ const html=serverCards(model,true);assert.equal((html.match(/Open application/g)||[]).length,0);assert.equal((html.match(/players/g)||[]).length,1);assert.match(html,/Manage application/);assert.match(html,/Open server/);assert.match(html,/STATUS PAGE/);
  assert.ok(!serverCards({...model,hosts:[]},true).includes('Open application'));
- const assigned=serverCards({...model,servers:[service],assigned:true},false);assert.match(assigned,/Open application/);assert.match(assigned,/Manage application/);assert.ok(!assigned.includes('Publish snapshot'));
+ const assigned=serverCards({...model,servers:[service],assigned:true},false);assert.ok(!assigned.includes('Open application'));assert.match(assigned,/Manage application/);assert.ok(!assigned.includes('Publish snapshot'));
 });
