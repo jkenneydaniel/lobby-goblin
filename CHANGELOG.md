@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.26-alpha — 2026-11-05
+
+Milestone: **Open and manage hosted applications from the fleet**.
+
+- Open an existing Status Page application's public HTTP endpoint directly from its authorized fleet card, with a separate management action and exact address copying.
+- Show registered application names and service-appropriate cards without game-only player counts. Preserve local, remote and assigned-server scope and existing game behavior.
+- Use explicit reviewed HTTP presentation metadata and validated host/port destinations, with no automatic request, proxy or embedded application. Open a separate tab without an opener or referrer.
+- Keep panel sign-in cookies separate: suppress the public-opening action when an application shares the panel hostname, explain the separate-hostname requirement, and retain management and copying. Public HTTP access is separate from panel sign-in and is not encrypted.
+- Preserve offline-host action restrictions and existing runtime definition fingerprints, image/provider pins and storage/update formats.
+
+Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered. The separate browser-interceptor maintenance investigation is not presented as a repaired product issue.
+
 ## 0.3.25-alpha — 2026-11-05
 
 Milestone: **Find and confidently reuse saved snapshots**.
