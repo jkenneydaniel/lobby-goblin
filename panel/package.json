@@ -1,6 +1,6 @@
 {
   "name": "lobby-goblin",
-  "version": "0.3.27-alpha",
+  "version": "0.3.28-alpha",
   "private": true,
   "type": "module",
   "scripts": {

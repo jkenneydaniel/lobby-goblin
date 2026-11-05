@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.28-alpha — 2026-11-05
+
+Milestone: **Compare and choose a Factorio seed**.
+
+- Keep one completed map preview beside the current candidate while trying other seeds or settings. Clearly label the current and kept previews, compare their seed/settings and explicitly replace or remove the reference.
+- Use the kept seed and complete terrain/gameplay settings in the creation draft after confirmation. Preserve the world name, leave switching unchecked, rebuild the controls and reuse draft autosave and Review/Create. Choosing a preview does not create or switch a world.
+- Retain the full configuration even when gameplay settings share the same terrain preview identity. Keep the reference in this editor session only, clear it on navigation/session disposal, and preserve the previous reference if capture fails.
+
+Existing preview authorization and resource bounds, management permissions, game images/provider pins and storage/update formats are unchanged. Publishing this alpha does not update installations or running game servers. Minecraft remains fixture-only and unregistered. Separate browser-interceptor maintenance is not presented as repaired.
+
 ## 0.3.27-alpha — 2026-11-05
 
 Milestone: **Plan and adjust memory across hosts**.
