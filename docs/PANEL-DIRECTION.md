@@ -70,8 +70,10 @@ failure does not block this page. Setup and connection failures link to it.
 Shared application and game logs support literal, case-insensitive line search,
 matching/total counts and clear/no-match states over the recent output already
 loaded. Refresh keeps the query, while session/server changes clear it. Searching
-does not fetch additional history or submit a console command. Explicit copying
-of a filtered excerpt remains separate work.
+does not fetch additional history or submit a console command. **Copy shown lines**
+explicitly copies the current excerpt, announces success after the clipboard write
+finishes, and gives manual-copy guidance when clipboard access is unavailable.
+It does not upload logs or fetch additional output.
 
 World creation retains the existing three stages and art direction. Account-owned
 drafts save automatically, including unfinished advanced edits, and resume from the

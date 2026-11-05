@@ -259,3 +259,166 @@ test('an older failed refresh cannot report an error after a newer successful re
     release();
   }
 });
+
+const copyLines = (page) =>
+  page.getByRole('button', {name: 'Copy shown lines', exact: true});
+const copyResult = (page) => page.locator('[data-log-copy-result]');
+async function clipboard(page, mode = 'ok') {
+  await page.addInitScript((mode) => {
+    globalThis.copiedLogExcerpts = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      value:
+        mode === 'missing'
+          ? undefined
+          : {
+              writeText: (value) => {
+                globalThis.copiedLogExcerpts.push(value);
+                if (mode === 'reject')
+                  return Promise.reject(Error('Synthetic denied clipboard'));
+                if (mode === 'deferred')
+                  return new Promise((resolve) => {
+                    globalThis.finishLogCopy = resolve;
+                  });
+                return Promise.resolve();
+              },
+            },
+    });
+  }, mode);
+}
+for (const game of ['factorio', 'rust', 'application'])
+  test(
+    game +
+      ' explicitly copies only shown log lines without fetching or commands',
+    async ({page}, info) => {
+      await clipboard(page);
+      const data = state();
+      await open(page, game, data);
+      const reads = data.reads;
+      expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toEqual(
+        [],
+      );
+      await copyLines(page).focus();
+      await copyLines(page).press('Enter');
+      await expect(copyResult(page)).toHaveText('Shown log lines copied.');
+      expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toEqual([
+        data.text,
+      ]);
+      await search(page).fill('error');
+      await expect(copyResult(page)).toBeEmpty();
+      const shown = await page.locator('#logs').textContent();
+      await copyLines(page).click();
+      await expect(copyResult(page)).toHaveText('Shown log lines copied.');
+      expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toEqual([
+        data.text,
+        shown,
+      ]);
+      await expect(search(page)).toHaveValue('error');
+      expect(data.reads).toBe(reads);
+      expect(data.writes).toEqual([]);
+      await search(page).fill('no matching line');
+      await expect(copyLines(page)).toBeDisabled();
+      await expect(copyResult(page)).toBeEmpty();
+      await clear(page).click();
+      data.text = '';
+      await page
+        .getByRole('button', {name: 'Refresh logs', exact: true})
+        .click();
+      await expect(count(page)).toHaveText('Showing 0 of 0 loaded lines.');
+      await expect(copyLines(page)).toBeDisabled();
+      expect(
+        await page.evaluate(() => globalThis.copiedLogExcerpts),
+      ).toHaveLength(2);
+      await page.screenshot({
+        path: info.outputPath(game + '-copy-logs.png'),
+        fullPage: true,
+      });
+    },
+  );
+for (const mode of ['missing', 'reject'])
+  test(
+    'clipboard ' +
+      mode +
+      ' retains visible excerpt and offers truthful manual copying',
+    async ({page}) => {
+      await clipboard(page, mode);
+      const data = state();
+      await open(page, 'factorio', data);
+      await search(page).fill('[worker]');
+      const text = await page.locator('#logs').textContent(),
+        reads = data.reads;
+      await copyLines(page).click();
+      await expect(copyResult(page)).toHaveText(
+        'Clipboard unavailable. Select and copy the shown log lines manually.',
+      );
+      await expect(copyResult(page)).not.toContainText('copied.');
+      await expect(page.locator('#logs')).toHaveJSProperty('textContent', text);
+      await expect(copyLines(page)).toBeEnabled();
+      expect(data.reads).toBe(reads);
+      expect(data.writes).toEqual([]);
+    },
+  );
+test('copy progress is asynchronous, duplicate clicks are blocked, and changed views reject stale feedback', async ({
+  page,
+}) => {
+  await clipboard(page, 'deferred');
+  const data = state();
+  await open(page, 'factorio', data);
+  await copyLines(page).click();
+  await expect(copyLines(page)).toBeDisabled();
+  await expect(copyResult(page)).toHaveText('Copying shown log lines…');
+  await copyLines(page).evaluate((button) => button.click());
+  expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toHaveLength(
+    1,
+  );
+  await page.evaluate(() => globalThis.finishLogCopy());
+  await expect(copyResult(page)).toHaveText('Shown log lines copied.');
+  await copyLines(page).click();
+  await search(page).fill('error');
+  await expect(copyResult(page)).toBeEmpty();
+  await page.evaluate(() => globalThis.finishLogCopy());
+  await expect(copyLines(page)).toBeEnabled();
+  await expect(copyResult(page)).toBeEmpty();
+  await copyLines(page).click();
+  await nav(page).getByRole('link', {name: 'Overview', exact: true}).click();
+  await page.evaluate(() => globalThis.finishLogCopy());
+  await nav(page).getByRole('link', {name: 'Activity', exact: true}).click();
+  await expect(search(page)).toHaveValue('error');
+  await expect(copyResult(page)).toBeEmpty();
+  await expect(copyLines(page)).toBeEnabled();
+  expect(data.writes).toEqual([]);
+});
+test('sign-out discards pending clipboard state before another account signs in', async ({
+  page,
+}) => {
+  await clipboard(page, 'deferred');
+  const data = state();
+  await open(page, 'application', data);
+  await search(page).fill('error');
+  await copyLines(page).click();
+  await expect(copyLines(page)).toBeDisabled();
+  expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toHaveLength(
+    1,
+  );
+  const oldDocument = await page.evaluate(() => performance.timeOrigin);
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await page.waitForFunction(
+    (old) => performance.timeOrigin !== old,
+    oldDocument,
+  );
+  await page.getByLabel('Username', {exact: true}).fill('Read');
+  await page
+    .getByLabel('Password', {exact: true})
+    .fill('application-preview-password');
+  await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+  await expect(
+    nav(page).getByRole('link', {name: 'Logs', exact: true}),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => typeof globalThis.finishLogCopy)).toBe(
+    'undefined',
+  );
+  await expect(copyResult(page)).toHaveCount(0);
+  await expect(
+    page.getByText('Shown log lines copied.', {exact: true}),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => globalThis.copiedLogExcerpts)).toEqual([]);
+});
