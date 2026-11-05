@@ -107,7 +107,7 @@ export function createFleetScreens({
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.serverFilter;
-      if (!['application', 'host', 'status'].includes(key)) return;
+      if (!['application', 'host', 'status', 'sort'].includes(key)) return;
       filters[key] = event.target.value;
       paintServers(ctx, filters);
     });
@@ -192,6 +192,7 @@ export function createFleetScreens({
         application: '',
         host: '',
         status: '',
+        sort: 'host',
         composing: false,
       };
       return {

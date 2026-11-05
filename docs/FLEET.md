@@ -68,6 +68,10 @@ address, with application and host filters that combine with the search. The
 matching count and Clear filters help return to the full list. Choices stay while
 you navigate the panel and through background refreshes; signing out clears them.
 Assigned-server accounts search only their assigned list and have no host filter.
+**Sort servers** keeps the current host order by default, or orders the loaded
+list by name A–Z or Z–A. Sorting combines with the filters and survives
+refresh/navigation within the session. Clear filters keeps the selected order;
+signing out resets it. Sorting makes no additional requests or server changes.
 
 Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
 Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
