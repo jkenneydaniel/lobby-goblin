@@ -67,6 +67,12 @@ Settings → Diagnostics offers expandable, read-only checks with next steps,
 explicit unknown/manual states and a sanitized JSON support report. Controller
 failure does not block this page. Setup and connection failures link to it.
 
+Shared application and game logs support literal, case-insensitive line search,
+matching/total counts and clear/no-match states over the recent output already
+loaded. Refresh keeps the query, while session/server changes clear it. Searching
+does not fetch additional history or submit a console command. Explicit copying
+of a filtered excerpt remains separate work.
+
 World creation retains the existing three stages and art direction. Account-owned
 drafts save automatically, including unfinished advanced edits, and resume from the
 library. Up to 20 custom presets reuse validated exact settings without a world

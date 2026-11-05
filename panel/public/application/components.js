@@ -292,27 +292,94 @@ export function createApplicationComponents({
     else if (screen.component === 'logs')
       factories[screen.id] = () => {
         const drafts = new Map();
-        let controls;
+        let controls,
+          query = '',
+          content = '',
+          loaded = false,
+          failed = false,
+          sequence = 0;
+        function show(ctx) {
+          if (!ctx.isCurrent()) return;
+          const lines = content ? content.split('\n') : [];
+          if (lines.at(-1) === '') lines.pop();
+          const term = query.trim().toLowerCase(),
+            matches = term
+              ? lines.filter((line) => line.toLowerCase().includes(term))
+              : lines;
+          ctx.root.querySelector('#logs').textContent = !loaded
+            ? failed
+              ? 'Log output could not be loaded.'
+              : 'Loading log output…'
+            : !lines.length
+              ? 'No log output yet.'
+              : !matches.length
+                ? 'No lines match your search.'
+                : term
+                  ? matches.join('\n')
+                  : content;
+          ctx.root.querySelector('[data-log-line-count]').textContent = !loaded
+            ? failed
+              ? 'Log output unavailable. Refresh to retry.'
+              : 'Loading log output…'
+            : `Showing ${matches.length} of ${lines.length} loaded ${lines.length === 1 ? 'line' : 'lines'}.` +
+              (failed
+                ? ' Refresh failed; showing previously loaded output.'
+                : '');
+          ctx.root.querySelector('[data-clear-log-search]').disabled = !query;
+        }
         async function load(ctx) {
-          ctx.root.querySelector('#logs').textContent =
-            read(await ctx.request(options.source), options.key) ||
-            'No log output yet.';
+          const current = ++sequence;
+          try {
+            const value = read(await ctx.request(options.source), options.key);
+            if (!ctx.isCurrent() || current !== sequence) return;
+            content = typeof value === 'string' ? value : '';
+            loaded = true;
+            failed = false;
+            show(ctx);
+          } catch (error) {
+            if (!ctx.isCurrent() || current !== sequence) return;
+            failed = true;
+            show(ctx);
+            throw error;
+          }
         }
         return {
           async mount(ctx) {
             paint(ctx, 'logs');
             ctx.root.querySelector('[data-description]').textContent =
               options.description;
+            const input = ctx.root.querySelector('[data-log-search]');
+            input.value = query;
+            ctx.on(input, 'input', () => {
+              query = input.value;
+              show(ctx);
+            });
+            ctx.on(
+              ctx.root.querySelector('[data-clear-log-search]'),
+              'click',
+              () => {
+                query = '';
+                input.value = '';
+                show(ctx);
+                input.focus();
+              },
+            );
             ctx.on(ctx.root.querySelector('#refresh-logs'), 'click', () =>
               load(ctx),
             );
             controls = forms(ctx, options, drafts);
             controls.setBusy();
+            show(ctx);
             await load(ctx);
           },
           async refresh(ctx, reason) {
             if (reason.reason !== 'status') await load(ctx);
             else controls.setBusy();
+          },
+          dispose() {
+            sequence++;
+            content = '';
+            loaded = failed = false;
           },
         };
       };
