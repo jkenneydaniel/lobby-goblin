@@ -244,10 +244,10 @@ export function createFleetScreens({
         async mount(ctx) {
           context = ctx;
           component ||= createHostSettings({
-            api: (...args) => {
+            request: (...args) => {
               if (!context?.isCurrent())
                 throw new DOMException('Screen closed', 'AbortError');
-              return apiFor(context)(...args);
+              return context.request(...args);
             },
             getSession,
             error: (message) => {
@@ -255,10 +255,16 @@ export function createFleetScreens({
             },
           });
           component.bind();
+          await model.refresh();
+          if (!ctx.isCurrent()) return;
+          component.setHosts(model.snapshot.hosts);
           await component.load();
         },
-        async refresh(_ctx, options) {
-          if (options.reason !== 'model') await component.load();
+        async refresh(ctx, options) {
+          if (options.reason !== 'model') await model.refresh();
+          if (!ctx.isCurrent()) return;
+          const changed = component.setHosts(model.snapshot.hosts);
+          if (options.reason !== 'model' || changed) await component.load();
         },
         dispose() {
           context = null;
