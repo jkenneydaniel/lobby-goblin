@@ -5,6 +5,7 @@ import path from 'node:path';
 import {spawn, execFileSync} from 'node:child_process';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
+import {createHash} from 'node:crypto';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const directory = path.join(root, 'output/browser-ci-benchmark');
@@ -14,9 +15,15 @@ if (!['all', 'desktop', 'mobile'].includes(project)) throw Error('Invalid projec
 if (Number(process.versions.node.split('.')[0]) !== 24) throw Error('Use Node 24');
 const image = process.env.BENCHMARK_IMAGE === 'true';
 const git = (...args) => execFileSync('git', args, {cwd: root, encoding: 'utf8'}).trim();
+const sourceFiles = [
+  'panel/package-lock.json',
+  ...['ui-preview.js', 'rust-ui-preview.js', 'fleet-ui-preview.js', 'arena-ui-preview.js', 'service-app-ui-preview.js'].map(file => 'panel/test/' + file),
+  ...(await fs.readdir(path.join(root, 'panel/test/browser'))).filter(file => /\.(js|json)$/.test(file)).map(file => 'panel/test/browser/' + file),
+].sort();
 const evidence = {
-  commit: git('rev-parse', 'HEAD'),
-  panelTree: git('rev-parse', 'HEAD:panel'),
+  commit: process.env.GITHUB_SHA || git('rev-parse', 'HEAD'),
+  sourceBaseCommit: '7f4bc168d886fbd5dc5b2a5fa8e9744aaeefa3ed',
+  sourceSha256: Object.fromEntries(await Promise.all(sourceFiles.map(async file => [file, createHash('sha256').update(await fs.readFile(path.join(root, file))).digest('hex')]))),
   workflow: 'browser-ci-benchmark.yml',
   runId: process.env.GITHUB_RUN_ID || null,
   runAttempt: process.env.GITHUB_RUN_ATTEMPT || null,

@@ -9,6 +9,8 @@ permissions:
   contents: read
 jobs:
   current:
+    # Preserve the first host measurements; this push repairs image metadata only.
+    if: false
     name: current-${{ matrix.project }}-${{ matrix.repeat }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
