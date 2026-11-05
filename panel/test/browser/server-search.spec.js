@@ -442,6 +442,20 @@ test('table selection and order survive refresh and navigation, while sign-out r
   await expect.poll(() => state.reads).toBeGreaterThan(before);
   await expect(view).toBeFocused();
   await expect(table.getByRole('rowheader')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
+  const region = page.getByRole('region', {name: 'Fleet servers table', exact: true});
+  await region.focus();
+  const scrollLeft = await region.evaluate(element => {element.scrollLeft = 350; return element.scrollLeft;});
+  if (page.viewportSize().width < 600) expect(scrollLeft).toBeGreaterThan(0);
+  const beforeScrollRefresh = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(beforeScrollRefresh);
+  await expect(region).toBeFocused();
+  expect(await region.evaluate(element => element.scrollLeft)).toBe(scrollLeft);
+  // A filter retaining focus must not reset the table's horizontal position.
+  await view.focus();
+  const beforeFilterRefresh = state.reads; await page.clock.fastForward(6000);
+  await expect.poll(() => state.reads).toBeGreaterThan(beforeFilterRefresh);
+  await expect(view).toBeFocused();
+  expect(await region.evaluate(element => element.scrollLeft)).toBe(scrollLeft);
   state.active = {id: 'fixture-busy', state: 'running', action: 'create', message: 'Synthetic host busy'};
   await page.clock.fastForward(6000);
   await expect(table.getByRole('button', {name: 'Publish snapshot'}).first()).toBeDisabled();
