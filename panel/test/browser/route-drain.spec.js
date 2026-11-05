@@ -1,4 +1,5 @@
 import {test as base, expect} from '@playwright/test';
+import http from 'node:http';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
 
@@ -83,6 +84,9 @@ test('draining overlapping callbacks keeps routes registered and aborts late req
 test('route registration options, handler identity and disposable removal stay intact', async ({
   page,
 }) => {
+  await page.route('**/foreign-route-probe', (route) =>
+    route.fulfill({json: {foreign: true}}),
+  );
   const tracked = trackPageRoutes(page);
   const handler = (route) => route.fulfill({json: {mocked: true}});
   try {
@@ -105,7 +109,99 @@ test('route registration options, handler identity and disposable removal stay i
       await page.evaluate(async () => (await fetch('/api/status')).json()),
     ).not.toHaveProperty('mocked');
     await tracked.dispose();
+    expect(
+      await page.evaluate(async () =>
+        (await fetch('/foreign-route-probe')).json(),
+      ),
+    ).toEqual({foreign: true});
   } finally {
     await tracked.dispose();
+  }
+});
+
+test('page fallback and cleanup preserve the context guard across the final callback handoff', async ({
+  browser,
+  contextOptions,
+}) => {
+  const requests = [],
+    external = [],
+    errors = [],
+    started = deferred();
+  const server = http.createServer((request, response) => {
+    requests.push(request.url);
+    response.setHeader('Content-Type', 'text/html');
+    response.end(
+      request.url === '/'
+        ? '<!doctype html><title>Route handoff</title>'
+        : 'probe',
+    );
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const port = server.address().port,
+    origin = 'http://127.0.0.1:' + port,
+    forbidden = 'http://localhost:' + port;
+  const context = await browser.newContext({
+    ...contextOptions,
+    serviceWorkers: 'block',
+  });
+  let tracked;
+  try {
+    const page = await context.newPage();
+    page.on('pageerror', (error) => errors.push(error.message));
+    await context.route('**/*', (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === origin) return route.continue();
+      external.push(url.origin);
+      return route.abort();
+    });
+    tracked = trackPageRoutes(page);
+    await page.goto(origin);
+    let cleanup;
+    await page.route('**/probe', (route) => {
+      const fallback = route.fallback();
+      // End the mock callback and begin cleanup in adjacent microtasks. The
+      // context guard is synchronous, as in the application browser fixtures.
+      queueMicrotask(() => {
+        cleanup = tracked.dispose();
+        started.resolve();
+      });
+      return fallback;
+    });
+    await page.evaluate(() => {
+      globalThis.routeProbe = fetch('/probe').then((response) =>
+        response.text(),
+      );
+    });
+    await started.promise;
+    await cleanup;
+    expect(await page.evaluate(() => globalThis.routeProbe)).toBe('probe');
+    const outcomes = await page.evaluate(async (blockedOrigin) => {
+      const results = await Promise.allSettled([
+        fetch('/late').then((response) => response.text()),
+        fetch(blockedOrigin + '/forbidden'),
+      ]);
+      return results.map((result) => result.status);
+    }, forbidden);
+    expect(outcomes).toEqual(['fulfilled', 'rejected']);
+    expect(external).toEqual([forbidden]);
+    expect(requests).toContain('/probe');
+    expect(requests).toContain('/late');
+    expect(requests).not.toContain('/forbidden');
+    expect(errors).toEqual([]);
+  } finally {
+    try {
+      if (tracked) await tracked.dispose();
+    } finally {
+      try {
+        await context.close();
+      } finally {
+        await new Promise((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    }
   }
 });
