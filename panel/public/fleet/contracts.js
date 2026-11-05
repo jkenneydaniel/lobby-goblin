@@ -1,7 +1,7 @@
 /** @typedef {import('../shared/contracts.js').Session} Session */
 /** @typedef {import('../shared/contracts.js').OperationJob} OperationJob */
 /** @typedef {{id:string,name:string,local:boolean,connected:boolean,aligned?:boolean,error?:string}} FleetHost */
-/** @typedef {{id:string,state:string,applicationName?:string,hostId?:string,hostName?:string,manageUrl?:string,unavailable?:boolean}} FleetServer */
+/** @typedef {{id:string,state:string,applicationName?:string,applicationKind?:string,webProtocol?:string,hostId?:string,hostName?:string,manageUrl?:string,unavailable?:boolean}} FleetServer */
 /** @typedef {{id:string,hostId?:string,hostName?:string,unavailable?:boolean}} FleetSnapshotRecord */
 /** @typedef {OperationJob & {hostId:string,hostName:string}} FleetJob */
 /** @typedef {{ready?:boolean,running?:boolean,players?:string[]|number|null}} FleetServerStatus */

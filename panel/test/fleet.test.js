@@ -18,7 +18,7 @@ test('creation rejects commands, unsupported games, resource overcommit inputs a
 });
 test('public server labels come from the registered application without exposing secrets or changing stored data',async t=>{
  const f=await fakeManager(t),item={id:one,game:'status-page',name:'Service dashboard',gamePort:35000,controllerToken:'never-public',rconPassword:'never-public'},before=structuredClone(item);
- const shown=f.manager.publicServer(item);assert.equal(shown.applicationName,'Status Page');assert.equal(shown.manageUrl,`/servers/${one}/`);assert.ok(!JSON.stringify(shown).includes('never-public'));assert.deepEqual(item,before);
+ const shown=f.manager.publicServer(item);assert.equal(shown.applicationName,'Status Page');assert.equal(shown.applicationKind,'application');assert.equal(shown.webProtocol,'http');assert.equal(f.manager.publicServer({...item,game:'factorio',webProtocol:'javascript',applicationKind:'application'}).webProtocol,undefined);assert.equal(f.manager.publicServer({...item,game:'factorio'}).applicationKind,'game');assert.equal(shown.manageUrl,`/servers/${one}/`);assert.ok(!JSON.stringify(shown).includes('never-public'));assert.deepEqual(item,before);
  assert.equal(f.manager.publicServer({...item,game:'legacy-application'}).applicationName,'legacy-application');
 });
 test('Factorio snapshots strip credentials and clone into independent initialized storage',async t=>{

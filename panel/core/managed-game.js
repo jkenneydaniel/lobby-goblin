@@ -1,3 +1,4 @@
+import {fleetPresentation} from '../applications/fleet-presentation.js';
 import {assert} from '../common.js';
 import {validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
@@ -205,6 +206,7 @@ export function gameCatalog(module) {
     id: module.id,
     name: module.name,
     kind: module.definition?.kind || 'game',
+    ...fleetPresentation(module),
     ...(module.managed.runtime?{softwareModes:[module.managed.software?.mode || 'image',module.managed.runtime.key || 'runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage,...(module.managed.runtime.key?{runtimeKey:module.managed.runtime.key,runtimeLabel:module.managed.runtime.label || 'Managed installation',defaultSoftwareMode:module.managed.software?.mode || 'image'}:{})}:{}),
     ...structuredClone(module.managed.catalog),
   };

@@ -1,5 +1,6 @@
 import {escapeHTML as esc, formatBytes} from '../shared/view.js';
 import {playerCount} from '../client.js';
+import {applicationLink} from './application-link.js';
 import {serverKey} from './host-paths.js';
 const connectionAddress = (server) =>
   `<p class="server-address"><code>${esc(server.address || '')}</code>${server.address ? `<button type="button" class="quiet" data-copy-address="${esc(server.manageUrl)}">Copy address</button>` : ''}</p>`;
@@ -30,7 +31,7 @@ export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
       ? servers
           .map(
             (item) =>
-              `<article class="card"><h2>${esc(item.name)}</h2><p>${esc(item.game)}</p>${connectionAddress(item)}<a class="button" href="${esc(item.manageUrl)}">Open server</a></article>`,
+              `<article class="card"><h2>${esc(item.name)}</h2><p>${esc(item.applicationName || item.game)}</p>${connectionAddress(item)}${applicationLink(item)}<a class="button" href="${esc(item.manageUrl)}">${item.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a></article>`,
           )
           .join('')
       : '<p>No servers have been assigned to your account yet. Ask an administrator for access.</p>';
@@ -43,7 +44,7 @@ export function serverCards({servers, hosts, live, hostJobs, assigned}, admin) {
               !hosts.find((h) => h.id === s.hostId)?.connected || s.unavailable,
             busy = hostBusy(s.hostId),
             state = serverStatus(s, {hosts, live});
-          return `<article class="card"><span class="game">${esc(s.game.toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable || s.state === 'attention' ? 'attention' : ''}">${esc(state)}</span>${connectionAddress(s)}<div class="stats"><div><strong>${unavailable || status?.players == null ? '—' : playerCount(status.players)}</strong>players</div><div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>' : `<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">Open server</a>${admin ? `<button data-snapshot="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`}</article>`;
+          return `<article class="card"><span class="game">${esc((s.applicationName || s.game).toUpperCase())} · ${esc(s.hostName)}</span><h2>${esc(s.name)}</h2><span class="status ${unavailable || s.state === 'attention' ? 'attention' : ''}">${esc(state)}</span>${connectionAddress(s)}<div class="stats">${s.applicationKind === 'application' ? '' : `<div><strong>${unavailable || status?.players == null ? '—' : playerCount(status.players)}</strong>players</div>`}<div><strong>${esc(s.cpu)}</strong>CPU cores</div><div><strong>${esc(s.memoryGiB)} GiB</strong>memory limit</div></div>${removed ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>' : `<div class="actions"><a class="button primary" href="${esc(s.manageUrl)}">${s.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a>${applicationLink(s, unavailable)}${admin ? `<button data-snapshot="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(s)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`}</article>`;
         })
         .join('')
     : '<div class="empty"><h2>Your first server starts here.</h2><p>Create a Factorio factory or a Rust island on this machine or a paired game host.</p></div>';

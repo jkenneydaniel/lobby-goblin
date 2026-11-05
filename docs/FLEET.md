@@ -241,3 +241,18 @@ server as part of the normal save/stop sequence.
 
 
 Rust uses procedural seeds up to 2147483647 ([Facepunch reference](https://wiki.facepunch.com/rust/creating-a-server)). New Rust registrations and random seeds use the package's supported range of 1–2147483647; Factorio retains its uint32 range. Older panels could register larger uint32 seeds which Rust clamped to 2147483647. Snapshot publication accepts that specific legacy overflow only when the verified backup contains a save matching the clamped seed and the registered world size, and records the effective seed in the snapshot. Independent copies therefore use the seed of the backed-up world. Unrelated seed/size mismatches still fail. This does not rewrite existing registrations, backups, game settings or worlds, and does not retry a failed removal.
+
+## Open a hosted HTTP application
+
+Status Page cards distinguish **Manage application** (the scoped Lobby Goblin panel)
+from **Open application** (the application's public HTTP listener in a separate tab).
+Panel sign-in does not protect that public listener, and HTTP is not encrypted.
+The action uses the displayed host and allocated application port; it does not
+probe reachability, configure TLS or publish additional ports. Address copying
+remains available. Unavailable hosts do not offer the public application action.
+
+Browsers share cookies between ports on the same hostname. The one-click public
+application action is therefore offered only when its hostname differs from the
+panel hostname. Cards using the panel hostname explain the separate-hostname
+requirement and retain management and address copying. This does not change
+listener configuration or provision a hostname.

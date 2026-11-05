@@ -923,3 +923,15 @@ dialog p {
     min-height: 44px;
   }
 }
+
+.application-access {
+  display: grid;
+  gap: 6px;
+}
+.application-access .button {
+  justify-self: start;
+}
+.application-access .hint {
+  margin: 0;
+  max-width: 32ch;
+}
