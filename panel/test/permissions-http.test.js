@@ -54,6 +54,7 @@ test('assigned lists include only their applications display names without reque
  const f=await fixture(t,{games:{[one]:'status-page'}}),member=await f.login('Assigned','member-fixture-password');
  const before=f.calls.length,listed=await(await f.request(member,'/api/assigned-servers')).json();
  assert.deepEqual(listed.servers.map(item=>item.applicationName),['Status Page','Factorio']);
+ assert.deepEqual(listed.servers.map(item=>item.applicationKind),['application','game']);assert.equal(listed.servers[0].webProtocol,'http');assert.equal(listed.servers[1].webProtocol,undefined);
  assert.deepEqual(f.calls.slice(before).map(call=>call.route),[one,remote]);
  assert.ok(!JSON.stringify(listed).includes('never-public'));
 });
