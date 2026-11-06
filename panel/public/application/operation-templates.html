@@ -17,9 +17,28 @@
           <option value="all">All operations</option>
           <option value="review">Needs review</option>
           <option value="active">In progress</option>
+          <option value="succeeded">Succeeded</option>
+          <option value="failed">Failed</option>
+          <option value="interrupted">Interrupted</option>
         </select></label
-      ><button class="button" data-operation-refresh>Refresh history</button>
+      >
+      <label
+        >Find operations<input
+          type="search"
+          maxlength="80"
+          aria-describedby="operation-search-scope"
+          data-operation-search
+      /></label>
+      <button type="button" class="button" data-operation-clear>
+        Clear filters
+      </button>
+      <button class="button" data-operation-refresh>Refresh history</button>
     </div>
+    <p class="hint" id="operation-search-scope">
+      Search covers loaded retained operations: the latest 500 plus retained
+      in-progress and needs-review operations. Older records may be unavailable.
+    </p>
+    <p class="hint" data-operation-count role="status">Loading operations…</p>
     <div data-operation-sources role="status"></div>
     <div data-operation-list></div>
   </section>

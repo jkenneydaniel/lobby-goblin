@@ -2123,6 +2123,144 @@ function historyFixture(label = 'save', {required = true} = {}) {
     ],
   };
 }
+test('shared operation history finds loaded records locally and preserves controls and expansion on refresh', async ({
+  page,
+}, info) => {
+  const value = historyFixture('create-backup');
+  const sample = value.operations[0];
+  Object.assign(sample, {
+    actor: 'MixedOperator',
+    message: 'Saved literal .* [world]?',
+    phase: 'VerifyingSnapshot',
+    parentId: 'Parent+42',
+  });
+  value.operations.push(
+    ...Array.from({length: 502}, (_, i) => ({
+      ...sample,
+      id: 'jobs:loaded-' + i,
+      sourceId: 'loaded-' + i,
+      parentId: undefined,
+      action: 'other-task',
+      message: 'Other outcome',
+      state: i === 0 ? 'failed' : i === 1 ? 'running' : 'succeeded',
+      recovery: {required: i === 0, actions: []},
+    })),
+  );
+  value.sources.push({
+    id: 'updates',
+    label: 'Image updates',
+    available: false,
+    message: 'Outcome unavailable.',
+  });
+  let reads = 0,
+    mutations = 0;
+  await page.route('**/api/operations', (route) => {
+    reads++;
+    return route.fulfill({json: value});
+  });
+  await page.route('**/api/operations/recovery', (route) => {
+    mutations++;
+    return route.fulfill({status: 409, json: {error: 'No recovery expected'}});
+  });
+  await factorio(page, '#operations');
+  const search = page.getByRole('searchbox', {
+      name: 'Find operations',
+      exact: true,
+    }),
+    show = page.getByLabel('Show operations', {exact: true}),
+    count = page.locator('[data-operation-count]'),
+    list = page.locator('[data-operation-list]');
+  await expect(count).toHaveText('503 matching of 503 loaded operations.');
+  // Pause fixture polling while proving that local input events make no reads.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  const before = reads;
+  for (const query of [
+    ' CREATE-BACKUP ',
+    'create backup',
+    'mixedoperator',
+    'application operations',
+    '.* [WORLD]?',
+    'verifyingsnapshot',
+    'jobs:history-fixture',
+    'history-fixture',
+    'PARENT+42',
+  ]) {
+    await search.fill(query);
+    await expect(list.locator('details')).toHaveCount(
+      ['mixedoperator', 'application operations', 'verifyingsnapshot'].includes(
+        query,
+      )
+        ? 503
+        : 1,
+    );
+  }
+  await show.selectOption('succeeded');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await expect(page.locator('[data-operation-sources]')).toContainText(
+    'Image updates: Outcome unavailable.',
+  );
+  await search.press('Escape');
+  await expect(show).toHaveValue('succeeded');
+  await expect(count).toHaveText('500 matching of 503 loaded operations.');
+  for (const [filter, total] of [
+    ['failed', 1],
+    ['interrupted', 1],
+    ['review', 2],
+    ['active', 1],
+  ]) {
+    await show.selectOption(filter);
+    await expect(count).toHaveText(
+      total + ' matching of 503 loaded operations.',
+    );
+  }
+  await search.fill('succeeded');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await page.getByRole('button', {name: 'Clear filters', exact: true}).focus();
+  await page.keyboard.press('Enter');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+  await expect(show).toHaveValue('all');
+  await search.fill('Parent+42');
+  await list.locator('summary').click();
+  await search.fill('no match');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await search.fill('Parent+42');
+  await expect(list.locator('details')).toHaveAttribute('open', '');
+  expect(reads).toBe(before);
+  expect(mutations).toBe(0);
+  await show.selectOption('interrupted');
+  await search.focus();
+  await search.evaluate((input) => input.setSelectionRange(2, 6));
+  value.operations.push({...sample, id: 'jobs:new', parentId: 'Parent+42'});
+  // Trigger refresh without moving focus away from the input.
+  await page
+    .locator('[data-operation-refresh]')
+    .evaluate((button) => button.click());
+  await expect(count).toHaveText('2 matching of 504 loaded operations.');
+  await expect(search).toBeFocused();
+  expect(
+    await search.evaluate((input) => [
+      input.selectionStart,
+      input.selectionEnd,
+    ]),
+  ).toEqual([2, 6]);
+  await expect(show).toHaveValue('interrupted');
+  await expect(list.locator('details').first()).toHaveAttribute('open', '');
+  expect(reads).toBe(before + 1);
+  expect(mutations).toBe(0);
+  await page.screenshot({
+    path: info.outputPath('operation-find.png'),
+    fullPage: true,
+  });
+  expect(
+    await search.evaluate((input) => {
+      const r = input.getBoundingClientRect();
+      return r.left >= 0 && r.right <= globalThis.innerWidth;
+    }),
+  ).toBe(true);
+});
+
 test('shared operation history filters workflows and reviews recovery inside the Factorio server scope', async ({
   page,
 }, testInfo) => {
@@ -2212,13 +2350,120 @@ test('shared Rust operation history keeps an unavailable workflow explicit until
   await expect(page.locator('[data-operation-sources]')).toContainText(
     'Image updates: Outcome unavailable',
   );
+  await page.getByRole('searchbox', {name: 'Find operations'}).fill('BACKUP');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('succeeded');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '0 matching of 0 loaded operations.',
+  );
+  await expect(page.locator('[data-operation-sources]')).toContainText(
+    'Image updates: Outcome unavailable',
+  );
   unavailable = false;
   await page
     .getByRole('button', {name: 'Refresh history', exact: true})
     .click();
   await expect(page.locator('[data-operation-list]')).toContainText('backup');
+  await expect(
+    page.getByRole('searchbox', {name: 'Find operations'}),
+  ).toHaveValue('BACKUP');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '1 matching of 1 loaded operations.',
+  );
   await expect(page.locator('[data-operation-sources]')).toBeEmpty();
 });
+test('fleet operation history clears stale counts and expansion across hosts with identical public IDs', async ({
+  page,
+}) => {
+  const hostId = 'c'.repeat(32),
+    remotePrefix = '/hosts/' + hostId;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/hosts', async (route) => {
+    const response = await route.fetch(),
+      value = await response.json();
+    value.hosts.push({
+      id: hostId,
+      name: 'Other fixture host',
+      local: false,
+      connected: false,
+    });
+    await route.fulfill({json: value});
+  });
+  await page.route('**/api/operations', (route) =>
+    route.fulfill({json: historyFixture('local-backup')}),
+  );
+  await page.route('**/api/hosts/' + hostId + '/operations', async (route) => {
+    await held;
+    await route.fulfill({json: historyFixture('remote-backup')});
+  });
+  await login(page, 'fleet', 'Preview');
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  const list = page.locator('[data-operation-list]'),
+    count = page.locator('[data-operation-count]'),
+    host = page.locator('#operations-view').getByLabel('Host', {exact: true}),
+    search = page.getByRole('searchbox', {name: 'Find operations'});
+  await list.locator('summary').click();
+  await search.fill('history-fixture');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('interrupted');
+  await host.selectOption(remotePrefix);
+  await expect(list).toBeEmpty();
+  await expect(count).toHaveText('Loading operations…');
+  await expect(search).toHaveValue('history-fixture');
+  await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
+  await expect(host).toHaveValue(remotePrefix);
+  await expect(search).toBeFocused();
+  await expect(count).toHaveText('Loading operations…');
+  release();
+  await expect(list).toContainText('remote backup');
+  await expect(count).toHaveText('1 matching of 1 loaded operations.');
+  await expect(list.locator('details')).not.toHaveAttribute('open', '');
+  await list.locator('summary').click();
+  await host.selectOption('');
+  await expect(list).toContainText('local backup');
+  await expect(list.locator('details')).not.toHaveAttribute('open', '');
+});
+
+for (const username of ['Viewer', 'Assigned'])
+  test(
+    'fleet operation history preserves visibility and host access for ' +
+      username,
+    async ({page}) => {
+      let reads = 0;
+      await page.route('**/api/operations', (route) => {
+        reads++;
+        return route.continue();
+      });
+      await login(page, 'fleet', username);
+      const operations = nav(page).getByRole('link', {
+        name: 'Operations',
+        exact: true,
+      });
+      // Existing fleet navigation keeps owner-only links for unscoped viewers.
+      if (username === 'Viewer') await expect(operations).toBeVisible();
+      else {
+        await expect(operations).toBeHidden();
+        await page.goto(origins.fleet + '/#operations');
+      }
+      await expect(
+        page.getByRole('searchbox', {name: 'Find operations'}),
+      ).toBeHidden();
+      expect(reads).toBe(0);
+      expect(
+        (
+          await page.request.get(
+            origins.fleet + '/api/hosts/' + 'a'.repeat(32) + '/operations',
+          )
+        ).status(),
+      ).toBe(403);
+    },
+  );
+
 test('fleet operation history drops a delayed previous host result and keeps recovery on the selected host', async ({
   page,
 }) => {
@@ -2282,6 +2527,12 @@ test('fleet operation history drops a delayed previous host result and keeps rec
 test('a non-game application receives the same operation history from its definition without custom browser code', async ({
   page,
 }) => {
+  // This case also runs independently of the suite's earlier creation journey.
+  await page.route('**/api/operations', (route) =>
+    route.fulfill({
+      json: historyFixture('application-backup', {required: false}),
+    }),
+  );
   await page.goto(origins.application);
   await page.getByLabel('Username', {exact: true}).fill('Owner');
   await page
@@ -2293,6 +2544,19 @@ test('a non-game application receives the same operation history from its defini
     page.getByRole('heading', {name: 'Operation history', exact: true}),
   ).toBeVisible();
   await expect(page.locator('[data-operation-sources]')).toBeEmpty();
+  await page
+    .getByRole('searchbox', {name: 'Find operations'})
+    .fill('APPLICATION BACKUP');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('succeeded');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '1 matching of 1 loaded operations.',
+  );
+  await page.getByRole('searchbox', {name: 'Find operations'}).fill('no-match');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '0 matching of 1 loaded operations.',
+  );
   const response = await page.request.get(
     origins.application + '/api/operations',
   );
@@ -2304,7 +2568,7 @@ test('a non-game application receives the same operation history from its defini
     label: 'Application operations',
     available: true,
   });
-  expect(feed.operations.length).toBeGreaterThan(0);
+  expect(Array.isArray(feed.operations)).toBe(true);
 });
 
 test('native update progress and specialized recovery share the global shell without submitting a game operation', async ({
