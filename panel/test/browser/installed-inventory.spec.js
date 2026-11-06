@@ -141,6 +141,44 @@ test('mount request ownership fences out-of-order, disposal and equal IDs across
   await expect(download(page)).toHaveCount(0);
 });
 
+test('replacement inventory controls stay owned after old dispose and post-disposal refresh',async ({page})=>{
+  const prefix='/servers/'+'a'.repeat(32);
+  await page.route('**/inventory-harness',route=>route.fulfill({contentType:'text/html',body:'<main id="fixture"></main>'}));
+  await page.goto(origin+prefix+'/inventory-harness');
+  await page.evaluate(async prefix=>{
+    const {mountModLibrary}=await import(prefix+'/mod-library.js');
+    const root=globalThis.document.querySelector('#fixture');
+    globalThis.inventoryOwnership={a:[],b:[],calls:[]};
+    globalThis.mountInventoryOwner=owner=>mountModLibrary(root,{
+      api:route=>{globalThis.inventoryOwnership.calls.push(owner+' '+route);return new Promise(resolve=>globalThis.inventoryOwnership[owner].push(resolve));},
+      job:()=>{throw Error('Unexpected mutation');},
+    });
+    globalThis.resolveInventoryOwner=(owner,index)=>globalThis.inventoryOwnership[owner][index]({game:'rust',scope:'oxide',version:'scope-version',tab:'installed',items:[{id:'same',title:owner,version:null,enabled:false,managed:false,modified:false}],page:1,pages:1});
+    globalThis.oldInventoryOwner=globalThis.mountInventoryOwner('a');
+  },prefix);
+  await page.getByRole('tab',{name:'Installed',exact:true}).click();
+  await page.evaluate(()=>globalThis.resolveInventoryOwner('a',1));
+  await expect(download(page)).toBeEnabled();
+  await page.evaluate(()=>{
+    globalThis.oldInventoryOwner.dispose();
+    globalThis.currentInventoryOwner=globalThis.mountInventoryOwner('b');
+    globalThis.resolveInventoryOwner('b',0);
+  });
+  await expect(download(page)).toBeEnabled();
+  await page.evaluate(()=>globalThis.oldInventoryOwner.dispose());
+  await expect(download(page)).toBeEnabled();
+  await page.evaluate(()=>{globalThis.oldInventoryRefresh=globalThis.oldInventoryOwner.refresh();});
+  await expect(download(page)).toBeEnabled();
+  await page.evaluate(async ()=>{globalThis.resolveInventoryOwner('a',2);await globalThis.oldInventoryRefresh;});
+  await expect(download(page)).toBeEnabled();
+  const before=await page.evaluate(()=>[...globalThis.inventoryOwnership.calls]);
+  await download(page).click();
+  expect(JSON.parse((await capture(page)).text)).toEqual({game:'rust',scope:'oxide',reportedScopeVersion:'scope-version',items:[{id:'same',title:'b',version:null,enabled:false,managed:false,modified:false,sha256:null}]});
+  expect(await page.evaluate(()=>globalThis.inventoryCaptures.length)).toBe(1);
+  expect(await page.evaluate(()=>globalThis.inventoryOwnership.calls)).toEqual(before);
+  await page.evaluate(()=>globalThis.currentInventoryOwner.dispose());
+});
+
 for(const game of ['factorio','rust']) for(const granted of [false,true]) test(`${game} inventory keeps existing delegated mod visibility: ${granted}`,async ({page})=>{
   const prefix='/servers/'+(game==='factorio'?'a':'b').repeat(32);
   let signedOut=false;

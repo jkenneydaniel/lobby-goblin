@@ -54,9 +54,7 @@ export function mountModLibrary(
   const dispose = () => {
     disposed = true;
     inventory = null;
-    root
-      .querySelector('[data-download-inventory]')
-      ?.setAttribute('disabled', '');
+    inventoryButton.disabled = true;
     request++;
     events.abort();
     if (mounts.get(root) === dispose) mounts.delete(root);
@@ -72,6 +70,8 @@ export function mountModLibrary(
     <div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
     <details class="ml-account" hidden><summary>Factorio download account</summary><p>Use your Factorio username and service token. The token stays on this controller and is never sent back to your browser.</p><form data-account><label>Factorio username<input name="username" autocomplete="username" maxlength="100" required></label><label>Service token<input name="token" type="password" autocomplete="off" maxlength="256" required></label><button type="submit">Connect account</button><button type="button" data-disconnect hidden>Disconnect</button></form><p data-account-state></p></details>
     <dialog class="ml-review" aria-labelledby="ml-review-title"><h2 id="ml-review-title">Review mod change</h2><p data-review-error class="ml-error" role="alert" hidden></p><div data-review-content></div><div class="ml-review-actions"><button type="button" data-cancel>Cancel</button><button type="button" data-apply>Apply reviewed change</button></div></dialog>`;
+  const inventoryContainer = root.querySelector('[data-inventory]'),
+    inventoryButton = root.querySelector('[data-download-inventory]');
   const $ = (selector) => root.querySelector(selector),
     all = (selector) => [...root.querySelectorAll(selector)],
     error = (text) => {
@@ -82,8 +82,8 @@ export function mountModLibrary(
       }
     };
   function inventoryControl() {
-    $('[data-inventory]').hidden = state.tab !== 'installed';
-    $('[data-download-inventory]').disabled =
+    inventoryContainer.hidden = state.tab !== 'installed';
+    inventoryButton.disabled =
       disposed || loading || !inventory || state.tab !== 'installed';
   }
   function impact() {
