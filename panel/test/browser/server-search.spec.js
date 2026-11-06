@@ -593,3 +593,278 @@ test('refresh replaces sampled values and hides retained samples for stopped, fa
   await expect(row).toHaveCount(0);
   await expect(count(page)).toHaveText('Showing 2 of 2 servers');
 });
+
+test('sampled resource ordering uses raw scoped values in both views without additional IO', async ({
+  page,
+}, info) => {
+  await page.clock.install();
+  await page.addInitScript(() =>
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {writeText: async () => {}},
+    }),
+  );
+  const state = await fleet(page);
+  state.local[0].name = 'Alpha rounded';
+  state.local[0].cpu = 99;
+  state.local[1].name = 'Zero crew';
+  state.remote[0].id = state.local[0].id;
+  state.remote[0].name = 'Zulu rounded';
+  state.remote[0].cpu = 0.1;
+  state.local.push(
+    {...state.local[0], id: '8'.repeat(32), name: 'High CPU'},
+    {...state.local[0], id: '9'.repeat(32), name: 'Unknown crew'},
+  );
+  const samples = [
+    [state.local[0], 12.31, 512 * 1024 ** 2],
+    [state.local[1], 0, 0],
+    [state.local[2], 240, 1024],
+    [state.local[3], null, -1],
+  ];
+  for (const [server, cpu, memory] of samples)
+    state.status['/servers/' + server.id + '/api/status'] = {
+      running: true,
+      ready: true,
+      cpu,
+      memory,
+    };
+  state.status[
+    '/hosts/' + remote + '/servers/' + state.remote[0].id + '/api/status'
+  ] = {running: true, ready: true, cpu: 12.34, memory: 1.5 * 1024 ** 3};
+  await login(page);
+  await expect(
+    cards(page)
+      .filter({hasText: 'High CPU'})
+      .locator('.resource-sample strong')
+      .first(),
+  ).toHaveText('240%');
+  await expect.poll(() => state.statusReads.length).toBe(5);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  const requests = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/'))
+      requests.push(request.method() + ' ' + new URL(request.url()).pathname);
+  });
+  const sort = page.getByRole('combobox', {name: 'Sort servers', exact: true}),
+    view = page.getByRole('combobox', {name: 'View servers', exact: true});
+  await expect(sort.locator('option')).toHaveText([
+    'Current host order',
+    'Name A–Z',
+    'Name Z–A',
+    'Sampled CPU, high to low',
+    'Sampled memory, high to low',
+  ]);
+  for (const mode of ['cards', 'table']) {
+    await view.selectOption(mode);
+    const names = () =>
+      mode === 'table'
+        ? page
+            .getByRole('table', {name: /Fleet servers/})
+            .getByRole('rowheader')
+        : cards(page).locator('h2');
+    for (const [order, expected] of [
+      [
+        'sample-cpu',
+        [
+          'High CPU',
+          'Zulu rounded',
+          'Alpha rounded',
+          'Zero crew',
+          'Unknown crew',
+        ],
+      ],
+      [
+        'sample-memory',
+        [
+          'Zulu rounded',
+          'Alpha rounded',
+          'High CPU',
+          'Zero crew',
+          'Unknown crew',
+        ],
+      ],
+    ]) {
+      await sort.focus();
+      await sort.selectOption(order);
+      await expect(sort).toBeFocused();
+      await expect(names()).toHaveText(expected);
+    }
+    const selected =
+      mode === 'table'
+        ? page
+            .getByRole('row')
+            .filter({
+              has: page.getByRole('rowheader', {
+                name: 'Zulu rounded',
+                exact: true,
+              }),
+            })
+        : cards(page).filter({
+            has: page.getByRole('heading', {name: 'Zulu rounded', exact: true}),
+          });
+    await expect(
+      selected.getByRole('link', {name: 'Open server', exact: true}),
+    ).toHaveAttribute(
+      'href',
+      '/hosts/' + remote + '/servers/' + state.remote[0].id + '/',
+    );
+    await selected
+      .getByRole('button', {name: 'Copy address', exact: true})
+      .click();
+    await selected
+      .getByRole('button', {name: 'Publish snapshot', exact: true})
+      .click();
+    await expect(page.locator('#publish input[name="hostId"]')).toHaveValue(
+      remote,
+    );
+    await expect(page.locator('#publish input[name="serverId"]')).toHaveValue(
+      state.remote[0].id,
+    );
+    await page.locator('#cancel-publish').click();
+    await selected.getByRole('button', {name: 'Remove', exact: true}).click();
+    await expect(page.locator('#remove input[name="hostId"]')).toHaveValue(
+      remote,
+    );
+    await page.locator('#cancel-remove').click();
+    await search(page).fill('ROUNDED');
+    await page
+      .getByRole('combobox', {name: 'Filter by application', exact: true})
+      .selectOption('factorio');
+    await page
+      .getByRole('combobox', {name: 'Filter by host', exact: true})
+      .selectOption(remote);
+    await page
+      .getByRole('combobox', {name: 'Filter by status', exact: true})
+      .selectOption('Ready');
+    await expect(names()).toHaveText(['Zulu rounded']);
+    await expect(count(page)).toHaveText('Showing 1 of 5 servers');
+    await search(page).fill('missing');
+    await expect(count(page)).toHaveText('Showing 0 of 5 servers');
+    await page
+      .getByRole('button', {name: 'Clear filters', exact: true})
+      .click();
+    await expect(search(page)).toBeFocused();
+    await expect(sort).toHaveValue('sample-memory');
+    await expect(view).toHaveValue(mode);
+    await expect(names()).toHaveText([
+      'Zulu rounded',
+      'Alpha rounded',
+      'High CPU',
+      'Zero crew',
+      'Unknown crew',
+    ]);
+  }
+  expect(requests).toEqual([]);
+  expect(
+    await page.evaluate(
+      () =>
+        globalThis.document.documentElement.scrollWidth <=
+        globalThis.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: info.outputPath('sampled-resource-order.png'),
+    fullPage: true,
+  });
+});
+
+test('sampled resource order follows refreshed eligibility while preserving query caret, table scroll and session choices', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const state = await fleet(page),
+    localPath = '/servers/' + state.local[0].id + '/api/status',
+    remotePath =
+      '/hosts/' + remote + '/servers/' + state.remote[0].id + '/api/status';
+  state.local[0].name = 'Local crew';
+  state.local[1].name = 'Unknown crew';
+  state.remote[0].name = 'Remote crew';
+  state.status[localPath] = {
+    running: true,
+    ready: true,
+    cpu: 240,
+    memory: 1024,
+  };
+  state.status[remotePath] = {
+    running: true,
+    ready: true,
+    cpu: 100,
+    memory: 512 * 1024 ** 2,
+  };
+  await login(page, 'Viewer');
+  const sort = page.getByRole('combobox', {name: 'Sort servers', exact: true}),
+    view = page.getByRole('combobox', {name: 'View servers', exact: true});
+  await sort.selectOption('sample-cpu');
+  await view.selectOption('table');
+  await search(page).fill('crew');
+  const table = page.getByRole('table', {name: /Fleet servers/}),
+    names = table.getByRole('rowheader'),
+    region = page.getByRole('region', {
+      name: 'Fleet servers table',
+      exact: true,
+    });
+  await expect(names).toHaveText(['Local crew', 'Remote crew', 'Unknown crew']);
+  const scrollLeft = await region.evaluate((element) => {
+    element.scrollLeft = 350;
+    return element.scrollLeft;
+  });
+  await search(page).focus();
+  await search(page).evaluate((input) => input.setSelectionRange(1, 3));
+  state.status[remotePath].cpu = 300;
+  await page.clock.fastForward(6000);
+  await expect(names).toHaveText(['Remote crew', 'Local crew', 'Unknown crew']);
+  await expect(search(page)).toBeFocused();
+  await expect(search(page)).toHaveValue('crew');
+  expect(
+    await search(page).evaluate((input) => [
+      input.selectionStart,
+      input.selectionEnd,
+    ]),
+  ).toEqual([1, 3]);
+  expect(await region.evaluate((element) => element.scrollLeft)).toBe(
+    scrollLeft,
+  );
+  await expect(sort).toHaveValue('sample-cpu');
+  await region.focus();
+  state.status[remotePath].running = false;
+  state.status[remotePath].state = 'exited';
+  await page.clock.fastForward(6000);
+  await expect(names).toHaveText(['Local crew', 'Remote crew', 'Unknown crew']);
+  await expect(region).toBeFocused();
+  expect(await region.evaluate((element) => element.scrollLeft)).toBe(
+    scrollLeft,
+  );
+  state.status[remotePath] = {
+    running: true,
+    ready: true,
+    cpu: 999,
+    memory: 999,
+  };
+  state.hosts[1].connected = false;
+  await page.clock.fastForward(6000);
+  await expect(names).toHaveText(['Local crew', 'Remote crew', 'Unknown crew']);
+  await expect(
+    table
+      .getByRole('row')
+      .filter({
+        has: page.getByRole('rowheader', {name: 'Remote crew', exact: true}),
+      }),
+  ).toContainText('Unavailable');
+  await nav(page)
+    .getByRole('link', {name: 'Snapshot library', exact: true})
+    .click();
+  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await expect(sort).toHaveValue('sample-cpu');
+  await expect(view).toHaveValue('table');
+  await expect(search(page)).toHaveValue('crew');
+  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
+  await login(page, 'Assigned');
+  await expect(sort).toHaveValue('host');
+  await expect(sort.locator('option')).toHaveText([
+    'Current host order',
+    'Name A–Z',
+    'Name Z–A',
+  ]);
+  await expect(view).toHaveCount(0);
+  await expect(page.locator('.resource-sample')).toHaveCount(0);
+});
