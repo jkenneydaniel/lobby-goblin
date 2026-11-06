@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.36-alpha — 2026-11-06
+
+Milestone: **Share the installed mod inventory**.
+
+- On Installed, choose Download installed inventory to save the complete loaded mod or plugin list as one local JSON report, including empty inventories and disabled, manual or modified entries in received order. Export makes no additional inventory request, job, provider download or automatic upload.
+- Share only game, inventory scope, reported scope version, item IDs/titles/reported versions, enabled/managed/modified flags and available valid received SHA-256 digests. Unknown versions and digests remain null; account, configuration, paths, URLs and server identity are excluded.
+- Export follows the accepted current Installed response and its request, tab, scope, mount and session ownership. Pending or failed loads cannot export retained stale data, and old disposed mounts cannot disable a replacement mount's valid report. Existing permissions, account privacy, mutation modes, review and busy/recovery restrictions remain intact.
+- Disposable management-update acceptance captures bounded private-safe Docker operation metadata from the original profile-selected host or broker, preserving original failure and no-retry behavior. Production error redaction is unchanged; this diagnostic improvement does not establish or fix the original hosted Docker failure cause.
+
+Reports describe loaded file observations, not live runtime loading/compilation or compatibility. Factorio built-ins are outside this mod-ZIP inventory; Rust's reported scope version is its inventory/framework scope, not its Steam build. This is not a modpack, import, backup or restore report.
+
+This bundle includes LOB-49 (#166) and fixture diagnostics LOB-51 (#168), with combined qualification and release preparation tracked by LOB-50. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Feature acceptance uses synthetic fixtures; native plugin and deployment acceptance are not claimed.
+
 ## 0.3.35-alpha — 2026-11-06
 
 Milestone: **Find files inside saved snapshots**.
