@@ -9,6 +9,7 @@ export const origins = {
   fleet: 'http://127.0.0.1:31733',
   arena: 'http://127.0.0.1:31736',
   application: 'http://127.0.0.1:31737',
+  modLibrary: 'http://127.0.0.1:31738',
   recoveryDesktop: 'http://127.0.0.1:31734',
   recoveryMobile: 'http://127.0.0.1:31735',
 };
@@ -59,6 +60,7 @@ export default defineConfig({
     },
   ],
   webServer: [
+    server('mod-library-preview.mjs', origins.modLibrary + '/servers/' + 'a'.repeat(32) + '/', {MOD_LIBRARY_UI_PORT:'31738'}),
     server('service-app-ui-preview.js',origins.application,{APPLICATION_UI_PORT:'31737'}),
     server('arena-ui-preview.js',origins.arena,{ARENA_UI_PORT:'31736'}),
     server('ui-preview.js', origins.factorio + scope + '/', {

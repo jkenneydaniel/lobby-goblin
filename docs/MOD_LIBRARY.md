@@ -8,6 +8,18 @@ server operators. See [server access](ACCESS.md).
 files, and **Updates** checks for newer releases. Nothing installs or updates in
 the background. Every change requires review and confirmation.
 
+On **Installed**, **Download installed inventory** saves a local JSON report of
+the complete successfully loaded list, including disabled, manual and modified
+items in received order. It includes only game, scope, reported scope version,
+item IDs/titles/versions, enabled/managed/modified flags and received valid SHA-256
+digests; unknown versions and digests are `null`. It excludes account details,
+paths, URLs, configuration and server identity. The download makes no request or
+mod change and is unavailable while loading or after a failed refresh.
+These are loaded observations, not live verification, a compatibility/restore
+report, an importable modpack or a backup. Factorio built-ins are outside this
+mod-ZIP list. Rust's reported scope version describes its framework, not its
+Steam build; enabled files do not prove compilation or runtime loading.
+
 Choose **When applying changes** before reviewing a mod:
 
 | Choice | Factorio | Rust |
