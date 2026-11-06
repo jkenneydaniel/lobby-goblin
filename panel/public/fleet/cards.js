@@ -7,9 +7,25 @@ const connectionAddress = (server) =>
 const sampleNote =
   'Most recently received resource sample. CPU: 100% = one core. Memory is container usage.';
 const formatSample = (value, format) =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? format(value)
-    : 'Unavailable';
+  value == null ? 'Unavailable' : format(value);
+// Display and ordering share eligibility and independently checked raw values.
+export function serverResourceSample(server, snapshot) {
+  if (snapshot.assigned) return null;
+  const status = snapshot.live.get(serverKey(server));
+  if (
+    !snapshot.hosts.find((host) => host.id === server.hostId)?.connected ||
+    server.unavailable ||
+    !['installed', 'starting', 'attention'].includes(server.state) ||
+    status?.running !== true ||
+    status?.state === 'exited'
+  )
+    return null;
+  const valid = (value) =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0
+      ? value
+      : null;
+  return {cpu: valid(status.cpu), memory: valid(status.memory)};
+}
 // Keep fleet filtering and the visible card label on the same classification.
 export function serverStatus(server, {hosts, live}) {
   const status = live.get(serverKey(server));
@@ -35,15 +51,8 @@ function serverPresentation(server, snapshot) {
     unavailable =
       !snapshot.hosts.find((host) => host.id === server.hostId)?.connected ||
       server.unavailable,
-    // The first refresh publication can retain the preceding live map. Never
-    // present that sample for a removed/unavailable or non-running server.
-    sample =
-      !unavailable &&
-      ['installed', 'starting', 'attention'].includes(server.state) &&
-      status?.running === true &&
-      status?.state !== 'exited'
-        ? status
-        : null;
+    // The first refresh publication can retain the preceding live map.
+    sample = serverResourceSample(server, snapshot);
   return {
     removed: server.state === 'removed',
     unavailable,

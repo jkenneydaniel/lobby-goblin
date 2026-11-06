@@ -72,6 +72,13 @@ Assigned-server accounts search only their assigned list and have no host filter
 list by name A–Z or Z–A. Sorting combines with the filters and survives
 refresh/navigation within the session. Clear filters keeps the selected order;
 signing out resets it. Sorting makes no additional requests or server changes.
+Administrators and viewers can also order by **Sampled CPU, high to low** or
+**Sampled memory, high to low**. These use eligible raw samples already received,
+with valid zero ahead of unavailable values and name/scoped identity breaking ties.
+CPU may exceed 100% (one core); memory order uses container bytes, not configured
+limits. Samples remain the most recently received values, without synchronized
+measurement or freshness guarantees. Assigned lists retain host/name ordering and
+have no sampled-resource choices or readouts.
 
 Administrators and viewers can select **View servers → Table** for a compact
 inventory with the same filtering, ordering, counts, addresses and scoped actions

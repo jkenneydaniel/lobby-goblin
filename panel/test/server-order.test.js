@@ -47,3 +47,227 @@ test('sort choice is presentation-only and does not activate Clear filters or hi
   assert.match(serverCollection(snapshot, false, {...filters, sort: 'name', search: 'missing'}), /No matching servers/);
   assert.match(serverCollection({...snapshot, servers: []}, false, {...filters, sort: 'name'}), /Your first server starts here/);
 });
+
+const sampledFleet = () => {
+  const servers = [
+    {...item('b', 'same', 'High CPU'), cpu: 0.1, memoryGiB: 100},
+    {...item('a', 'same', 'Zulu rounded'), cpu: 99, memoryGiB: 0.1},
+    item('a', 'lower', 'Alpha rounded'),
+    item('a', 'zero', 'Zero'),
+    item('a', 'unknown', 'Unknown'),
+  ].map(Object.freeze);
+  return {
+    ...snapshot,
+    servers: Object.freeze(servers),
+    live: new Map([
+      ['b:same', Object.freeze({running: true, cpu: 240, memory: 1024})],
+      [
+        'a:same',
+        Object.freeze({running: true, cpu: 12.34, memory: 1.5 * 1024 ** 3}),
+      ],
+      [
+        'a:lower',
+        Object.freeze({running: true, cpu: 12.31, memory: 512 * 1024 ** 2}),
+      ],
+      ['a:zero', Object.freeze({running: true, cpu: 0, memory: 0})],
+      ['a:unknown', Object.freeze({running: true, cpu: null, memory: -1})],
+    ]),
+  };
+};
+
+test('resource order uses eligible raw numbers, zero before unknown and independent memory units without mutation', () => {
+  const data = sampledFleet(),
+    before = structuredClone(data);
+  assert.deepEqual(
+    keys(selectServers(data, {...filters, sort: 'sample-cpu'})),
+    ['b:same', 'a:same', 'a:lower', 'a:zero', 'a:unknown'],
+  );
+  assert.deepEqual(
+    keys(selectServers(data, {...filters, sort: 'sample-memory'})),
+    ['a:same', 'a:lower', 'b:same', 'a:zero', 'a:unknown'],
+  );
+  assert.deepEqual(
+    keys(
+      selectServers(data, {
+        ...filters,
+        sort: 'sample-cpu',
+        search: 'rounded',
+        application: 'factorio',
+        host: 'a',
+        status: 'Starting',
+      }),
+    ),
+    ['a:same', 'a:lower'],
+  );
+  assert.deepEqual(data, before);
+});
+
+test('resource order shares unavailable gates with display and does not suppress busy samples', () => {
+  const first = item('a', 'high', 'Alpha'),
+    zero = item('b', 'zero', 'Zulu');
+  const good = {running: true, cpu: 999, memory: 999};
+  const data = {
+    ...snapshot,
+    servers: [first, zero],
+    live: new Map([
+      ['a:high', good],
+      ['b:zero', {running: true, cpu: 0, memory: 0}],
+    ]),
+  };
+  const patches = [
+    ...['removed', 'creating', 'stopped'].map((state) => ({
+      servers: [{...first, state}, zero],
+    })),
+    {servers: [{...first, unavailable: true}, zero]},
+    {
+      hosts: [
+        {id: 'a', connected: false},
+        {id: 'b', connected: true},
+      ],
+    },
+    {hosts: [{id: 'b', connected: true}]},
+    ...[false, undefined, 1].map((running) => ({
+      live: new Map([
+        ['a:high', {...good, running}],
+        ['b:zero', {running: true, cpu: 0, memory: 0}],
+      ]),
+    })),
+    {
+      live: new Map([
+        ['a:high', {...good, state: 'exited'}],
+        ['b:zero', {running: true, cpu: 0, memory: 0}],
+      ]),
+    },
+    {live: new Map([['b:zero', {running: true, cpu: 0, memory: 0}]])},
+  ];
+  for (const sort of ['sample-cpu', 'sample-memory']) {
+    for (const patch of patches)
+      assert.deepEqual(
+        keys(selectServers({...data, ...patch}, {...filters, sort})),
+        ['b:zero', 'a:high'],
+      );
+    for (const state of ['installed', 'starting', 'attention'])
+      assert.deepEqual(
+        keys(
+          selectServers(
+            {
+              ...data,
+              servers: [{...first, state}, zero],
+              hostJobs: new Map([['a', {id: 'busy'}]]),
+            },
+            {...filters, sort},
+          ),
+        ),
+        ['a:high', 'b:zero'],
+      );
+  }
+});
+
+test('invalid CPU and memory remain independently unavailable for ordering', () => {
+  const data = sampledFleet();
+  const servers = [data.servers[0], data.servers[3]];
+  for (const invalid of [
+    undefined,
+    null,
+    NaN,
+    Infinity,
+    -Infinity,
+    -1,
+    '240',
+    '',
+    false,
+    {},
+    [],
+  ]) {
+    for (const [cpu, memory, cpuOrder, memoryOrder] of [
+      [invalid, 1024, ['a:zero', 'b:same'], ['b:same', 'a:zero']],
+      [100, invalid, ['b:same', 'a:zero'], ['a:zero', 'b:same']],
+    ]) {
+      const patch = {
+        ...data,
+        servers,
+        live: new Map([
+          ['b:same', {running: true, cpu, memory}],
+          ['a:zero', {running: true, cpu: 0, memory: 0}],
+        ]),
+      };
+      assert.deepEqual(
+        keys(selectServers(patch, {...filters, sort: 'sample-cpu'})),
+        cpuOrder,
+      );
+      assert.deepEqual(
+        keys(selectServers(patch, {...filters, sort: 'sample-memory'})),
+        memoryOrder,
+      );
+    }
+  }
+});
+
+test('resource ties use ascending name, scoped key and management URL even when all samples are unavailable', () => {
+  const servers = [
+    {...item('b', 'same', 'alpha'), manageUrl: '/z/'},
+    {...item('a', 'same', 'Alpha'), manageUrl: '/z/'},
+    {...item('a', 'same', 'Alpha'), manageUrl: '/a/'},
+    item('a', 'last', 'Zulu'),
+  ];
+  for (const live of [
+    new Map(),
+    new Map([
+      ['b:same', {running: true, cpu: 1, memory: 1}],
+      ['a:same', {running: true, cpu: 1, memory: 1}],
+      ['a:last', {running: true, cpu: 1, memory: 1}],
+    ]),
+  ])
+    for (const sort of ['sample-cpu', 'sample-memory'])
+      for (const source of [servers, [...servers].reverse()])
+        assert.deepEqual(
+          selectServers(
+            {...snapshot, servers: source, live},
+            {...filters, sort},
+          ).map((row) => row.hostId + ':' + row.id + ':' + row.manageUrl),
+          [
+            'a:same:/a/',
+            'a:same:/z/',
+            'b:same:/z/',
+            'a:last:/hosts/a/servers/last/',
+          ],
+        );
+});
+
+test('assigned resource sorts retain source order without consulting hidden hosts or metrics, and choices remain hidden', () => {
+  const assigned = {...snapshot, assigned: true};
+  Object.defineProperties(assigned, {
+    hosts: {
+      get() {
+        throw Error('Assigned sort accessed hosts');
+      },
+    },
+    live: {
+      get() {
+        throw Error('Assigned sort accessed metrics');
+      },
+    },
+  });
+  for (const sort of ['sample-cpu', 'sample-memory']) {
+    assert.deepEqual(selectServers(assigned, {...filters, sort}), records);
+    const html = serverCollection(
+      {
+        ...snapshot,
+        assigned: true,
+        hosts: [],
+        live: {
+          get() {
+            throw Error('Assigned render accessed metrics');
+          },
+        },
+      },
+      false,
+      {...filters, sort},
+    );
+    assert.doesNotMatch(
+      html,
+      /sample-cpu|sample-memory|Sampled CPU|Sampled memory|resource-sample/,
+    );
+    assert.match(html, /Showing 4 of 4 servers/);
+  }
+});
