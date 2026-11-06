@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {docker} from '../core/docker.js';
+import {docker, demultiplex} from '../core/docker.js';
+import {withApplyFailureDiagnostics, maxLogBytes} from './management-acceptance-diagnostics.mjs';
 import {ManagementEngine} from '../fleet/management-engine.js';
 import {ManagementUpdate} from '../fleet/management-update.js';
 import {main as updateCLI} from '../management-update.js';
@@ -247,6 +248,8 @@ const options = panelUpdate ? ['--fleet', fleet, '--engine', engineId] : [
 ];
 if (panelUpdate) {
   const originalHost = (await inspect(host)).Id;
+  const diagnosticRole = legacy ? 'host-controller' : 'docker-broker';
+  const originalDiagnosticContainer = legacy ? originalHost : (await inspect('lobby-goblin-docker-broker-' + fleet)).Id;
   const reviewed = await request('/management-update', {action: 'plan', version: '0.3.7-alpha', requestId: crypto.randomBytes(16).toString('hex')});
   const id = reviewed.update.id;
   const review = await wait(async () => {
@@ -256,7 +259,21 @@ if (panelUpdate) {
   });
   assert.equal(review.services.applications, 1);
   assert.ok(review.actions.includes('apply'));
-  await request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')});
+  await withApplyFailureDiagnostics(
+    () => request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')}),
+    async () => {
+      // The broker emits brokered updates; the host emits legacy updates.
+      // Only this run's original, owned emitting container may supply logs.
+      // Read-only, fixed tail; never print/store the raw response or errors.
+      const owned = await inspect(originalDiagnosticContainer);
+      assert.equal(owned.Id, originalDiagnosticContainer);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.fleet'], fleet);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.role'], diagnosticRole);
+      assert.equal(owned.Config.Labels['com.docker.compose.project'], project);
+      const logs = await docker('GET', '/containers/' + originalDiagnosticContainer + '/logs?stdout=1&stderr=0&tail=128', undefined, {raw: true});
+      return Buffer.isBuffer(logs) && logs.length <= maxLogBytes ? demultiplex(logs) : '';
+    },
+  );
   const complete = await wait(async () => {
     try {
       const value = await request('/management-update');
