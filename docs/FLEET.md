@@ -159,6 +159,15 @@ Rust backups that contain mod/framework state are refused by this world-only
 library, preserving them for complete recovery rather than silently omitting mods.
 See [Rust recovery](RUST.md#complete-modded-recovery).
 
+Inside View contents, expand **Files and integrity hashes** to **Find files** by
+trimmed, case-insensitive literal relative name. The query searches the full loaded
+manifest before the 200-row display cap; counts distinguish shown, matching and
+loaded files. Clear file search and Escape clear only this query, independently of
+library filters. The query and native disclosure survive same-detail repaints and
+reset on a different inspection, close/removal or disposal. Download manifest
+always exports the complete unfiltered inventory. Finding a path does not read its
+contents or establish restore suitability.
+
 Every snapshot has a manifest containing the source, reviewed image, file sizes
 and SHA-256 hashes. Publication uses a temporary directory and atomic rename.
 Cloning verifies the manifest and every file, checks game/image compatibility,
