@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.31-alpha — 2026-11-06
+
+Milestone: **Compare sampled resource usage across the fleet**.
+
+- Compare optional CPU and container-memory samples already received through existing status responses in Cards and Table. Keep sampled usage distinct from the labelled configured CPU and memory limits.
+- Read CPU on a per-core basis: 100% means one core, so multicore usage can exceed 100%. Valid zero CPU and memory samples remain visible; missing or invalid values show as unavailable independently.
+- Hide retained samples for offline, unavailable, removed or non-running servers. Administrators and viewers retain their existing scopes and action restrictions; assigned accounts retain minimal Cards without resource readouts.
+
+Resource presentation makes no additional queries or mutations. Values are the most recently received samples, without a freshness timestamp or simultaneous fleet sampling guarantee.
+
+This milestone includes LOB-39 (#146). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic UI fixtures; native game/runtime sampling, OS clipboard and assistive-technology acceptance are not claimed.
+
 ## 0.3.30-alpha — 2026-11-05
 
 Milestone: **Compare and organize the fleet inventory**.
