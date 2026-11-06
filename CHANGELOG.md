@@ -10,7 +10,7 @@ Milestone: **Compare sampled resource usage across the fleet**.
 
 Resource presentation makes no additional queries or mutations. Values are the most recently received samples, without a freshness timestamp or simultaneous fleet sampling guarantee.
 
-This milestone includes LOB-40 (#146). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic UI fixtures; native game/runtime sampling, OS clipboard and assistive-technology acceptance are not claimed.
+This milestone includes LOB-39 (#146). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic UI fixtures; native game/runtime sampling, OS clipboard and assistive-technology acceptance are not claimed.
 
 ## 0.3.30-alpha — 2026-11-05
 
