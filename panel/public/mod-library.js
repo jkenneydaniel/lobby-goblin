@@ -1,3 +1,26 @@
+import {downloadJSON} from './diagnostics.js';
+
+export function installedInventoryReport(value) {
+  const text = (input) => (typeof input === 'string' ? input : null);
+  return {
+    game: text(value.game),
+    scope: text(value.scope),
+    reportedScopeVersion: text(value.version),
+    items: value.items.map((item) => ({
+      id: text(item.id),
+      title: text(item.title),
+      version: text(item.version),
+      enabled: item.enabled === true,
+      managed: item.managed === true,
+      modified: item.modified === true,
+      sha256:
+        typeof item.sha256 === 'string' && /^[a-f\d]{64}$/i.test(item.sha256)
+          ? item.sha256
+          : null,
+    })),
+  };
+}
+
 const esc = (value) =>
   String(value ?? '').replace(
     /[&<>"']/g,
@@ -24,11 +47,16 @@ export function mountModLibrary(
   const events = new AbortController();
   let disposed = false;
   let value = null,
+    inventory = null,
     loading = false,
     request = 0,
     review = null;
   const dispose = () => {
     disposed = true;
+    inventory = null;
+    root
+      .querySelector('[data-download-inventory]')
+      ?.setAttribute('disabled', '');
     request++;
     events.abort();
     if (mounts.get(root) === dispose) mounts.delete(root);
@@ -39,6 +67,7 @@ export function mountModLibrary(
     <div class="ml-tabs" role="tablist" aria-label="Mod library"><button role="tab" data-tab="browse">Browse</button><button role="tab" data-tab="installed">Installed</button><button role="tab" data-tab="updates">Updates</button></div>
     <p class="ml-error" role="alert" hidden></p><p class="ml-status" role="status" aria-live="polite"></p>
     <div class="ml-controls"><form data-search><label>Find a mod<input name="query" type="search" maxlength="100" placeholder="Search names and descriptions"></label><button type="submit">Search</button></form><label>When applying changes<select data-mode><option value="stopped">Keep server stopped · start it myself</option><option value="restart">Save, stop, apply, and start automatically</option></select></label></div>
+    <div data-inventory hidden><button type="button" data-download-inventory disabled>Download installed inventory</button><p>Loaded file observations only. Factorio built-ins are excluded; Rust scope version is not its Steam build. Enabled files do not prove runtime loading. This is not an importable modpack or backup.</p></div>
     <p class="ml-impact"></p><button data-recover type="button" hidden>Recover mod change</button>
     <div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
     <details class="ml-account" hidden><summary>Factorio download account</summary><p>Use your Factorio username and service token. The token stays on this controller and is never sent back to your browser.</p><form data-account><label>Factorio username<input name="username" autocomplete="username" maxlength="100" required></label><label>Service token<input name="token" type="password" autocomplete="off" maxlength="256" required></label><button type="submit">Connect account</button><button type="button" data-disconnect hidden>Disconnect</button></form><p data-account-state></p></details>
@@ -52,6 +81,11 @@ export function mountModLibrary(
         element.hidden = !text;
       }
     };
+  function inventoryControl() {
+    $('[data-inventory]').hidden = state.tab !== 'installed';
+    $('[data-download-inventory]').disabled =
+      disposed || loading || !inventory || state.tab !== 'installed';
+  }
   function impact() {
     const mode = $('[data-mode]').value;
     $('.ml-impact').textContent =
@@ -134,7 +168,10 @@ export function mountModLibrary(
   }
   async function load(refresh = false) {
     const current = ++request;
+    const tab = state.tab;
+    inventory = null;
     loading = true;
+    inventoryControl();
     error('');
     $('.ml-results').setAttribute('aria-busy', 'true');
     $('.ml-status').textContent = 'Checking the mod library…';
@@ -150,6 +187,8 @@ export function mountModLibrary(
       );
       if (disposed || current !== request || !root.isConnected) return;
       value = result;
+      if (tab === 'installed' && result.tab === 'installed')
+        inventory = installedInventoryReport(result);
       render();
     } catch (problem) {
       if (current === request) {
@@ -158,7 +197,10 @@ export function mountModLibrary(
         $('.ml-results').setAttribute('aria-busy', 'false');
       }
     } finally {
-      if (current === request) loading = false;
+      if (current === request) {
+        loading = false;
+        inventoryControl();
+      }
     }
   }
   async function guarded(work) {
@@ -174,6 +216,16 @@ export function mountModLibrary(
     (event) => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if (button.hasAttribute('data-download-inventory')) {
+        if (
+          !disposed &&
+          root.isConnected &&
+          !loading &&
+          inventory &&
+          state.tab === 'installed'
+        )
+          downloadJSON(inventory, 'lobby-goblin-installed-mod-inventory.json');
+      }
       if (button.dataset.tab) {
         state.tab = button.dataset.tab;
         state.page = 1;
