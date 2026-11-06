@@ -70,6 +70,7 @@ for (const name of [
   'runtime-maintenance-smoke.mjs',
   'runtime-management-storage-smoke.mjs',
   'management-update-runtime.mjs',
+  'management-acceptance-diagnostics.mjs',
   'helper-workspace-runtime.mjs',
 ])
   await copy('test/' + name);

@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {docker} from '../core/docker.js';
+import {docker, demultiplex} from '../core/docker.js';
+import {withApplyFailureDiagnostics, maxLogBytes} from './management-acceptance-diagnostics.mjs';
 import {ManagementEngine} from '../fleet/management-engine.js';
 import {ManagementUpdate} from '../fleet/management-update.js';
 import {main as updateCLI} from '../management-update.js';
@@ -256,7 +257,20 @@ if (panelUpdate) {
   });
   assert.equal(review.services.applications, 1);
   assert.ok(review.actions.includes('apply'));
-  await request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')});
+  await withApplyFailureDiagnostics(
+    () => request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')}),
+    async () => {
+      // Only this run's original, owned synthetic controller may supply logs.
+      // Read-only, fixed tail; never print/store the raw response or errors.
+      const owned = await inspect(originalHost);
+      assert.equal(owned.Id, originalHost);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.fleet'], fleet);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.role'], 'host-controller');
+      assert.equal(owned.Config.Labels['com.docker.compose.project'], project);
+      const logs = await docker('GET', '/containers/' + originalHost + '/logs?stdout=1&stderr=0&tail=128', undefined, {raw: true});
+      return Buffer.isBuffer(logs) && logs.length <= maxLogBytes ? demultiplex(logs) : '';
+    },
+  );
   const complete = await wait(async () => {
     try {
       const value = await request('/management-update');
