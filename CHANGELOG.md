@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.33-alpha — 2026-11-06
+
+Milestone: **Rank fleet servers by sampled usage**.
+
+- Choose **Sampled CPU, high to low** or **Sampled memory, high to low** in the existing Sort servers selector. Order uses raw received CPU percentages or container-memory bytes, rather than configured limits or formatted labels; CPU can exceed 100% because 100% represents one core.
+- Keep valid zero ahead of unavailable values, with deterministic name and scoped-identity ties. Ordering shares the display's host, server and running-state eligibility rules, so masked retained samples do not rank as available; CPU and memory validity remain independent.
+- Combine sampled order with existing search, application, host and status filters in Cards or Table. Existing scoped links, actions and restrictions remain intact; Clear filters keeps sort/view, and choices retain their existing session refresh/navigation behavior. Assigned accounts keep minimal cards and existing host/name ordering without resource choices or readouts.
+
+Sorting uses already loaded data without extra reads or mutations. Values remain the most recently received samples, without a freshness timestamp or simultaneous measurement guarantee. This adds no monitoring, sampling, capacity-pressure inference or refresh-timing guarantee.
+
+This milestone includes LOB-43 (#154), with combined qualification and release preparation tracked by LOB-44. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native game and deployment acceptance are not claimed.
+
 ## 0.3.32-alpha — 2026-11-06
 
 Milestone: **Find retained operation outcomes**.
