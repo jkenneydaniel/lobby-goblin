@@ -45,6 +45,19 @@ export function selectSnapshots(snapshot, filters) {
     });
 }
 
+// Filter the full received inventory before bounding the rendered rows.
+export function selectManifestFiles(files, query) {
+  const needle = query.trim().toLowerCase(),
+    matches = files.filter(
+      (file) => !needle || file.name.toLowerCase().includes(needle),
+    );
+  return {
+    files: matches.slice(0, 200),
+    matching: matches.length,
+    loaded: files.length,
+  };
+}
+
 export function snapshotCollection(snapshot, admin, filters) {
   const snapshots = selectSnapshots(snapshot, filters),
     applications = new Map(
