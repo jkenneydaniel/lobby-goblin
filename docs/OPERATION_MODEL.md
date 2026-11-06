@@ -85,6 +85,16 @@ The fleet uses this component with a host selector. A late response from a previ
 host cannot replace the selected host's history or redirect a recovery request.
 Unavailable workflow histories remain visible until a successful refresh.
 
+Find operations filters the loaded retained snapshot using trimmed, case-insensitive
+literal text in public action, actor, source label, message, current phase and IDs.
+Show operations selects all, needs review, in progress or an exact terminal outcome;
+the text query and selected Show predicate both apply. Counts use the actual loaded
+snapshot, which can exceed 500 when active/recovery records are retained. Search
+does not read older records or index private payloads or phase observations.
+Clear filters resets text and Show while keeping the selected host; Escape clears
+only text. Local filtering makes no requests. Refresh preserves the controls and
+same-host expansion; changing hosts clears old rows, counts and expansion.
+
 Host setup inspection/acknowledgement records a human review of the retained
 installation. It does not reconnect using old credentials, rerun SSH or change
 the original failed/interrupted result. Mod, framework and management recovery
