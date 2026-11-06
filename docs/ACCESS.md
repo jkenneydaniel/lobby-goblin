@@ -39,6 +39,13 @@ give `logs.read` with `console.execute` to expose the console. A permission neve
 enables a feature the selected game or installation does not support. Managed
 fleet game-image replacement and Rust automatic updates remain unavailable.
 
+Saved archives can be filtered locally by a literal, case-insensitive name fragment
+and their existing verification label. Counts cover the loaded list; finding a
+match does not verify it or establish restore suitability. Clear filters resets
+name/state, while Escape clears only name. Local filtering leaves schedule and
+cleanup drafts/reviews intact and grants no additional actions. Choices survive
+archive refresh within that mounted workflow and reset when it is disposed.
+
 ### Package permissions
 
 The package's `contract.js` owns its permission names, labels and action/endpoint
