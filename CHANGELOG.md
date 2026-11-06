@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.34-alpha — 2026-11-06
+
+Milestone: **Find the right saved backup archive**.
+
+- Find a loaded archive by a trimmed, case-insensitive literal name fragment, combined with the existing All, Integrity verified, Verification failed or Not verified state. Returned archive order and existing verification-label meanings are preserved.
+- See matching/loaded counts and distinct empty/no-match states while whole-list health warnings stay visible. Clear filters resets name and state and focuses search; Escape clears only name. Local filtering makes no requests, jobs, downloads or mutations.
+- Keep schedule and cleanup drafts, reviews and pending saves intact during local filtering. Filters, focused input and caret survive archive refresh within the same mounted workflow and reset on disposal. Exact scoped Verify/Download/optional Restore identities, permissions, busy guards and confirmations remain unchanged.
+
+Filtering covers only the loaded archive list and existing verification observations. Finding a match does not verify an archive or establish restore suitability.
+
+This milestone includes LOB-45 (#158), with combined qualification and release preparation tracked by LOB-46. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native archive/restore and deployment acceptance are not claimed.
+
 ## 0.3.33-alpha — 2026-11-06
 
 Milestone: **Rank fleet servers by sampled usage**.
