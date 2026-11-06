@@ -9,6 +9,7 @@ import {EventEmitter} from 'node:events';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {pathToFileURL, fileURLToPath} from 'node:url';
+import {demultiplex} from '../core/docker.js';
 import {diagnosticRecords, diagnosticPrefix, failurePrefix, safeFailureReports, validDiagnostic, maxRecords, maxLogBytes, withApplyFailureDiagnostics, instrumentManagementAcceptance} from './management-acceptance-diagnostics.mjs';
 
 const execute = promisify(execFile), source = fileURLToPath(new URL('../', import.meta.url));
@@ -53,6 +54,48 @@ const common=[];const docker=async()=>{throw Object.assign(Error('PRIVATE daemon
     assert.equal(error.stderr,'Disposable management panel acceptance failed; no retry was attempted.\n');
     return true;
   });
+});
+
+for (const legacy of [true, false]) test(`actual ${legacy ? 'legacy' : 'brokered'} collector retains the emitting container and rejects wrong ownership`, async () => {
+  const runtime=await fs.readFile(path.join(source,'test/management-update-runtime.mjs'),'utf8');
+  const selectionStart=runtime.indexOf('  const originalHost ='),selectionEnd=runtime.indexOf('  const reviewed =',selectionStart);
+  const collectorStart=runtime.indexOf('  await withApplyFailureDiagnostics('),collectorEnd=runtime.indexOf('  const complete =',collectorStart);
+  assert.ok(selectionStart>0&&selectionEnd>selectionStart&&collectorStart>selectionEnd&&collectorEnd>collectorStart);
+  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+  // Execute the actual fixture selection and collector, not a copied oracle.
+  const collect=new AsyncFunction('legacy','host','fleet','project','inspect','request','crypto','withApplyFailureDiagnostics','docker','maxLogBytes','demultiplex','id','assert',runtime.slice(selectionStart,selectionEnd)+runtime.slice(collectorStart,collectorEnd));
+  const fleet='a'.repeat(32),project='lobby-goblin-fleet-'+fleet,host='synthetic-host';
+  const expectedId=legacy?'host-original':'broker-original';
+  for(const scenario of ['valid','wrong-id','wrong-role','wrong-fleet','wrong-project','oversized','log-failure']) {
+    const inspections=[],reads=[],output=[],original=Error('original synthetic apply failure');
+    const hostInfo={Id:'host-original',Config:{Labels:{'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.role':'host-controller','com.docker.compose.project':project}}};
+    const brokerInfo={Id:'broker-original',Config:{Labels:{'io.lobby-goblin.fleet':fleet,'io.lobby-goblin.role':'docker-broker','com.docker.compose.project':project}}};
+    const inspect=async name=>{
+      inspections.push(name);
+      if(name===host)return structuredClone(hostInfo);
+      if(name==='lobby-goblin-docker-broker-'+fleet)return structuredClone(brokerInfo);
+      assert.ok(name==='host-original'||name==='broker-original');
+      const info=structuredClone(name==='host-original'?hostInfo:brokerInfo);
+      if(scenario==='wrong-id')info.Id='replacement';
+      if(scenario==='wrong-role')info.Config.Labels['io.lobby-goblin.role']='unrelated-role';
+      if(scenario==='wrong-fleet')info.Config.Labels['io.lobby-goblin.fleet']='b'.repeat(32);
+      if(scenario==='wrong-project')info.Config.Labels['com.docker.compose.project']='unrelated-project';
+      return info;
+    };
+    const docker=async(...args)=>{
+      reads.push(args);
+      if(scenario==='log-failure')throw Object.assign(Error('PRIVATE log failure'),{stdout:'PRIVATE',stderr:'PRIVATE'});
+      return scenario==='oversized'?Buffer.alloc(maxLogBytes+1):Buffer.from(diagnosticPrefix+JSON.stringify(record)+'\nPRIVATE raw output\n');
+    };
+    let requests=0;
+    await assert.rejects(collect(legacy,host,fleet,project,inspect,async()=>{requests++;throw original;},crypto,(work,read)=>withApplyFailureDiagnostics(work,read,line=>output.push(line)),docker,maxLogBytes,demultiplex,'synthetic-review',assert),error=>error===original);
+    assert.equal(requests,1,'failed apply is never replayed');
+    assert.deepEqual(inspections,legacy?[host,expectedId]:[host,'lobby-goblin-docker-broker-'+fleet,expectedId]);
+    const rejected=scenario.startsWith('wrong-');
+    assert.deepEqual(reads,rejected?[]:[['GET','/containers/'+expectedId+'/logs?stdout=1&stderr=0&tail=128',undefined,{raw:true}]],'only the retained emitting container may supply logs');
+    assert.deepEqual(safeFailureReports(output[0]),[{version:1,complete:false,failed:true,records:scenario==='valid'?[record]:[]}]);
+    assert.doesNotMatch(output.join(''),/PRIVATE|host-original|broker-original/);
+  }
 });
 
 async function prepared(t) {

@@ -248,6 +248,8 @@ const options = panelUpdate ? ['--fleet', fleet, '--engine', engineId] : [
 ];
 if (panelUpdate) {
   const originalHost = (await inspect(host)).Id;
+  const diagnosticRole = legacy ? 'host-controller' : 'docker-broker';
+  const originalDiagnosticContainer = legacy ? originalHost : (await inspect('lobby-goblin-docker-broker-' + fleet)).Id;
   const reviewed = await request('/management-update', {action: 'plan', version: '0.3.7-alpha', requestId: crypto.randomBytes(16).toString('hex')});
   const id = reviewed.update.id;
   const review = await wait(async () => {
@@ -260,14 +262,15 @@ if (panelUpdate) {
   await withApplyFailureDiagnostics(
     () => request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')}),
     async () => {
-      // Only this run's original, owned synthetic controller may supply logs.
+      // The broker emits brokered updates; the host emits legacy updates.
+      // Only this run's original, owned emitting container may supply logs.
       // Read-only, fixed tail; never print/store the raw response or errors.
-      const owned = await inspect(originalHost);
-      assert.equal(owned.Id, originalHost);
+      const owned = await inspect(originalDiagnosticContainer);
+      assert.equal(owned.Id, originalDiagnosticContainer);
       assert.equal(owned.Config.Labels['io.lobby-goblin.fleet'], fleet);
-      assert.equal(owned.Config.Labels['io.lobby-goblin.role'], 'host-controller');
+      assert.equal(owned.Config.Labels['io.lobby-goblin.role'], diagnosticRole);
       assert.equal(owned.Config.Labels['com.docker.compose.project'], project);
-      const logs = await docker('GET', '/containers/' + originalHost + '/logs?stdout=1&stderr=0&tail=128', undefined, {raw: true});
+      const logs = await docker('GET', '/containers/' + originalDiagnosticContainer + '/logs?stdout=1&stderr=0&tail=128', undefined, {raw: true});
       return Buffer.isBuffer(logs) && logs.length <= maxLogBytes ? demultiplex(logs) : '';
     },
   );
