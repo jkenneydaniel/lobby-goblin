@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.35-alpha — 2026-11-06
+
+Milestone: **Find files inside saved snapshots**.
+
+- In View contents, expand Files and integrity hashes to find a file by a trimmed, case-insensitive literal relative-name fragment. Search covers the full received manifest before the existing 200-row display cap, so a matching file beyond the first 200 entries can be inspected in the panel.
+- Read distinct shown/matching/loaded counts, cap guidance and empty/no-match states. Clear file search and Escape clear only the file query, independently of library filters. Local edits make no requests, jobs, mutations or downloads; Download manifest still exports the complete unfiltered manifest.
+- Keep the native disclosure, query, focus/caret and composition usable through ordinary same-detail repaint. A different inspection, close, removal or disposal resets the file query. Existing scoped inspection, roles, stale/error/offline/busy fences and clone/delete contracts are preserved.
+
+The query matches loaded file names only, not hashes, sizes, file contents or a global filesystem. Finding a path does not verify its contents or establish restore suitability.
+
+This milestone includes LOB-47 (#162), with combined qualification and release preparation tracked by LOB-48. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native file/restore and deployment acceptance are not claimed.
+
 ## 0.3.34-alpha — 2026-11-06
 
 Milestone: **Find the right saved backup archive**.
