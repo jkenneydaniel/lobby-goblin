@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.32-alpha — 2026-11-06
+
+Milestone: **Find retained operation outcomes**.
+
+- Find loaded operations across the shared game, application and fleet Operations view with trimmed, case-insensitive literal text over public actions, actors, source labels, messages, current phases and IDs.
+- Combine text with the existing Show operations selector: All operations, Needs review, In progress, Succeeded, Failed or Interrupted. Matching/loaded counts use the actual snapshot, including retained active/review records beyond 500; unavailable-source warnings stay visible even with no matches.
+- Clear filters resets text and Show while keeping the selected host and focusing search. Escape clears only text. Filtering uses the cached snapshot without extra reads or mutations; refresh preserves query, selection and same-host expansion, while host changes clear stale rows, counts and expansion.
+
+Search covers loaded retained records: the latest 500 plus retained in-progress and needs-review operations. It does not search all historical operations or private payloads. Existing role visibility, scoped recovery requests, confirmations and original outcomes are preserved.
+
+This milestone includes LOB-41 (#150), with combined qualification and release preparation tracked by LOB-42. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic loopback fixtures; native game and deployment acceptance are not claimed.
+
 ## 0.3.31-alpha — 2026-11-06
 
 Milestone: **Compare sampled resource usage across the fleet**.
