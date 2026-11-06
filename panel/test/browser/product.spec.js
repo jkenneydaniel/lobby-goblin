@@ -2539,6 +2539,41 @@ test('a non-game application receives the same operation history from its defini
     .getByLabel('Password', {exact: true})
     .fill('application-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+  await expect(page.locator('.product-shell')).toBeVisible();
+  // Seed a real controller job independently of earlier suite journeys. The
+  // browser route above remains deterministic; page.request uses the real API.
+  const session = await (
+      await page.request.get(origins.application + '/api/session')
+    ).json(),
+    configuration = await (
+      await page.request.get(origins.application + '/api/settings')
+    ).json();
+  const accepted = await page.request.post(origins.application + '/api/jobs', {
+    headers: {origin: origins.application, 'x-csrf-token': session.csrf},
+    data: {
+      action: 'save-settings',
+      params: {
+        values: {
+          ...configuration.values,
+          applicationName: 'History projection ' + Date.now(),
+        },
+        revision: configuration.revision,
+      },
+    },
+  });
+  expect(accepted.status()).toBe(202);
+  const job = await accepted.json();
+  await expect
+    .poll(async () => {
+      const snapshot = await (
+        await page.request.get(origins.application + '/api/jobs')
+      ).json();
+      return (
+        !snapshot.active &&
+        snapshot.jobs.find((item) => item.id === job.id)?.state
+      );
+    })
+    .toBe('succeeded');
   await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
   await expect(
     page.getByRole('heading', {name: 'Operation history', exact: true}),
@@ -2568,7 +2603,16 @@ test('a non-game application receives the same operation history from its defini
     label: 'Application operations',
     available: true,
   });
-  expect(Array.isArray(feed.operations)).toBe(true);
+  // jobOperation projects the accepted job's canonical action and stable ID.
+  expect(feed.operations).toContainEqual(
+    expect.objectContaining({
+      id: 'jobs:' + job.id,
+      source: 'jobs',
+      sourceId: job.id,
+      action: job.action,
+      state: 'succeeded',
+    }),
+  );
 });
 
 test('native update progress and specialized recovery share the global shell without submitting a game operation', async ({
