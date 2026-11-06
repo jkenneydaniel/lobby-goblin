@@ -10,9 +10,9 @@ const filters = {search: '', application: '', host: '', status: '', sort: 'host'
 test('table shares filtered name order, counts and empty states with cards', () => {
   const data = snapshot([item({name: 'Zulu'}), item({id: 'other', name: 'Alpha', manageUrl: '/servers/other/'})]);
   const html = serverCollection(data, false, {...filters, sort: 'name'});
-  assert.match(html, /<caption>Fleet servers.*configured limits, not current usage/);
+  assert.match(html, /<caption>Fleet servers.*Configured CPU and memory are limits.*Most recently received resource sample/);
   assert.match(html, /<th scope="row">Alpha<\/th>.*<th scope="row">Zulu<\/th>/s);
-  assert.equal((html.match(/scope="col"/g) || []).length, 9);
+  assert.equal((html.match(/scope="col"/g) || []).length, 11);
   assert.match(html, /Showing 2 of 2 servers/);
   assert.match(html, /data-clear-server-filters disabled/);
   for (const view of ['cards', 'table']) {

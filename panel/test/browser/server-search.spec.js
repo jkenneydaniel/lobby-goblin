@@ -34,7 +34,7 @@ async function fleet(page) {
     hosts: [{id: local, name: 'This host', local: true, connected: true}, {id: remote, name: 'Weekend host', local: false, connected: true}],
     local: [server('b'.repeat(32), 'Friday factory', 'factorio', 'factory.example.test:35000'), server('c'.repeat(32), 'Island crew', 'rust', 'island.example.test:35003')],
     remote: [server(remoteServer, 'Other factory <crew>', 'factorio', 'weekend.example.test:35006')],
-    active: null, reads: 0, status: {},
+    active: null, reads: 0, status: {}, statusReads: [],
   };
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -44,7 +44,7 @@ async function fleet(page) {
     if (path === '/api/hosts/' + remote + '/servers') return route.fulfill({json: {servers: state.remote}});
     if (/^\/api\/(?:hosts\/[a-f0-9]{32}\/)?snapshots$/.test(path)) return route.fulfill({json: {snapshots: []}});
     if (/^\/api\/(?:hosts\/[a-f0-9]{32}\/)?jobs$/.test(path)) return route.fulfill({json: {jobs: state.active ? [state.active] : [], active: state.active}});
-    if (/\/servers\/[a-f0-9]{32}\/api\/status$/.test(path)) return route.fulfill({json: Object.hasOwn(state.status, path) ? state.status[path] : {ready: true, running: true, players: []}});
+    if (/\/servers\/[a-f0-9]{32}\/api\/status$/.test(path)) {state.statusReads.push(path); return route.fulfill({json: Object.hasOwn(state.status, path) ? state.status[path] : {ready: true, running: true, players: []}});}
     return route.fallback();
   });
   return state;
@@ -109,7 +109,7 @@ test('server name order survives refresh and navigation and resets for the next 
 test('assigned inventory name sorting uses only authorized minimal records', async ({page}) => {
   await page.clock.install(); await fleet(page);
   const assigned = [
-    {id: '1'.repeat(32), name: 'Alpha assigned', game: 'factorio', applicationName: 'Factorio', manageUrl: '/hosts/' + remote + '/servers/' + '1'.repeat(32) + '/', address: 'one.example.test:35000'},
+    {id: '1'.repeat(32), name: 'Alpha assigned', game: 'factorio', applicationName: 'Factorio', manageUrl: '/hosts/' + remote + '/servers/' + '1'.repeat(32) + '/', address: 'one.example.test:35000', cpu: 240, memoryGiB: 99},
     {id: '1'.repeat(32), name: 'alpha assigned', game: 'status-page', applicationName: 'Status Page', applicationKind: 'application', manageUrl: '/servers/' + '1'.repeat(32) + '/', address: 'two.example.test:35001'},
   ];
   await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: assigned}}));
@@ -130,6 +130,9 @@ test('assigned inventory name sorting uses only authorized minimal records', asy
   await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
+  expect(reads.some(path => /\/servers\/.*\/api\/status$/.test(path))).toBe(false);
+  await expect(cards(page).locator('.stats')).toHaveCount(0);
+  await expect(page.locator('#servers')).not.toContainText(/sample|configured CPU|configured memory|240|99/);
 });
 
 test('fleet server search combines application and host filters, clears with the keyboard and keeps scoped links', async ({page}, info) => {
@@ -398,7 +401,7 @@ test('table view uses the loaded filtered order, supports keyboard and contains 
   await view.focus(); await view.press('ArrowDown'); await view.press('Enter');
   await expect(view).toHaveValue('table'); await expect(view).toBeFocused();
   await expect(cards(page)).toHaveCount(0);
-  await expect(table.getByRole('columnheader')).toHaveText(['Name', 'Application', 'Host', 'Status', 'Address', 'Configured CPU', 'Configured memory', 'Players', 'Actions']);
+  await expect(table.getByRole('columnheader')).toHaveText(['Name', 'Application', 'Host', 'Status', 'Address', 'Configured CPU', 'Configured memory', 'Players', 'Sampled CPU', 'Sampled container memory', 'Actions']);
   await page.getByRole('combobox', {name: 'Sort servers', exact: true}).selectOption('name-desc');
   await expect(table.getByRole('rowheader')).toHaveText([state.remote[0].name, 'Island crew', 'Friday factory']);
   await search(page).fill('factory');
@@ -509,4 +512,84 @@ test('table distinguishes public applications from games and scopes dialog actio
   state.hosts[0].connected = false; await page.clock.fastForward(6000);
   await expect(app.getByRole('link', {name: 'Open application', exact: true})).toHaveCount(0);
   await expect(app.getByRole('button', {name: 'Remove', exact: true})).toBeDisabled();
+});
+
+test('fleet resource samples use scoped status for local Factorio, remote Rust and applications in both views', async ({page}, info) => {
+  await page.clock.install(); const state = await fleet(page);
+  state.remote[0].id = state.local[0].id;
+  state.remote[0].game = 'rust'; state.remote[0].applicationName = 'Rust';
+  state.local[1].game = 'status-page'; state.local[1].applicationName = 'Status Page';
+  state.local[1].applicationKind = 'application'; state.local[1].webProtocol = 'http';
+  const localStatus = '/servers/' + state.local[0].id + '/api/status';
+  const remoteStatus = '/hosts/' + remote + '/servers/' + state.remote[0].id + '/api/status';
+  const appStatus = '/servers/' + state.local[1].id + '/api/status';
+  state.status[localStatus] = {running: true, ready: true, cpu: 0, memory: 0, players: ['one']};
+  state.status[remoteStatus] = {running: true, ready: false, cpu: 240, memory: 1.5 * 1024 ** 3, players: 2};
+  state.status[appStatus] = {running: true, ready: true, cpu: 12.34, memory: 512 * 1024 ** 2};
+  await login(page, 'Viewer');
+  await expect(cards(page).nth(0).locator('.resource-sample strong')).toHaveText(['0%', '0 B']);
+  await expect(cards(page).nth(1).locator('.resource-sample strong')).toHaveText(['12.3%', '512.0 MiB']);
+  await expect(cards(page).nth(2).locator('.resource-sample strong')).toHaveText(['240%', '1.5 GiB']);
+  await expect(cards(page).nth(2).locator('.status')).toHaveText('Starting');
+  await expect(cards(page).first()).toContainText('configured CPU limit');
+  await expect(cards(page).first()).toContainText('configured memory limit');
+  await expect(cards(page).first()).toContainText('Most recently received resource sample. CPU: 100% = one core. Memory is container usage.');
+  expect(state.statusReads).toHaveLength(3);
+  await page.screenshot({path: info.outputPath('fleet-resource-cards.png'), fullPage: true});
+  const reads = [...state.statusReads], requests = [];
+  page.on('request', request => {if (request.url().includes('/api/')) requests.push(request.method() + ' ' + new URL(request.url()).pathname);});
+  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  const table = page.getByRole('table', {name: /Fleet servers/});
+  const rows = table.getByRole('row');
+  for (const [index, values] of [[1, ['0%', '0 B']], [2, ['12.3%', '512.0 MiB']], [3, ['240%', '1.5 GiB']]]) {
+    await expect(rows.nth(index).getByRole('cell').nth(7)).toHaveText(values[0]);
+    await expect(rows.nth(index).getByRole('cell').nth(8)).toHaveText(values[1]);
+    await expect(rows.nth(index).getByRole('cell').nth(4)).toHaveText('1 cores');
+    await expect(rows.nth(index).getByRole('cell').nth(5)).toHaveText('2 GiB');
+  }
+  await expect(rows.nth(2).getByRole('cell').nth(6)).toHaveText('—');
+  await expect(rows.nth(2).getByRole('link', {name: 'Manage application', exact: true})).toBeVisible();
+  await expect(rows.nth(3).getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
+  await expect(table.getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
+  expect(state.statusReads).toEqual(reads); expect(requests).toEqual([]);
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
+  await page.screenshot({path: info.outputPath('fleet-resource-table.png'), fullPage: true});
+});
+
+test('refresh replaces sampled values and hides retained samples for stopped, failed, offline and removed servers', async ({page}) => {
+  await page.clock.install(); const state = await fleet(page);
+  const path = '/servers/' + state.local[0].id + '/api/status';
+  const good = {running: true, ready: true, cpu: 240, memory: 1.5 * 1024 ** 3};
+  state.status[path] = good;
+  await login(page);
+  const factory = () => cards(page).filter({has: page.getByRole('heading', {name: 'Friday factory', exact: true})});
+  const sample = () => factory().locator('.resource-sample strong');
+  await expect(sample()).toHaveText(['240%', '1.5 GiB']);
+  state.status[path] = {...good, running: false, ready: false, state: 'exited'};
+  await page.clock.fastForward(6000);
+  await expect(factory().locator('.status')).toHaveText('Stopped');
+  await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
+  state.status[path] = {...good, cpu: -1, memory: null};
+  await page.clock.fastForward(6000);
+  await expect(factory().locator('.status')).toHaveText('Ready');
+  await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
+  state.status[path] = null; await page.clock.fastForward(6000);
+  await expect(factory().locator('.status')).toHaveText('Checking');
+  await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
+  state.status[path] = good; await page.clock.fastForward(6000);
+  await expect(sample()).toHaveText(['240%', '1.5 GiB']);
+  state.local[0].unavailable = true; await page.clock.fastForward(6000);
+  await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
+  await expect(factory().getByRole('button', {name: 'Remove', exact: true})).toBeDisabled();
+  delete state.local[0].unavailable; await page.clock.fastForward(6000);
+  await expect(sample()).toHaveText(['240%', '1.5 GiB']);
+  state.hosts[0].connected = false; await page.clock.fastForward(6000);
+  await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
+  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  const row = page.getByRole('row').filter({has: page.getByRole('rowheader', {name: 'Friday factory', exact: true})});
+  await expect(row.getByRole('cell').nth(7)).toHaveText('Unavailable');
+  await expect(row.getByRole('cell').nth(8)).toHaveText('Unavailable');
+  state.hosts[0].connected = true; state.local[0].state = 'removed'; await page.clock.fastForward(6000);
+  await expect(row).toHaveCount(0);
+  await expect(count(page)).toHaveText('Showing 2 of 2 servers');
 });

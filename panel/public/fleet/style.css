@@ -251,6 +251,7 @@ nav [aria-current='page'] {
 }
 .stats {
   display: flex;
+  flex-wrap: wrap;
   gap: 20px;
   margin: 20px 0;
   color: var(--muted);
