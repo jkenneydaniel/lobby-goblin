@@ -34,7 +34,13 @@ const count = (page) => page.locator('[data-archive-count]');
 const rows = (page) => page.locator('[data-archive-rows] tbody tr');
 const clear = (page) => page.locator('[data-archive-clear]');
 const exactName = 'Zulu .* [before]&+.zip';
-async function fixture(page, game, role = 'admin', validations = null) {
+async function fixture(
+  page,
+  game,
+  role = 'admin',
+  validations = null,
+  health = undefined,
+) {
   await page.clock.install();
   const state = {
     reads: 0,
@@ -44,6 +50,7 @@ async function fixture(page, game, role = 'admin', validations = null) {
     scheduleWrites: [],
     empty: false,
     validations,
+    health,
   };
   await page.route('**/api/backups', async (route) => {
     state.reads++;
@@ -84,11 +91,14 @@ async function fixture(page, game, role = 'admin', validations = null) {
                 ? {validation: state.validations[index]}
                 : {}),
             })),
-        health: {
-          alerts: ['Synthetic archive warning'],
-          verifiedCount: 1,
-          latestAt: '2026-01-04T12:00:00Z',
-        },
+        health:
+          state.health === undefined
+            ? {
+                alerts: ['Synthetic archive warning'],
+                verifiedCount: 1,
+                latestAt: '2026-01-04T12:00:00Z',
+              }
+            : state.health,
       },
     });
   });
@@ -526,6 +536,141 @@ for (const [game, role] of [
         'Recorded integrity check failed.',
       );
       expect(state.submitted).toEqual([]);
+    },
+  );
+
+for (const [game, role] of [
+  ['factorio', 'admin'],
+  ['rust', 'admin'],
+  ['factorio', 'delegated'],
+])
+  test(
+    game +
+      ' ' +
+      role +
+      ' reads backup health observations without adding actions or requests',
+    async ({page}) => {
+      const observed = '2026-11-07T10:12:13.000Z',
+        state = await fixture(page, game, role, null, {
+          alerts: ['Existing warning'],
+          count: 4,
+          totalBytes: 2048,
+          verifiedCount: 1,
+          latestAt: observed,
+          lastVerifiedAt: observed,
+          lastAttempt: {
+            state: 'failed',
+            finished: observed,
+            message: 'PRIVATE-ATTEMPT',
+            error: 'PRIVATE-ERROR',
+          },
+          nextScheduledAt: observed,
+          storage: {freeBytes: 0, path: '/PRIVATE/storage'},
+          software: {identity: 'PRIVATE-IDENTITY'},
+        }),
+        health = page.locator('.product-backup-health'),
+        value = (label) =>
+          health
+            .locator('dt')
+            .filter({hasText: label})
+            .locator('xpath=following-sibling::dd[1]'),
+        time = await page.evaluate(
+          (date) => new Date(date).toLocaleString(),
+          observed,
+        ),
+        before = state.reads;
+      await expect(value('Loaded archives')).toHaveText('4');
+      await expect(value('Loaded archive size')).toHaveText('2.0 KiB');
+      await expect(value('Latest successful integrity check')).toHaveText(time);
+      await expect(value('Last recorded backup attempt')).toHaveText('Failed');
+      await expect(value('Finished')).toHaveText(time);
+      await expect(value('Next scheduled backup (reported)')).toHaveText(time);
+      await expect(value('Observed free backup storage')).toHaveText('0 B');
+      await expect(health).toContainText('Existing warning');
+      await expect(health).toContainText(
+        '1 verified archives · Latest backup: ' + time,
+      );
+      await expect(health).toContainText('not an execution guarantee');
+      await expect(health).not.toContainText('PRIVATE');
+      await query(page).fill('Zulu');
+      await show(page).selectOption('verified');
+      await expect(rows(page)).toHaveCount(1);
+      await rows(page).locator('summary').focus();
+      await page.keyboard.press('Enter');
+      await expect(rows(page).locator('details')).toHaveAttribute('open', '');
+      if (role === 'admin') {
+        await page.getByLabel('Every (hours)', {exact: true}).fill('17');
+        await page
+          .getByLabel('Keep backups for (days)', {exact: true})
+          .fill('7');
+      } else await expect(rows(page).locator('button,a')).toHaveCount(0);
+      expect(state.reads).toBe(before);
+      expect(state.submitted).toEqual([]);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
+      state.health = {
+        alerts: [],
+        count: '0',
+        totalBytes: -1,
+        verifiedCount: false,
+        latestAt: 'invalid',
+        lastVerifiedAt: false,
+        nextScheduledAt: 'invalid',
+        storage: 'PRIVATE-STORAGE',
+        lastAttempt: {
+          state: 'PRIVATE-STATE',
+          finished: {},
+          message: 'PRIVATE-ATTEMPT',
+        },
+      };
+      if (role === 'admin') {
+        await rows(page)
+          .getByRole('button', {name: 'Verify', exact: true})
+          .click();
+        await expect.poll(() => state.reads).toBeGreaterThan(before);
+        await expect(query(page)).toHaveValue('Zulu');
+        await expect(show(page)).toHaveValue('verified');
+        await expect(
+          page.getByLabel('Every (hours)', {exact: true}),
+        ).toHaveValue('17');
+        await expect(
+          page.getByLabel('Keep backups for (days)', {exact: true}),
+        ).toHaveValue('7');
+        expect(state.submitted).toHaveLength(1);
+        expect(state.submitted[0].body).toMatchObject({
+          action: 'verify-backup',
+          params: {name: exactName},
+        });
+      } else await page.reload();
+      await expect(health.locator('dd')).toHaveText(Array(7).fill('Unknown'));
+      await expect(health).not.toContainText('PRIVATE');
+      await expect(health).not.toContainText(time);
+      state.empty = true;
+      state.health = {
+        alerts: [],
+        count: 0,
+        totalBytes: 0,
+        verifiedCount: 0,
+        storage: {freeBytes: 0},
+        lastAttempt: {state: 'interrupted'},
+      };
+      await page.reload();
+      await expect(count(page)).toHaveText('0 matching of 0 loaded archives.');
+      await expect(value('Loaded archives')).toHaveText('0');
+      await expect(value('Loaded archive size')).toHaveText('0 B');
+      await expect(value('Observed free backup storage')).toHaveText('0 B');
+      await expect(value('Last recorded backup attempt')).toHaveText(
+        'Interrupted',
+      );
+      await expect(value('Finished')).toHaveText('Unknown');
+      state.health = null;
+      await page.reload();
+      await expect(health).toHaveText(
+        'Backup health observations unavailable.',
+      );
+      expect(state.submitted).toHaveLength(role === 'admin' ? 1 : 0);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
     },
   );
 

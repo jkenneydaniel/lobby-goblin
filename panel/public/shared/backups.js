@@ -44,8 +44,43 @@ export function backupEvidenceView(validation) {
 }
 
 export function backupHealthView(health) {
-  if (!health) return '';
-  return `<div class="product-backup-health">${health.alerts.map((message) => `<p class="warning">${esc(message)}</p>`).join('')}<p>${health.verifiedCount} verified archives · Latest backup: ${esc(formatDate(health.latestAt))}</p></div>`;
+  const record = (value) =>
+      value && typeof value === 'object' && !Array.isArray(value),
+    whole = (value) => Number.isSafeInteger(value) && value >= 0,
+    bytes = (value) => (whole(value) ? formatBytes(value) : 'Unknown'),
+    date = (value) =>
+      typeof value === 'string' && Number.isFinite(Date.parse(value))
+        ? formatDate(value)
+        : 'Unknown';
+  if (!record(health))
+    return '<div class="product-backup-health"><p>Backup health observations unavailable.</p></div>';
+  const attempt = record(health.lastAttempt) ? health.lastAttempt : {},
+    states = {
+      succeeded: 'Succeeded',
+      failed: 'Failed',
+      interrupted: 'Interrupted',
+    },
+    state =
+      typeof attempt.state === 'string' && Object.hasOwn(states, attempt.state)
+        ? states[attempt.state]
+        : 'Unknown',
+    fields = [
+      ['Loaded archives', whole(health.count) ? health.count : 'Unknown'],
+      ['Loaded archive size', bytes(health.totalBytes)],
+      ['Latest successful integrity check', date(health.lastVerifiedAt)],
+      ['Last recorded backup attempt', state],
+      ['Finished', date(attempt.finished)],
+      ['Next scheduled backup (reported)', date(health.nextScheduledAt)],
+      [
+        'Observed free backup storage',
+        bytes(record(health.storage) ? health.storage.freeBytes : null),
+      ],
+    ],
+    alerts = Array.isArray(health.alerts)
+      ? health.alerts.filter((message) => typeof message === 'string')
+      : [];
+  // Preserve existing alerts; never add unstructured attempt messages or errors.
+  return `<div class="product-backup-health">${alerts.map((message) => `<p class="warning">${esc(message)}</p>`).join('')}<p>${whole(health.verifiedCount) ? health.verifiedCount : 'Unknown'} verified archives · Latest backup: ${esc(date(health.latestAt))}</p><dl>${fields.map(([label, value]) => `<dt>${label}</dt><dd>${esc(value)}</dd>`).join('')}</dl><p class="hint">Loaded observations only. Archive integrity does not prove game-load recovery; a reported schedule is not an execution guarantee.</p></div>`;
 }
 
 export function mountBackups(
