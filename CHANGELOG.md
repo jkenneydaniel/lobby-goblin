@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.37-alpha — 2026-11-07
+
+Milestone: **Understand backup evidence before recovery**.
+
+- In Factorio and Rust backup lists, expand Integrity check details to see the recorded check time and a valid SHA-256 from an explicitly successful recorded check. Failed checks use a fixed failure message; missing, legacy or invalid details remain explicitly unknown or unavailable. Raw verifier errors and unrelated metadata are not added to the disclosure.
+- Read labelled backup-health observations from the existing response: loaded archive count and size, latest successful integrity check, last recorded backup-attempt state and finish time, reported next schedule and observed free backup storage. Valid zero values stay visible; missing or malformed values remain unknown. Existing alerts and verified/latest-backup observations are preserved.
+- These presentations add no request, job or automatic verification. Existing filters, keyboard disclosure, scoped actions, role/busy/confirmation controls and schedule/cleanup drafts remain in their established flows. Explicit Verify remains a separate existing action.
+
+These are recorded observations. Archive integrity does not prove game-load recovery, reported free storage is not a fresh capacity check, and a reported schedule does not guarantee execution. Existing escaped alerts can include historical backend job messages; this milestone does not broadly sanitize or change that alert policy.
+
+This bundle includes LOB-53 (#175) and LOB-54 (#176), with combined qualification and release preparation tracked by LOB-55. Game images, software-provider pins and world, storage, account and updater formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance uses synthetic fixtures; native recovery and deployment acceptance are not claimed.
+
 ## 0.3.36-alpha — 2026-11-06
 
 Milestone: **Share the installed mod inventory**.
