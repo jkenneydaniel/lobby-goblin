@@ -8,9 +8,18 @@ server operators. See [server access](ACCESS.md).
 files, and **Updates** checks for newer releases. Nothing installs or updates in
 the background. Every change requires review and confirmation.
 
+On **Installed**, find an item by its displayed name or ID and combine that
+literal, case-insensitive search with All, Enabled, Disabled, Modified locally
+or Added manually. These filters cover the complete loaded list, preserve its
+received order and make no request or mod change. Added manually follows the
+existing label; locally modified items remain under Modified locally. Matching
+and loaded counts distinguish an empty inventory from no matches. Clear filters
+resets both controls. Browse search, Updates and change modes stay separate.
+
 On **Installed**, **Download installed inventory** saves a local JSON report of
 the complete successfully loaded list, including disabled, manual and modified
-items in received order. It includes only game, scope, reported scope version,
+items in received order, even when the list is filtered. It includes only game,
+scope, reported scope version,
 item IDs/titles/versions, enabled/managed/modified flags and received valid SHA-256
 digests; unknown versions and digests are `null`. It excludes account details,
 paths, URLs, configuration and server identity. The download makes no request or
