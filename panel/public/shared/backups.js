@@ -15,6 +15,34 @@ export function selectBackupArchives(archives, query, state) {
   );
 }
 
+// Show only existing public verification observations, never the adapter's
+// arbitrary metadata or unstructured errors that can contain archive contents.
+// Integrity is distinct from successful game-load recovery.
+export function backupEvidenceView(validation) {
+  const recorded =
+      validation &&
+      typeof validation === 'object' &&
+      !Array.isArray(validation),
+    checked =
+      recorded &&
+      typeof validation.checked === 'string' &&
+      Number.isFinite(Date.parse(validation.checked))
+        ? formatDate(validation.checked)
+        : 'Unknown',
+    sha256 =
+      recorded &&
+      validation.ok === true &&
+      typeof validation.sha256 === 'string' &&
+      /^[a-f0-9]{64}$/i.test(validation.sha256)
+        ? validation.sha256
+        : 'Not available in this recorded check',
+    failure =
+      recorded && validation.ok === false
+        ? '<p>Recorded integrity check failed.</p>'
+        : '';
+  return `<details><summary>Integrity check details</summary>${recorded ? `<p>Checked: ${esc(checked)}</p><p>SHA256: <code>${esc(sha256)}</code></p>${failure}` : validation == null ? '<p>No matching integrity check is recorded for this archive.</p>' : '<p>Recorded integrity check details are unavailable.</p>'}<p class="hint">Archive integrity checks do not prove that the game can load or recover this backup.</p></details>`;
+}
+
 export function backupHealthView(health) {
   if (!health) return '';
   return `<div class="product-backup-health">${health.alerts.map((message) => `<p class="warning">${esc(message)}</p>`).join('')}<p>${health.verifiedCount} verified archives · Latest backup: ${esc(formatDate(health.latestAt))}</p></div>`;
@@ -91,7 +119,7 @@ export function mountBackups(
       record.backups.length +
       ' loaded archives.';
     rows.innerHTML = matches.length
-      ? `<div class="table-wrap"><table><thead><tr><th>Archive</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${matches.map((item) => `<tr><td>${esc(item.relative)}<small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></td><td>${esc(formatDate(item.modified))}</td><td>${formatBytes(item.size)}</td><td>${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>`
+      ? `<div class="table-wrap"><table><thead><tr><th>Archive</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${matches.map((item) => `<tr><td><span data-archive-label>${esc(item.relative)}<small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></span>${backupEvidenceView(item.validation)}</td><td>${esc(formatDate(item.modified))}</td><td>${formatBytes(item.size)}</td><td>${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>`
       : `<p>${record.backups.length ? 'No matching loaded archives.' : esc(empty)}</p>`;
     setArchiveBusy();
   }
@@ -165,7 +193,10 @@ export function mountBackups(
     setBusy();
     let saved = false;
     try {
-      const policy = await request('/backup-retention', {method: 'POST', body});
+      const policy = await request('/backup-retention', {
+        method: 'POST',
+        body,
+      });
       saved = true;
       if (disposed) return;
       // Controls may have been replaced by an unrelated backup refresh. The
