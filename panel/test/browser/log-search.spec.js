@@ -200,7 +200,10 @@ test('session reset drops prior search and lower privilege accounts cannot gain 
   const data = state();
   await open(page, 'application', data);
   await search(page).fill('private prior search');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await Promise.all([
+    page.waitForEvent('load'),
+    page.getByRole('button', {name: 'Sign out', exact: true}).click(),
+  ]);
   await page.getByLabel('Username', {exact: true}).fill('Owner');
   await page
     .getByLabel('Password', {exact: true})
@@ -208,12 +211,18 @@ test('session reset drops prior search and lower privilege accounts cannot gain 
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
   await nav(page).getByRole('link', {name: 'Logs', exact: true}).click();
   await expect(search(page)).toHaveValue('');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await Promise.all([
+    page.waitForEvent('load'),
+    page.getByRole('button', {name: 'Sign out', exact: true}).click(),
+  ]);
   await page.getByLabel('Username', {exact: true}).fill('Read');
   await page
     .getByLabel('Password', {exact: true})
     .fill('application-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+  await expect(
+    page.getByRole('button', {name: 'Sign out', exact: true}),
+  ).toBeVisible();
   await expect(
     nav(page).getByRole('link', {name: 'Logs', exact: true}),
   ).toHaveCount(0);
