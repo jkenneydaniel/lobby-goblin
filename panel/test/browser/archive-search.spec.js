@@ -34,7 +34,7 @@ const count = (page) => page.locator('[data-archive-count]');
 const rows = (page) => page.locator('[data-archive-rows] tbody tr');
 const clear = (page) => page.locator('[data-archive-clear]');
 const exactName = 'Zulu .* [before]&+.zip';
-async function fixture(page, game, role = 'admin') {
+async function fixture(page, game, role = 'admin', validations = null) {
   await page.clock.install();
   const state = {
     reads: 0,
@@ -43,6 +43,7 @@ async function fixture(page, game, role = 'admin') {
     policyWrites: [],
     scheduleWrites: [],
     empty: false,
+    validations,
   };
   await page.route('**/api/backups', async (route) => {
     state.reads++;
@@ -77,7 +78,12 @@ async function fixture(page, game, role = 'admin') {
                 modified: '2026-01-01T12:00:00Z',
                 size: 0,
               },
-            ],
+            ].map((item, index) => ({
+              ...item,
+              ...(state.validations
+                ? {validation: state.validations[index]}
+                : {}),
+            })),
         health: {
           alerts: ['Synthetic archive warning'],
           verifiedCount: 1,
@@ -241,7 +247,7 @@ for (const game of ['factorio', 'rust'])
       await expect(query(page)).toBeFocused();
       await expect(show(page)).toHaveValue('all');
       await expect(query(page)).toHaveValue('');
-      await expect(rows(page).locator('td:first-child')).toHaveText([
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText([
         exactName + 'Archive integrity verified',
         'alpha-failed.zipVerification failed',
         'ALPHA-unverified.zipNot verified',
@@ -250,7 +256,9 @@ for (const game of ['factorio', 'rust'])
       // Native composition keeps the input/neighboring forms mounted and defers row filtering.
       await query(page).evaluate((input) => {
         input.dispatchEvent(
-          new globalThis.CompositionEvent('compositionstart', {bubbles: true}),
+          new globalThis.CompositionEvent('compositionstart', {
+            bubbles: true,
+          }),
         );
         input.value = 'alpha';
         input.dispatchEvent(
@@ -403,6 +411,121 @@ for (const [game, role] of [['factorio', 'delegated']])
       await expect(query(page)).toHaveValue('');
       await expect(show(page)).toHaveValue('all');
       await expect(count(page)).toHaveText('4 matching of 4 loaded archives.');
+    },
+  );
+
+for (const [game, role] of [
+  ['factorio', 'admin'],
+  ['rust', 'admin'],
+  ['factorio', 'delegated'],
+])
+  test(
+    game +
+      ' ' +
+      role +
+      ' reads archive integrity evidence locally with native keyboard controls',
+    async ({page}) => {
+      const hash = 'a1'.repeat(32),
+        checked = '2026-11-07T10:12:13.000Z',
+        privateError =
+          'Unexpected token after JSON: {"password":"ARCHIVE-CONTENT"} /private/server/settings.json <img src=x onerror="fail()"> ' +
+          'LONG-PRIVATE-TEXT'.repeat(500),
+        state = await fixture(page, game, role, [
+          {
+            ok: true,
+            checked,
+            sha256: hash,
+            identity: 'PRIVATE-IDENTITY',
+            software: {name: 'PRIVATE-SOFTWARE'},
+          },
+          {
+            ok: false,
+            checked: 'invalid',
+            sha256: hash,
+            error: privateError,
+          },
+          null,
+          {ok: 1, checked: 123, sha256: hash, error: 'NOT-A-FAILED-CHECK'},
+        ]),
+        before = state.reads,
+        first = rows(page).nth(0).locator('details'),
+        failed = rows(page).nth(1).locator('details');
+      await expect(first).not.toHaveAttribute('open', '');
+      await first.locator('summary').focus();
+      await page.keyboard.press('Enter');
+      await expect(first).toHaveAttribute('open', '');
+      await expect(first).toContainText(
+        'Checked: ' +
+          (await page.evaluate(
+            (value) => new Date(value).toLocaleString(),
+            checked,
+          )),
+      );
+      await expect(first.locator('code')).toHaveText(hash);
+      await expect(first).toContainText(
+        'do not prove that the game can load or recover this backup',
+      );
+      await page.keyboard.press('Space');
+      await expect(first).not.toHaveAttribute('open', '');
+      await failed.locator('summary').click();
+      await expect(failed).toContainText('Checked: Unknown');
+      await expect(failed).toContainText('Recorded integrity check failed.');
+      for (const privateText of [
+        'ARCHIVE-CONTENT',
+        '/private/server',
+        'onerror',
+        'LONG-PRIVATE-TEXT',
+      ])
+        await expect(failed).not.toContainText(privateText);
+      await expect(failed.locator('code')).toHaveText(
+        'Not available in this recorded check',
+      );
+      await rows(page).nth(2).locator('summary').click();
+      await expect(rows(page).nth(2)).toContainText(
+        'No matching integrity check is recorded for this archive',
+      );
+      await rows(page).nth(3).locator('summary').click();
+      await expect(rows(page).nth(3)).toContainText('Checked: Unknown');
+      await expect(rows(page).nth(3).locator('code')).toHaveText(
+        'Not available in this recorded check',
+      );
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'PRIVATE-',
+      );
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'NOT-A-FAILED-CHECK',
+      );
+      await expect(page.locator('[data-archive-rows] img')).toHaveCount(0);
+      await show(page).selectOption('failed');
+      await expect(rows(page)).toHaveCount(1);
+      await expect(rows(page)).toContainText('alpha-failed.zip');
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText(
+        'alpha-failed.zipVerification failed',
+      );
+      expect(state.reads).toBe(before);
+      expect(state.submitted).toEqual([]);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
+      if (role === 'delegated')
+        await expect(rows(page).locator('button,a')).toHaveCount(0);
+      else
+        await expect(
+          rows(page).getByRole('button', {name: 'Verify', exact: true}),
+        ).toBeEnabled();
+      state.validations = [null, null, null, null];
+      await page.reload();
+      await expect(rows(page)).toHaveCount(4);
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText([
+        exactName + 'Not verified',
+        'alpha-failed.zipNot verified',
+        'ALPHA-unverified.zipNot verified',
+        '<other>.zipNot verified',
+      ]);
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(hash);
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'Recorded integrity check failed.',
+      );
+      expect(state.submitted).toEqual([]);
     },
   );
 
