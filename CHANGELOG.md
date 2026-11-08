@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.38-alpha — 2026-11-07
+
+Milestone: **Find installed mods before reviewing changes**.
+
+- In Installed, find a mod or plugin by its displayed name or ID with a trimmed, case-insensitive literal search. Combine it with All, Enabled, Disabled, Modified locally or Added manually to locate the intended item before reviewing a change.
+- See matching and loaded counts, distinct empty and no-match states, and Clear filters. Results keep their received order. Browse search, Updates and change modes stay separate.
+- Filtering makes no additional request or mod change. Download installed inventory still includes the complete successfully loaded list in received order, even when only some items match the filters. Existing permissions, account privacy, busy controls, reviews and confirmations remain intact.
+
+These are loaded file observations, not live verification or proof of runtime loading or plugin compatibility. Finding an item does not install, enable or update it. Acceptance uses synthetic fixtures; native compatibility and deployment acceptance are not claimed.
+
+This milestone includes LOB-56, with combined qualification and release preparation tracked by LOB-57. Publishing this alpha does not update installations or running servers.
+
 ## 0.3.37-alpha — 2026-11-07
 
 Milestone: **Understand backup evidence before recovery**.
