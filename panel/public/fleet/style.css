@@ -145,11 +145,16 @@ nav [aria-current='page'] {
   flex-grow: 2;
 }
 .server-count,
+.server-availability,
 .snapshot-count,
 .snapshot-no-matches,
 .server-no-matches {
   grid-column: 1/-1;
   margin: 0;
+}
+.server-availability p {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
 }
 .server-address {
   display: flex;
