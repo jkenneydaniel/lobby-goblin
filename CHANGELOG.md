@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.39-alpha — 2026-11-09
+
+Milestone: **Understand loaded server availability**.
+
+- See a compact availability summary beside the loaded server result count and counts in the existing status options. Search, application and host narrow the summary; choosing a status keeps the alternatives visible.
+- Counts use the existing status classifier and authorized session records. Observations are the most recently received, and unavailable hosts may leave the loaded inventory incomplete, including hosts without cached records.
+- Assigned-server accounts retain their minimal inventory without availability counts or host-health disclosure. Filtering adds no requests, polling, mutations or persistence changes; existing result counts, permissions and keyboard behavior remain intact.
+
+This milestone includes LOB-58 (#184), with bundled release preparation and actual artifact, runtime and updater qualification tracked by LOB-59. Counts are loaded observations, not live verification. Acceptance uses synthetic fixtures; no separate security audit or deployment acceptance is claimed. Game images, provider pins and stored account, server and updater formats are unchanged. Publishing this alpha does not update installations or running servers.
+
 ## 0.3.38-alpha — 2026-11-07
 
 Milestone: **Find installed mods before reviewing changes**.

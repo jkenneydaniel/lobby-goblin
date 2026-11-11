@@ -474,12 +474,14 @@ test('table selection and order survive refresh and navigation, while sign-out r
   await expect(view).toHaveValue('table');
   await expect(page.getByRole('combobox', {name: 'Sort servers', exact: true})).toHaveValue('name-desc');
   await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
   await login(page, 'Viewer');
   await expect(view).toHaveValue('cards');
   await view.selectOption('table');
   await expect(table.getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   await expect(table.getByRole('button', {name: 'Publish snapshot'})).toHaveCount(0);
   await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
   await login(page, 'Assigned');
   await expect(view).toHaveCount(0); await expect(table).toHaveCount(0);
   await expect(cards(page)).toHaveCount(1);
