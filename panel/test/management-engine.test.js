@@ -138,6 +138,57 @@ test('the Docker ownership claim excludes operators using copied installation di
   assert.ok(!calls.some((call) => /\/(start|stop|exec)/.test(call.route)));
 });
 
+test('release removes only this update’s inactive storage workers and can retry partial cleanup', async () => {
+  const plan = {fleet, id, imageId: image};
+  const makeWorker = (operation, state, updateId = id) => ({
+    Id: operation + '-' + updateId,
+    Name: '/lobby-goblin-management-storage-' + updateId + '-' + operation,
+    Image: image,
+    Config: {
+      Entrypoint: ['node', '/app/fleet/management-storage-worker.js'],
+      Labels: {
+        'io.lobby-goblin.fleet': fleet,
+        'io.lobby-goblin.role': 'management-storage',
+        'io.lobby-goblin.management-update': updateId,
+      },
+    },
+    State: {Running: state === 'running', Status: state},
+  });
+  const backup = makeWorker('backup', 'exited');
+  const verify = makeWorker('verify', 'running');
+  const restore = makeWorker('restore', 'created');
+  const agent = makeWorker('activate-agent', 'exited');
+  const prior = makeWorker('backup', 'exited', 'f'.repeat(32));
+  const workers = [backup, verify, restore, agent, prior];
+  const deleted = [];
+  const engine = new ManagementEngine({
+    socket: '/unused-fixture.sock',
+    engine: engineId,
+    request: async (method, route) => {
+      if (method === 'GET') {
+        const worker = workers.find(value => value.Name === '/' + decodeURIComponent(route.split('/')[2]) &&
+          !deleted.includes('/containers/' + value.Id));
+        if (!worker) throw Object.assign(Error('absent'), {status: 404});
+        return worker;
+      }
+      assert.equal(method, 'DELETE');
+      deleted.push(route);
+    },
+  });
+  await assert.rejects(engine.release(plan), /still active/);
+  assert.deepEqual(deleted, ['/containers/' + backup.Id]);
+
+  verify.State = {Running: false, Status: 'exited'};
+  verify.Config.Labels['io.lobby-goblin.fleet'] = 'f'.repeat(32);
+  await assert.rejects(engine.release(plan), /changed/);
+  assert.deepEqual(deleted, ['/containers/' + backup.Id]);
+
+  verify.Config.Labels['io.lobby-goblin.fleet'] = fleet;
+  await engine.release(plan);
+  await engine.release(plan);
+  assert.deepEqual(deleted, [backup, verify, restore, agent].map(value => '/containers/' + value.Id));
+});
+
 test('replacement configuration keeps application-specific values while adopting the new image defaults', async () => {
   const engine = new ManagementEngine({
     socket: '/unused-fixture.sock',

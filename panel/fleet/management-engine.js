@@ -13,7 +13,13 @@ import {assertPanelWorker} from '../core/management-panel-contract.js';
 import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 
 const roleKey = 'io.lobby-goblin.role',
-  fleetKey = 'io.lobby-goblin.fleet';
+  fleetKey = 'io.lobby-goblin.fleet',
+  updateKey = 'io.lobby-goblin.management-update';
+const storageOperations = ['backup', 'verify', 'restore', 'activate-agent'];
+const storageEntrypoint = ['node', '/app/fleet/management-storage-worker.js'];
+const storageWorkerName = (id, operation) =>
+  'lobby-goblin-management-storage-' + id + '-' + operation;
+const inactiveStorageStates = ['created', 'exited'];
 const privateOutput = output => {
   if (!Buffer.isBuffer(output)) return 'Worker diagnostic output was unavailable.';
   const text = demultiplex(output);
@@ -399,10 +405,17 @@ export class ManagementEngine {
       games.push(gameIdentity(info));
     }
     // Helpers may still own writable state after a lost controller response.
-    // Retained previous management containers are allowed only when stopped.
+    // Retained previous management containers are allowed only when inactive.
     if (this.coordinator)
       assertPanelWorker(await this.inspect(this.coordinator.id), this.coordinator.spec, this.coordinator.name);
-    for (const value of listed)
+    const retainedById = new Map(retained.map(prior => [prior.id, prior]));
+    const leftoverStorage = new Set();
+    for (const value of listed) {
+      const prior = retainedById.get(value.Labels?.[updateKey]);
+      const knownStorage = prior && value.Labels?.[roleKey] === 'management-storage' &&
+        inactiveStorageStates.includes(value.State) &&
+        storageOperations.some(operation => value.Names.includes('/' + storageWorkerName(prior.id, operation)));
+      if (knownStorage) leftoverStorage.add(prior);
       assert(
         services.some((service) => service.id === value.Id) ||
           value.Id === anchor?.Id ||
@@ -416,14 +429,13 @@ export class ManagementEngine {
                   (service) =>
                     service.id === value.Id &&
                     value.Names.includes('/' + service.before),
-                ) ||
-                (value.Labels?.[roleKey] === 'management-storage' &&
-                  value.Labels?.['io.lobby-goblin.management-update'] ===
-                    prior.id),
-            )),
+                ),
+            )) ||
+          knownStorage,
         'Unexpected fleet workers or containers need review before updating management.',
         409,
       );
+    }
     for (const volume of new Set(slots.map((slot) => slot.volume))) {
       const value = await this.request(
         'GET',
@@ -437,6 +449,10 @@ export class ManagementEngine {
         409,
       );
     }
+    // Recover leftovers from older coordinators only after checking the fleet and
+    // matching them to completed private update records in this installation.
+    for (const {id, imageId} of leftoverStorage)
+      await this.removeStorageWorkers({fleet, id, imageId});
     return {
       version: 1,
       id,
@@ -508,6 +524,7 @@ export class ManagementEngine {
     );
   }
   async release(plan, {removeOriginals = false} = {}) {
+    await this.removeStorageWorkers(plan);
     // Pre-commit rollback retains exact originals. After a successful commit,
     // remove their stopped containers so Compose cannot select duplicate service
     // labels. Their specifications and metadata snapshot remain private.
@@ -542,6 +559,28 @@ export class ManagementEngine {
       409,
     );
     await this.request('DELETE', '/containers/' + claim.Id);
+  }
+  async removeStorageWorkers(plan) {
+    for (const operation of storageOperations) {
+      const name = storageWorkerName(plan.id, operation);
+      const helper = await this.inspect(name, {optional: true});
+      if (!helper) continue;
+      const labels = helper.Config.Labels;
+      assert(
+        helper.Name === '/' + name && helper.Image === plan.imageId &&
+          labels?.[fleetKey] === plan.fleet &&
+          labels[roleKey] === 'management-storage' && labels[updateKey] === plan.id &&
+          JSON.stringify(helper.Config.Entrypoint) === JSON.stringify(storageEntrypoint) &&
+          helper.State.Running === false && inactiveStorageStates.includes(helper.State.Status),
+        'Management storage helper changed or is still active. Preserve it for operator review.',
+        409,
+      );
+      // Receipts and snapshots are in named volumes. Keep those volumes and
+      // let Docker refuse removal if the helper started after inspection.
+      await this.request('DELETE', '/containers/' + encodeURIComponent(helper.Id)).catch(error => {
+        if (error.status !== 404) throw error;
+      });
+    }
   }
   async verifyOriginals(plan) {
     await this.identity();
@@ -624,7 +663,7 @@ export class ManagementEngine {
       'Private operator snapshot volume changed.',
       409,
     );
-    const name = 'lobby-goblin-management-storage-' + plan.id + '-' + operation;
+    const name = storageWorkerName(plan.id, operation);
     let helper = await this.inspect(name, {optional: true});
     if (helper) {
       assert(
@@ -665,7 +704,7 @@ export class ManagementEngine {
         {
           Image: plan.imageId,
           User: '0:0',
-          Entrypoint: ['node', '/app/fleet/management-storage-worker.js'],
+          Entrypoint: storageEntrypoint,
           Env: [
             'FLEET_ID=' + plan.fleet,
             'PANEL_MAINTENANCE_ID=' + plan.id,
