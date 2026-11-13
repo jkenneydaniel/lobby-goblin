@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.40-alpha — 2026-11-13
+
+- Coordinated management updates remove their stopped storage helpers after completion or rollback. After installing this release, reviewing a future update also clears matching helpers left by earlier updates with confirmed outcomes. Recovery snapshots and volumes are preserved. (#187)
+
 ## 0.3.39-alpha — 2026-11-09
 
 Milestone: **Understand loaded server availability**.
