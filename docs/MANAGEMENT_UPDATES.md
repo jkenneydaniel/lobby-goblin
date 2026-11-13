@@ -159,7 +159,10 @@ operator process dies requires offline identity-bound lock review using
    publication is retried without rerunning the update. A complete private receipt
    and Compose override keep later installation starts on the selected runtime.
 7. After confirmed success, exact stopped originals are removed so Compose selects
-   only current services. Snapshots and private original specifications remain.
+   only current services. The updater also removes its stopped metadata helpers
+   after success or rollback. A later review removes matching helpers left by
+   earlier coordinators when their private update records confirm a final outcome.
+   Snapshots and private original specifications remain.
    Failed cleanup retains the confirmed outcome and returns `cleanupRequired`;
    `resume` retries cleanup only. Startup refuses unfinished updates or cleanup.
 

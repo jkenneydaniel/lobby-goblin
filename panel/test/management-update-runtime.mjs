@@ -287,6 +287,14 @@ if (panelUpdate) {
   const operatorRecord = await updateCLI(['status', ...options, '--id', id], {log: () => {}});
   assert.equal(operatorRecord.operation.phase, 'complete');
   assert.equal(operatorRecord.pending, null);
+  const storageWorkers = () => docker('GET', '/containers/json?' + new URLSearchParams({
+    all: '1',
+    filters: JSON.stringify({label: ['io.lobby-goblin.fleet=' + fleet, 'io.lobby-goblin.role=management-storage']}),
+  }));
+  assert.deepEqual(await storageWorkers(), [], 'Terminal cleanup removes storage helpers.');
+  const snapshotVolume = 'lobby-goblin-management-' + fleet + '-' + id;
+  const volumeRoute = '/volumes/' + snapshotVolume;
+  assert.equal((await docker('GET', volumeRoute)).Name, snapshotVolume);
   assert.equal(await fs.stat(path.join(directory, '.management-updates')).catch(() => null), null, 'Private records never cross into a host folder.');
   assert.equal((await inspect(item.container)).State.Running, true);
   assert.notEqual((await inspect(host)).Id, originalHost);
@@ -300,7 +308,26 @@ if (panelUpdate) {
   assert.equal((await request('/management-update')).update.state, 'complete');
   // The portable operator fallback uses the same retained records and engine claim.
   // A pre-enrollment directory planner must refuse this enrolled fleet.
+  const leftover = await docker('POST', '/containers/create?' + new URLSearchParams({
+    name: 'lobby-goblin-management-storage-' + id + '-backup',
+  }), {
+    Image: next,
+    Entrypoint: ['node', '/app/fleet/management-storage-worker.js'],
+    Labels: {
+      'io.lobby-goblin.fleet': fleet,
+      'io.lobby-goblin.role': 'management-storage',
+      'io.lobby-goblin.management-update': id,
+    },
+    HostConfig: {
+      NetworkMode: 'none',
+      ReadonlyRootfs: true,
+      Mounts: [{Type: 'volume', Source: snapshotVolume, Target: '/artifact'}],
+    },
+  });
+  assert.equal((await inspect(leftover.Id)).State.Status, 'created');
   const operatorReview = await updateCLI(['plan', ...options, '--image', next], {log: () => {}});
+  assert.deepEqual(await storageWorkers(), [], 'A new review removes an older completed update’s leftover helper.');
+  assert.equal((await docker('GET', volumeRoute)).Name, snapshotVolume);
   await updateCLI(['rollback', ...options, '--id', operatorReview.id, '--confirm'], {log: () => {}});
   await preserved();
   await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, profile: legacy ? 'legacy' : 'brokered', portableRecords: true, operatorRecovery: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});
