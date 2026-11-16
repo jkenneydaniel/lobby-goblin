@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.41-alpha — 2026-11-16
+
+- Create Server submits directly to the selected host. Provisioning checks capacity and snapshot compatibility before allocating resources. (#188)
+- Interrupted automatic Factorio map refreshes stay in history while Stop and Backup remain available after restart. A failed SSH setup stays reviewable without blocking local server creation or management updates. (#188)
+- Delegated actions use each shipped application's explicit permission policy. The release retains the existing upgrade, recovery, JSON, and SQLite paths. (#189)
+
 ## 0.3.40-alpha — 2026-11-13
 
 - Coordinated management updates remove their stopped storage helpers after completion or rollback. After installing this release, reviewing a future update also clears matching helpers left by earlier updates with confirmed outcomes. Recovery snapshots and volumes are preserved. (#187)
