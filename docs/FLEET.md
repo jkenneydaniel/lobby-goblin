@@ -90,7 +90,9 @@ accounts retain their minimal cards without a view selector, host details or
 resource columns. Switching views makes no requests and saves no preference.
 
 Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
-Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
+Rust also offers map size. Submit once to start provisioning. The host checks
+current capacity and compatibility before allocating game resources and reports
+any failure under Host operations. Port allocation starts at UDP 35000 and checks Docker
 port use; Rust gets a separate query port. Port clashes outside Docker fail
 creation safely. RCON is never published. Each server has its own volume,
 private network, game container, controller, generated secrets and operation

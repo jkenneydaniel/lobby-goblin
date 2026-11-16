@@ -178,10 +178,13 @@ test('software metadata access alone loads without fetching forbidden server sta
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
 });
 
-test('runtime snapshot creation preserves its disabled installation selector in preflight and submission', async ({page}) => {
+test('runtime snapshot creation sends its disabled installation selector directly to the host', async ({page}) => {
   await page.route('**/api/snapshots', async route => {const response = await route.fetch(), data = await response.json(); data.snapshots = data.snapshots.map(item => ({...item, image: 'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'})); await route.fulfill({json: data});});
-  const checked = [], created = [];
-  await page.route('**/api/creation-preflight', async route => {checked.push(route.request().postDataJSON()); await route.fulfill({json: {ready: true, checks: []}});});
+  const created = [], preflights = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/creation-preflight'))
+      preflights.push(request.url());
+  });
   await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
   await login(page, 'fleet', 'Preview');
   await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
@@ -191,27 +194,37 @@ test('runtime snapshot creation preserves its disabled installation selector in 
   await expect(form.locator('[name=softwareMode]')).toBeDisabled();
   await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
   await page.locator('#create-submit').click(); await expect.poll(() => created.length).toBe(1);
-  expect(checked[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
+  expect(preflights).toEqual([]);
   expect(created[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
 });
 
-test('creation checks block failures and discard a late result after input changes', async ({page}) => {
+test('a late creation response leaves a reopened dialog alone', async ({page}) => {
+  let release;
+  const pending = new Promise(resolve => {release = resolve;});
+  await page.route('**/api/servers', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    await pending;
+    await route.fulfill({status: 202, json: {id: 'created-server', state: 'queued'}});
+  });
+  const open = page.getByRole('button', {name: 'Create server', exact: true});
+  const submit = page.locator('#create-submit');
+  const dialog = page.locator('#create-dialog');
+  const name = dialog.locator('[name=name]');
   await login(page, 'fleet', 'Preview');
-  await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
-  await page.getByRole('button', {name: 'Create server', exact: true}).click();
-  const form = page.locator('#create'); await form.locator('[name=name]').fill('Disposable setup');
-  let release, requests = 0, creates = 0;
-  await page.route('**/api/creation-preflight', async route => {requests++; await new Promise(resolve => {release = resolve;}); await route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}});});
-  await page.route('**/api/servers', async route => {if (route.request().method() === 'POST') creates++; await route.continue();});
-  await page.locator('#create-submit').click(); await expect.poll(() => requests).toBe(1);
-  await form.locator('[name=name]').fill('Changed setup'); release();
-  await expect(page.locator('#create-submit')).toBeEnabled();
-  expect(creates).toBe(0); await expect(page.locator('#creation-checks')).toBeEmpty();
-  await page.unroute('**/api/creation-preflight');
-  await page.route('**/api/creation-preflight', route => route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}}));
-  await page.locator('#create-submit').click();
-  await expect(page.locator('#creation-checks')).toContainText('Insufficient host capacity');
-  expect(creates).toBe(0);
+  await open.click(); await name.fill('First server');
+  const posted = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/servers'));
+  try {
+    await submit.click(); await posted;
+    await expect(submit).toBeDisabled();
+    await dialog.getByRole('button', {name: 'Close', exact: true}).click();
+    await open.click(); await name.fill('Another server');
+    const replied = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/servers'));
+    release(); await (await replied).finished();
+    await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+    await expect(dialog).toBeVisible();
+    await expect(name).toHaveValue('Another server');
+    await expect(submit).toBeEnabled();
+  } finally {release();}
 });
 test('Factorio historical selection warns before a downgrade and never submits unlisted search text',async({page})=>{
   await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'Version: 2.1.23 (build 80123, linux64, headless)',software:{mode:'runtime',provider:'factorio-headless'},image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});

@@ -16,6 +16,7 @@ import {validateDefinitionBinding} from './application-definition.js';
  * @property {string[]} routes Compatibility view derived from contract.routes.
  * @property {(env:Object, options?:Object) => Object} configuration Installation paths and transport settings.
  * @property {(context:Object) => Promise<Object>} createController Lifecycle, actions, status, route handler and backup implementation.
+ * @property {(job:Object) => boolean} [discardOnRestart] Rebuildable background jobs that can release their recovery hold at startup.
  * @property {(options:Object) => Object} createUpdater init/refresh/status/plan/install/restored and update state.
  * @property {(options:Object) => Promise<Object>} diagnostics Read-only installation checks.
  * @property {Object} web Assets, accounts, cookie identity and onboarding hooks.

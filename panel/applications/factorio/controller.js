@@ -15,7 +15,7 @@ import {zipEntries} from '../../core/archive.js';
 import {validateWorld} from './world-archive.js';
 import {validateBackup} from './backup.js';
 import {exportMap} from './map-export.js';
-import {completedSave,saveVersion,SaveMapQueue,mapRefreshSettings} from './save-map.js';
+import {automaticMapActor,completedSave,saveVersion,SaveMapQueue,mapRefreshSettings} from './save-map.js';
 import {SnapshotMetadata} from './snapshot-metadata.js';
 import {MapDelivery} from './map-delivery.js';
 import {LivePlayers} from './live-players.js';
@@ -345,7 +345,7 @@ async function pollSavedMap(){
       const item=autoMap.pending,file=await existingFile(saves,item.source).catch(()=>null);
       if(!file||item.world!==await activeSave()||saveVersion(item.world,item.source,await fs.stat(file))!==item.version)autoMap.pending=null;
       const task=autoMap.claim(false);
-      if(task){try{await persistAutoMap();await runJob('refresh-map',{automatic:task},'automatic map refresh');}catch(error){autoMap.finish(task,false,redact(error.message));}}
+      if(task){try{await persistAutoMap();await runJob('refresh-map',{automatic:task},automaticMapActor);}catch(error){autoMap.finish(task,false,redact(error.message));}}
     }
     await persistAutoMap();
   }catch(error){console.error('Save-triggered map refresh:',redact(error.message));}

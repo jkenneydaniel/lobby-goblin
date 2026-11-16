@@ -11,13 +11,42 @@ reviewed application packages, shared accounts, jobs, backups and remote hosts.
 - Preserve worlds, saves, backups, installation environment, accounts, server
   configuration, pairing and management access. Use synthetic data and temporary
   fixtures. Do not aim tests at a live panel, host, Docker socket or game path.
-- Keep shared capabilities, account/server scope, CSRF, confirmations, ownership
-  fencing, resource bounds and recovery behavior intact. Unknown outcomes require
-  inspection before replay. Follow the existing module and provider boundaries.
+- Preserve shared capabilities, account/server scope, CSRF, and consent for
+  disruptive or destructive actions.
 - Use Node 24+. Select relevant fixture tests and browser checks from the
   development guide. Record exactly what ran and what remains unverified.
 - Review staged/public material for private deployment information. Never publish
   installation state, credentials, raw diagnostics or real game data.
+
+## Keep the product lean
+
+- Name the supported user workflow the change improves. Deliver the smallest
+  complete improvement. Leave adjacent features, future workloads, and speculative
+  platforms in the backlog until a concrete use case needs them. Keep experiments
+  out of shipped runtime and release updates.
+- Keep one owner for each decision and state transition. Validate input at the
+  boundary that owns it, and recheck mutable prerequisites where the effect
+  occurs. Browser checks can explain constraints early. A mandatory review must
+  record meaningful consent or bind the action to the exact target or plan the
+  user reviewed.
+- Preserve authorization, ownership fencing, resource limits, saves, backups,
+  and management access. Scope recovery holds to the actions and resources that
+  could be unsafe. Keep derived data rebuildable. Record and inspect unknown
+  mutation outcomes before replay. A history warning alone cannot establish that
+  an unrelated action is unsafe.
+- Keep shared code small and used by supported workflows. Put workload-specific
+  behavior in its application package and transport behavior in its provider.
+  Reuse an existing helper or write the direct implementation before adding
+  another interface, state machine, persistence layer, or worker.
+- Tie compatibility code to a supported upgrade path and a removal condition.
+  Account for existing persisted data and interrupted operations before deleting
+  a reader or recovery path.
+- Reuse existing checks and fixtures. Add coverage for a concrete regression or
+  an affected boundary. In the PR summary, name the user-visible improvement and
+  the code paths, steps, or dependencies removed. Explain any additional
+  long-lived complexity in terms of the supported behavior it enables.
+
+## Autonomous project-lead work
 
 For autonomous project-lead work, start with
 [the lead charter](docs/autonomy/CHARTER.md),
