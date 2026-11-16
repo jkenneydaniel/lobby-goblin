@@ -327,7 +327,7 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   await login(page);
   const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
   await expect(status.locator('option')).toHaveText(['All statuses', 'Ready (2)', 'Stopped (1)']);
-  await status.focus(); await status.press('End'); await status.press('Enter');
+  await status.selectOption('Stopped');
   await expect(status).toHaveValue('Stopped');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Island crew');
   await search(page).fill('Island');
@@ -344,7 +344,10 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   await expect(status).toHaveValue('');
   await status.selectOption('Stopped');
   await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  state.local[1].name = 'Island crew renamed';
   await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  // Wait for the Servers refresh to finish before advancing the poll timer.
+  await expect(cards(page)).toContainText('Island crew renamed');
   await expect(status).toHaveValue('Stopped');
   state.status[rustStatus] = {ready: false, running: true, players: []};
   const before = state.reads; await page.clock.fastForward(6000);
