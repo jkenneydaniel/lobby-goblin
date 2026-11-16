@@ -65,9 +65,9 @@ Migration holds the same exclusive coordination lease as repository writes,
 including Factorio's legacy draft writes. It waits for a cooperating writer and
 then rechecks the reviewed bytes. The offline flag still means management
 processes have been stopped: the lease does not stop already-running workflows
-or old binaries which do not participate. No migration has been applied to an
-existing installation. Do not remove a selected marker to roll back; old JSON
-becomes stale after database writes.
+or old binaries which do not participate. Recorded migration tests use disposable
+state and cannot establish adoption across installations. Preserve a selected
+marker during rollback because old JSON becomes stale after database writes.
 
 ## Module-owned related records
 
