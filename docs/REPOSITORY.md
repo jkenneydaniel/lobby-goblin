@@ -67,6 +67,23 @@ Compose project, mounts, environment, accounts, backup formats and update paths.
 Do not manually move installed state to match the checkout tree. A Git checkout
 with local source edits should continue to fail the updater's baseline check.
 
+## Installed compatibility
+
+Keep the existing upgrade paths while installed versions and selected storage
+formats remain unknown. GitHub release downloads cannot establish whether an
+archive was installed, upgraded, or retired.
+
+| Existing installation | Compatibility to preserve |
+| --- | --- |
+| Legacy standalone updater | The frozen v0.2.0-alpha and v0.3.3-alpha validators test the historical update ZIP. Keep its asset names, archive roots, allowlist and state-version metadata. This verifies archive acceptance. Full upgrade behavior also depends on the installed configuration and game state. |
+| Pre-v0.3.4 game images or interrupted migration | Keep image recognition, the [backup-protected migration path](IMAGE_MIGRATION.md), and recovery for retained journals. Age alone cannot identify a completed migration. |
+| Legacy fleet and paired agents | Keep the [host-side upgrade](MANAGEMENT_UPDATES.md), existing transport and [interrupted agent recovery](ISOLATION.md#existing-installations-and-updates). v0.3.14-alpha needs the host-side bridge for the portable updater introduced in v0.3.15-alpha. Later versions can still run the legacy layout. |
+| Management documents | Keep [JSON and selected SQLite stores](STORAGE.md). Selection is per accounts, controller or host root. An active `panel-storage.json` marker selects SQLite. Retained JSON may be stale. The existing storage status command can report the selected backend from an operator-provided management copy. |
+
+A future retirement needs a supported upgrade floor and a tested route from
+affected versions, including interrupted operations. For a selected SQLite
+store, qualify a transition from its current records before removing the reader.
+
 ## Ownership and workflows
 
 - `panel/core/`, `panel/fleet/` and `panel/applications/` own application and controller

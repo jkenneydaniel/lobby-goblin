@@ -3,10 +3,6 @@ import {assert} from '../common.js';
 // Existing administrator/read-only accounts retain their installation-wide scope.
 // Delegated members start with no access and receive explicit server assignments.
 import {permissionCatalog, validPermissionName} from './permission-catalog.js';
-import {
-  actionPermissions,
-  legacyRoutePermission,
-} from './legacy-permissions.js';
 export {permissionCatalog} from './permission-catalog.js';
 export const permissionCatalogFor = (module) => ({
   ...permissionCatalog,
@@ -97,11 +93,11 @@ const permissionGranted = (required, granted) =>
           typeof permission === 'string' && granted.includes(permission),
       );
 export function routePermission(method, route, {module, action, kind} = {}) {
-  if (!module?.contract?.policy)
-    return legacyRoutePermission(method, route, {action, kind});
+  const contract = module?.contract;
+  if (!contract?.policy) return null;
   if (method === 'POST' && route === '/jobs')
-    return Object.hasOwn(module.contract.actions, action)
-      ? module.contract.actions[action].permission
+    return Object.hasOwn(contract.actions, action)
+      ? contract.actions[action].permission
       : null;
   const shared = {
     GET: {
@@ -125,16 +121,8 @@ export function routePermission(method, route, {module, action, kind} = {}) {
     // as a world download; authorization must use the same default.
     return kind === 'backup' ? 'backups.download' : 'worlds.download';
   if (Object.hasOwn(shared[method] || {}, route)) return shared[method][route];
-  return module.contract.policy.routes?.[route]?.[method] ?? null;
+  return contract.policy.routes?.[route]?.[method] ?? null;
 }
-export const actionPermission = (action, module) =>
-  module?.contract?.policy
-    ? Object.hasOwn(module.contract.actions, action)
-      ? module.contract.actions[action].permission
-      : null
-    : Object.hasOwn(actionPermissions, action)
-      ? actionPermissions[action]
-      : null;
 export function publicAccess(user, scope, module) {
   if (user.role !== 'member') return {};
   const permissions = assignedPermissions(
@@ -142,13 +130,11 @@ export function publicAccess(user, scope, module) {
     scope,
     permissionCatalogFor(module),
   );
-  const actions = module?.contract?.policy
-    ? Object.keys(module.contract.actions)
-    : Object.keys(actionPermissions);
+  const actions = module?.contract?.policy ? module.contract.actions : {};
   return {
     permissions,
-    allowedActions: actions.filter((action) =>
-      permissionGranted(actionPermission(action, module), permissions),
+    allowedActions: Object.keys(actions).filter((action) =>
+      permissionGranted(actions[action].permission, permissions),
     ),
   };
 }

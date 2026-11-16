@@ -29,8 +29,8 @@ controller routes and their HTTP methods/roles, and backup strategy/format.
 checks configuration, explicit action/route permissions, namespaced game grants,
 shared browser screen metadata, image policy, bounded helper declarations,
 the controller lifecycle, action implementations and updater
-interfaces before the listener starts. Historical v1 adapters remain readable through an
-explicit compatibility policy; built-in games use the complete v2 declaration.
+interfaces before the listener starts. Historical v1 contracts remain readable. Delegated game controls require
+an explicit access policy. Built-in games use the complete v2 declaration.
 Game parameter validation remains inside
 the module and is awaited before accepting a job. The conformance suite instantiates
 both real game adapters without contacting a host or starting a game.
@@ -316,8 +316,8 @@ never performs lifecycle actions.
 reserved shared-route policy and scoped session projection. Game action and
 endpoint permissions come from the selected module contract; custom grants use
 `game.<module-id>.<permission>` names. Core administrative routes and reserved
-backup actions cannot be relaxed. The compatibility action map applies only to
-callers without a new module policy. Game screen declarations under
+backup actions cannot be relaxed. A module without a policy grants no
+delegated game actions. Game screen declarations under
 `public/<game>/screens.js` are consumed by both browser and backend validation. `core/web.js` checks grants
 before proxying; `fleet/web.js` checks assignment before resource lookup and
 constructs the minimal assigned-server list. Existing admin/viewer contracts
