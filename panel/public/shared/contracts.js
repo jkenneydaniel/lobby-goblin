@@ -26,7 +26,7 @@
 /** @typedef {{jobs:OperationJob[],active:OperationJob|null,recoveryRequired?:boolean,workflow?:{operations:OperationJob[],sources:{id:string,available:boolean}[]}}} OperationSnapshot */
 /**
  * @typedef {{
- * (route:'/jobs'|'/jobs?workflows=1',options?:{method?:'GET'}):Promise<OperationSnapshot>;
+ * (route:`/jobs?progress=1${string}`,options?:{method?:'GET'}):Promise<OperationSnapshot>;
  * (route:'/jobs',options:{method:'POST',body:{action:string,params:Record<string,unknown>}}):Promise<OperationJob>;
  * (route:'/operations/recovery',options:{method:'POST',body:{source:string,id:string,operation:string,confirm:true}}):Promise<OperationJob>;
  * (route:'/jobs/recovery',options:{method:'POST',body:{id:string,operation:string,confirm:true}}):Promise<OperationJob>;

@@ -408,9 +408,11 @@ test('public outcome publication retains uncertainty on audit failure, deduplica
   );
   const source = managementUpdateSource(root);
   assert.equal((await source.read())[0].state, 'interrupted');
+  assert.equal((await source.readProgress())[0].recovery.required, true);
   await publishManagementOutcome(root, structuredClone(value), {audit});
   await publishManagementOutcome(root, structuredClone(value), {audit});
   assert.equal((await source.read())[0].state, 'succeeded');
+  assert.deepEqual(await source.readProgress(), []);
   assert.equal((await audit.list()).events.length, 1);
   await assert.rejects(
     publishManagementOutcome(root, {...value, environment: 'never-public'}),

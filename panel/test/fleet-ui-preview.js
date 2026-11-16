@@ -40,7 +40,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
  if(req.url==='/host-setup-plan'){
   const input=await requestJSON(req);setupPlan=setupInput(input,previewVersion);return json(res,200,{...setupPlan,id:'e'.repeat(32),fingerprint:'SHA256:'+'a'.repeat(43),expires:Date.now()+900000,directory:'/opt/lobby-goblin-host-preview'});
  }
- if(req.url==='/host-setup'){
+ if(new URL(req.url,'http://fixture').pathname==='/host-setup'){
   if(req.method==='POST'){await requestJSON(req);remote={id:remoteId,name:setupPlan.name,origin:setupPlan.options.origin,connection:'persistent',local:false,connected:true,version:previewVersion,panelVersion:previewVersion,aligned:true,agentOnly:true};setupJobs.unshift({id:'setup',name:remote.name,host:setupPlan.host,state:'succeeded',message:'Host connected. You can create a server on it now.'});return json(res,202,setupJobs[0]);}
   return json(res,200,{jobs:setupJobs,active:null});
  }

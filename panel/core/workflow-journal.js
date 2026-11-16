@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {assert, readJSON} from '../common.js';
 import {describeOperation, writeOperationRecord} from './operation-record.js';
+import {operationFileCache} from './operation-file-cache.js';
+import {needsOperationAttention} from '../public/shared/operation-progress.js';
 
 // The current transaction remains authoritative. Retain each transaction beside
 // its recovery files before publishing the current record. If publication fails,
@@ -99,7 +101,8 @@ export function workflowJournal({
     );
     return readJSON(location, null);
   }
-  async function read() {
+  const cachedProgress = operationFileCache();
+  async function readRecords(readArchived, readCurrent = readRecord) {
     const records = new Map();
     const historyStat = await fs.lstat(history).catch((error) => {
       if (error.code === 'ENOENT') return null;
@@ -126,19 +129,45 @@ export function workflowJournal({
         'Invalid workflow history directory.',
         503,
       );
-      const record = await readRecord(path.join(directory, 'operation.json'));
+      const record = await readArchived(path.join(directory, 'operation.json'));
       if (record) records.set(record.id, record);
     }
-    const current = await readRecord(file);
+    const current = await readCurrent(file);
     if (current) records.set(current.id, current);
-    return [...records.values()].map((record) =>
+    return [...records.values()];
+  }
+  async function read() {
+    return (await readRecords(readRecord)).map((record) =>
       describeOperation(record, descriptor(record)),
     );
+  }
+  async function readUnsettledArchive(location) {
+    const record = await readRecord(location);
+    if (!record) return null;
+    const view = descriptor(record);
+    // Reevaluate unsettled records against the current parent job. Even a
+    // failed publication of the current copy can leave one in the archive.
+    return ['succeeded', 'failed'].includes(view.state) && !view.recovery?.required
+      ? null
+      : record;
+  }
+  async function readProgress() {
+    const records = await cachedProgress((cached) =>
+      readRecords(
+        (location) => cached(location, readUnsettledArchive),
+        (location) => cached(location, readRecord),
+      ),
+    );
+    return records.flatMap((record) => {
+      const view = descriptor(record);
+      return needsOperationAttention(view) ? [describeOperation(record, view)] : [];
+    });
   }
   const operationSource = {
     id: source,
     label,
     read,
+    readProgress,
     inspectJob: inspect,
     async recover({id}) {
       return (await read()).find((record) => record.sourceId === id);

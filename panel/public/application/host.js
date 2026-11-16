@@ -163,15 +163,13 @@ export async function mountApplication({extensions = {}} = {}) {
       attempt = epoch;
     refreshing = true;
     try {
-      const [value, jobs] = await Promise.all([
+      const [value] = await Promise.all([
         request('/status'),
-        request(user.role === 'admin' ? '/jobs?workflows=1' : '/jobs'),
+        operations.refresh(),
       ]);
       if (user !== principal || epoch !== attempt) return;
       status = value;
-      shell.status(value);
-      await operations.update(jobs);
-      if (user !== principal || epoch !== attempt) return;
+      shell.status({...value, activeJob: operations.active});
       $('#connection-state').textContent = serverState(value).label;
       $('#connection-warning').textContent =
         value.imageMigration?.message || value.error || '';

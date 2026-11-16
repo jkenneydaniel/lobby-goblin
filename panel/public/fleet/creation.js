@@ -223,14 +223,15 @@ export function createServerDialog({
     submit.disabled = true;
     try {
       error('', '#creation-error');
-      await api(routeFor(f.elements.hostId.value, '/servers'), creationBody(f));
+      const hostId = f.elements.hostId.value;
+      const job = await api(routeFor(hostId, '/servers'), creationBody(f));
       if (attempt !== creationRevision) return;
       closeCreate();
       notice(
         'Creating your server. Progress appears below; existing servers stay available.',
       );
       selectView('servers');
-      await onCreated();
+      await onCreated(hostId, job);
     } catch (e) {
       if (attempt === creationRevision) error(e.message, '#creation-error');
     } finally {

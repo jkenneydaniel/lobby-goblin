@@ -1,4 +1,8 @@
 import {operationFinished} from './view.js';
+import {
+  needsOperationAttention,
+  operationProgressRoute,
+} from './operation-progress.js';
 
 // The tracker coordinates browser state only. It never replays server work.
 /**
@@ -18,9 +22,9 @@ export function createOperationController({
 }) {
   /** @type {import('./contracts.js').OperationSnapshot} */
   let snapshot = {jobs: [], active: null, recoveryRequired: false};
-  /** @type {string|null} */
+  /** @type {{id:string,result?:import('./contracts.js').OperationJob}|null} */
   let watched = null;
-  /** @type {Promise<import('./contracts.js').OperationSnapshot>|null} */
+  /** @type {{route:`/jobs?progress=1${string}`,pending:Promise<import('./contracts.js').OperationSnapshot>}|null} */
   let reading = null;
   let sending = false,
     generation = 0;
@@ -28,12 +32,7 @@ export function createOperationController({
     const version = generation;
     shell.operation(controller.active);
     shell.recovery(
-      [
-        ...snapshot.jobs,
-        ...(snapshot.workflow?.operations || []).filter(
-          (job) => job.source !== 'jobs',
-        ),
-      ],
+      controller.jobs,
       async (job, operation) => {
         if (version !== generation || !isAdmin()) return;
         if (job.source) {
@@ -74,7 +73,12 @@ export function createOperationController({
       );
     },
     get jobs() {
-      return snapshot.jobs;
+      return [
+        ...snapshot.jobs,
+        ...(snapshot.workflow?.operations || []).filter(
+          (job) => job.source !== 'jobs',
+        ),
+      ].filter(needsOperationAttention);
     },
     get recoveryRequired() {
       return (
@@ -102,9 +106,10 @@ export function createOperationController({
       snapshot = value;
       emit();
       const job = watched
-        ? value.jobs.find((item) => item.id === watched)
+        ? value.jobs.find((item) => item.id === watched?.id)
         : undefined;
-      if (operationFinished(job, value.active)) {
+      if (watched && operationFinished(job, value.active)) {
+        watched.result = job;
         watched = null;
         notify(job.message, job.state !== 'succeeded');
         await onSettled(job);
@@ -112,19 +117,30 @@ export function createOperationController({
       return value;
     },
     async refresh() {
-      if (reading) return reading;
       const version = generation;
-      const pending = request(
-        includeWorkflows && isAdmin() ? '/jobs?workflows=1' : '/jobs',
+      const tracking = watched;
+      const route = operationProgressRoute(
+        includeWorkflows && isAdmin(),
+        tracking ? [tracking.id] : [],
       );
-      reading = pending;
+      if (reading?.route === route) return reading.pending;
+      const entry = {route, pending: request(route)};
+      reading = entry;
       let value;
       try {
-        value = await pending;
+        value = await entry.pending;
+        if (
+          reading === entry &&
+          version === generation &&
+          watched === tracking
+        ) {
+          reading = null;
+          return controller.update(value);
+        }
       } finally {
-        if (reading === pending) reading = null;
+        if (reading === entry) reading = null;
       }
-      return version === generation ? controller.update(value) : value;
+      return value;
     },
     async start(
       action,
@@ -146,7 +162,9 @@ export function createOperationController({
           body: {action, params},
         });
         if (version !== generation) return job;
-        watched = job.id;
+        /** @type {{id:string,result?:import('./contracts.js').OperationJob}} */
+        const tracking = {id: job.id};
+        watched = tracking;
         snapshot = {
           ...snapshot,
           jobs: [job, ...snapshot.jobs.filter((item) => item.id !== job.id)],
@@ -159,8 +177,10 @@ export function createOperationController({
         for (;;) {
           await new Promise((resolve) => setTimeout(resolve, pollMs));
           if (version !== generation) return job;
+          if (tracking.result) return tracking.result;
           const value = await controller.refresh(),
             completed = value.jobs.find((item) => item.id === job.id);
+          if (tracking.result) return tracking.result;
           if (!completed)
             throw Error(
               'The operation is no longer in retained history. Check server status before submitting it again.',

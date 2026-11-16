@@ -12,7 +12,7 @@ test('fleet model keeps remote scopes, bounded status concurrency and source-hos
       if(offline&&route.startsWith('/hosts/remote'))throw Error('Disconnected');
       if(route.endsWith('/servers'))return {servers:Array.from({length:5},(_,index)=>({id:String(index),name:'Server '+index,state:'installed'}))};
       if(route.endsWith('/snapshots'))return {snapshots:[{id:'snapshot'}]};
-      if(route.endsWith('/jobs'))return {jobs:[{id:'job',message:'Done'}],active:null};throw Error(route);},
+      if(route.includes('/jobs?progress=1'))return {jobs:[{id:'job',message:'Done'}],active:null};throw Error(route);},
     fetchStatus:async url=>{active++;maximum=Math.max(maximum,active);await new Promise(resolve=>setImmediate(resolve));active--;return {ready:true,url};},
   });
   const snapshot=await model.refresh();
@@ -65,9 +65,9 @@ test('fleet native management progress stays host-scoped and never requests admi
  const model=createFleetModel({includeWorkflows:true,getSession:()=>user,request:async route=>{
   calls.push(route);if(route==='/hosts')return {hosts:[{id:'local',name:'Local',local:true,connected:true},{id:'remote',name:'Remote',local:false,connected:true}]};
   if(route.endsWith('/servers'))return {servers:[]};if(route.endsWith('/snapshots'))return {snapshots:[]};
-  return {jobs:[],active:null,...(route.endsWith('/jobs?workflows=1')?{workflow:{operations:route.startsWith('/hosts/')?[native]:[setup],sources:[{id:'agent-updates',available:true}]}}:{})};
+  return {jobs:[],active:null,...(route.endsWith('/jobs?progress=1&workflows=1')?{workflow:{operations:route.startsWith('/hosts/')?[native]:[setup],sources:[{id:'agent-updates',available:true}]}}:{})};
  }});
  await model.refresh();assert.equal(model.snapshot.active.id,native.id);assert.equal(model.snapshot.jobs.find(job=>job.id===native.id).hostId,'remote');assert.equal(model.busy('remote'),true);
- assert.equal(model.busy('local'),false);assert.equal(model.snapshot.jobs.find(job=>job.id===setup.id).recovery.required,true);assert.ok(calls.includes('/hosts/remote/jobs?workflows=1'));
- user={username:'Viewer',role:'viewer'};model.reset();calls.length=0;await model.refresh();assert.ok(calls.includes('/hosts/remote/jobs'));assert.ok(!calls.some(route=>route.includes('workflows')));assert.equal(model.snapshot.jobs.length,0);
+ assert.equal(model.busy('local'),false);assert.equal(model.snapshot.jobs.find(job=>job.id===setup.id).recovery.required,true);assert.ok(calls.includes('/hosts/remote/jobs?progress=1&workflows=1'));
+ user={username:'Viewer',role:'viewer'};model.reset();calls.length=0;await model.refresh();assert.ok(calls.includes('/hosts/remote/jobs?progress=1'));assert.ok(!calls.some(route=>route.includes('workflows')));assert.equal(model.snapshot.jobs.length,0);
 });

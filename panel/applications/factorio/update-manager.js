@@ -22,7 +22,17 @@ export class UpdateManager{
   get pendingRestore(){return this.jobs.find(j=>j.recovery?.requiresWorldRestore);}
   async restored(name){for(const job of this.jobs)if(job.recovery?.requiresWorldRestore&&job.backup===name){job.recovery.requiresWorldRestore=false;job.recovery.action='Pre-update backup explicitly restored by an administrator.';await writeUpdateRecord(path.join(this.root,job.id+'.json'),job);}}
   async init(){await fs.mkdir(this.root,{recursive:true});await this.refresh({recover:true});}
-  async refresh({recover=true}={}){
+  async refresh(options){
+    try {
+      const status=await this.refreshJobs(options);
+      this.refreshError=null;
+      return status;
+    } catch (error) {
+      this.refreshError=error;
+      throw error;
+    }
+  }
+  async refreshJobs({recover=true}={}){
     const names=(await fs.readdir(this.root)).filter(n=>/^[0-9a-f-]{36}\.json$/.test(n));
     this.jobs=(await Promise.all(names.map(n=>readJSON(path.join(this.root,n),null)))).filter(Boolean).sort((a,b)=>b.started.localeCompare(a.started)).filter((job,index)=>index<30||busyStates.has(job.state)||job.recovery?.requiresWorldRestore||job.recovery?.interrupted&&!job.recovery.acknowledged);
     if(recover&&!this.reserved)for(const job of this.jobs)if(busyStates.has(job.state)){

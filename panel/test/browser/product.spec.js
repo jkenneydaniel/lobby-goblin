@@ -2441,6 +2441,35 @@ test('fleet operation history clears stale counts and expansion across hosts wit
   await expect(list).toContainText('local backup');
   await expect(list.locator('details')).not.toHaveAttribute('open', '');
 });
+test('fleet keeps jobs and recovery visible while Operations history waits for a refresh', async ({page}) => {
+  const history = historyFixture('fleet-backup', {required: false});
+  const job = {id: 'live', action: 'create', state: 'running', message: 'Creating a fixture server'};
+  let historyReads = 0;
+  await page.route('**/api/operations', (route) => {
+    historyReads++;
+    return route.fulfill({json: history});
+  });
+  await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => {
+    expect(new URL(route.request().url()).searchParams.get('progress')).toBe('1');
+    return route.fulfill({json: {jobs: [job], active: job.state === 'running' ? job : null}});
+  });
+  await page.clock.install();
+  await login(page, 'fleet', 'Preview');
+  await expect(page.locator('.product-operation')).toContainText(job.message);
+  expect(historyReads).toBe(0);
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await expect(page.locator('[data-operation-list]')).toContainText('fleet backup');
+  expect(historyReads).toBe(1);
+
+  job.state = 'interrupted';
+  job.recovery = {required: true, message: 'Review the fixture server.'};
+  await page.clock.runFor(12_000);
+  await expect(page.locator('.product-operation')).toBeHidden();
+  await expect(page.locator('.product-recovery')).toContainText(job.recovery.message);
+  expect(historyReads).toBe(1);
+  await page.getByRole('button', {name: 'Refresh history', exact: true}).click();
+  await expect.poll(() => historyReads).toBe(2);
+});
 
 for (const username of ['Viewer', 'Assigned'])
   test(
@@ -2640,7 +2669,11 @@ test('native update progress and specialized recovery share the global shell wit
     message: 'Verifying the independent replacement',
   };
   const recovery = [];
-  let jobs = 0;
+  let jobs = 0, historyReads = 0;
+  await page.route('**/api/operations', (route) => {
+    historyReads++;
+    return route.fulfill({json: historyFixture('archived-backup')});
+  });
   await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => {
     if (route.request().method() === 'POST') {
       jobs++;
@@ -2649,9 +2682,9 @@ test('native update progress and specialized recovery share the global shell wit
         json: {error: 'No game operation expected.'},
       });
     }
-    expect(new URL(route.request().url()).searchParams.get('workflows')).toBe(
-      '1',
-    );
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get('workflows')).toBe('1');
+    expect(query.get('progress')).toBe('1');
     return route.fulfill({
       json: {
         jobs: [],
@@ -2670,11 +2703,16 @@ test('native update progress and specialized recovery share the global shell wit
     });
     return route.fulfill({json: native});
   });
+  await page.clock.install();
   await factorio(page);
   await expect(page.locator('.product-operation')).toContainText(
     native.message,
   );
   await expect(page.locator('[data-action=start]')).toBeDisabled();
+  expect(historyReads).toBe(0);
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await expect(page.locator('[data-operation-list]')).toContainText('archived backup');
+  expect(historyReads).toBe(1);
   native.state = 'interrupted';
   native.recovery = {
     required: true,
@@ -2684,8 +2722,9 @@ test('native update progress and specialized recovery share the global shell wit
       {id: 'open', label: 'Open backup recovery', href: '#backups'},
     ],
   };
-  await page.reload();
+  await page.clock.runFor(12_000);
   await expect(page.locator('.product-operation')).toBeHidden();
+  expect(historyReads).toBe(1);
   await page
     .getByRole('button', {name: 'Inspect update outcome', exact: true})
     .click();

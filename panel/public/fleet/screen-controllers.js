@@ -30,14 +30,15 @@ export function createFleetScreens({
       ctx.on($('#' + id), 'submit', async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
+        const hostId = form.elements.hostId.value;
         const route = model.route(
-          form.elements.hostId.value,
+          hostId,
           '/servers/' +
             form.elements.serverId.value +
             (id === 'publish' ? '/snapshot' : '/remove'),
         );
         try {
-          await ctx.request(route, {
+          const job = await ctx.request(route, {
             method: 'POST',
             body:
               id === 'publish'
@@ -51,6 +52,7 @@ export function createFleetScreens({
                     publishSnapshot: form.elements.publishSnapshot.checked,
                   },
           });
+          model.trackJob(hostId, job.id);
           $(
             '#' + (id === 'publish' ? 'snapshot' : 'remove') + '-dialog',
           ).close();
@@ -185,6 +187,8 @@ export function createFleetScreens({
       let history;
       return {
         async mount(ctx) {
+          await model.refresh();
+          if (!ctx.isCurrent()) return;
           history = await mountOperationHistory(ctx, {
             locations: model.snapshot.hosts.map((host) => ({
               label: host.name,
@@ -220,7 +224,8 @@ export function createFleetScreens({
           });
         },
         async refresh(ctx, options) {
-          if (options.reason !== 'model') await model.refresh();
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
           paintServers(ctx, filters);
         },
       };
@@ -275,7 +280,8 @@ export function createFleetScreens({
           await component.load();
         },
         async refresh(ctx, options) {
-          if (options.reason !== 'model') await model.refresh();
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
           if (!ctx.isCurrent()) return;
           const changed = component.setHosts(model.snapshot.hosts);
           if (options.reason !== 'model' || changed) await component.load();
@@ -310,7 +316,8 @@ export function createFleetScreens({
           await component.progress();
         },
         async refresh(ctx, options) {
-          if (options.reason !== 'model') await model.refresh();
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
           if (!ctx.isCurrent()) return;
           component.setHosts(model.snapshot.hosts);
           if (options.reason !== 'model') await component.progress();
