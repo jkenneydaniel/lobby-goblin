@@ -1,3 +1,5 @@
+export const automaticMapActor = 'automatic map refresh';
+
 // Read only complete log lines. A save-start alone must never publish a map.
 export function completedSave(log){
   let world=null,pending=null,completed=null;

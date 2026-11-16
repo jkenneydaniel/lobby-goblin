@@ -49,8 +49,8 @@ Unknown counts remain `null`.
 and removal using the existing `jobs.json` array and host registry. It persists
 reservations and stages before effects, serializes controller history writes,
 and retains the operation lock through cleanup and final persistence. A completion
-or cleanup failure records a required recovery review and prevents subsequent
-operations. Existing completed records without the new metadata remain readable.
+or cleanup failure records a recovery review for work with an uncertain outcome.
+Existing completed records without the new metadata remain readable.
 No persisted-state version or directory migration is required.
 
 Operation request IDs deduplicate repeated submissions within retained history.
@@ -60,7 +60,11 @@ after an uncertain response so a retry can recover the original job. Child start
 and backup requests also carry stable parent-derived IDs. This is bounded
 single-process coordination, not a multi-replica queue or a power-loss guarantee.
 
-Startup marks unfinished records for review without replaying their actions.
+Startup marks unfinished records without replaying their actions. Interrupted
+automatic Factorio map exports stay in history without a manual hold. Startup
+reconciles their isolated workers before normal operations resume. A terminal
+SSH setup failure stays reviewable without making the local host busy or
+preventing its management update.
 Administrators use the shared recovery panel to check outcomes. Instance start/stop
 can be reconciled from current status or explicitly retried after inspection;
 restart, world changes and host operations are never blindly replayed. Host

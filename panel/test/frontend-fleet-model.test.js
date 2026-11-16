@@ -60,12 +60,14 @@ test('disposed or replaced event scopes suppress errors from their previous asyn
 
 test('fleet native management progress stays host-scoped and never requests administrator history as a viewer',async()=>{
  const native={id:'agent-updates:worker',source:'agent-updates',sourceId:'worker',action:'agent-update',state:'running',message:'Replacing management'};
+ const setup={id:'host-setup:ssh',source:'host-setup',sourceId:'ssh',action:'install-host',state:'failed',message:'Review the remote installation',recovery:{required:true}};
  const calls=[];let user={username:'Owner',role:'admin'};
  const model=createFleetModel({includeWorkflows:true,getSession:()=>user,request:async route=>{
   calls.push(route);if(route==='/hosts')return {hosts:[{id:'local',name:'Local',local:true,connected:true},{id:'remote',name:'Remote',local:false,connected:true}]};
   if(route.endsWith('/servers'))return {servers:[]};if(route.endsWith('/snapshots'))return {snapshots:[]};
-  return {jobs:[],active:null,...(route.endsWith('/jobs?workflows=1')?{workflow:{operations:route.startsWith('/hosts/')?[native]:[],sources:[{id:'agent-updates',available:true}]}}:{})};
+  return {jobs:[],active:null,...(route.endsWith('/jobs?workflows=1')?{workflow:{operations:route.startsWith('/hosts/')?[native]:[setup],sources:[{id:'agent-updates',available:true}]}}:{})};
  }});
- await model.refresh();assert.equal(model.snapshot.active.id,native.id);assert.equal(model.snapshot.jobs[0].hostId,'remote');assert.equal(model.busy('remote'),true);assert.ok(calls.includes('/hosts/remote/jobs?workflows=1'));
+ await model.refresh();assert.equal(model.snapshot.active.id,native.id);assert.equal(model.snapshot.jobs.find(job=>job.id===native.id).hostId,'remote');assert.equal(model.busy('remote'),true);
+ assert.equal(model.busy('local'),false);assert.equal(model.snapshot.jobs.find(job=>job.id===setup.id).recovery.required,true);assert.ok(calls.includes('/hosts/remote/jobs?workflows=1'));
  user={username:'Viewer',role:'viewer'};model.reset();calls.length=0;await model.refresh();assert.ok(calls.includes('/hosts/remote/jobs'));assert.ok(!calls.some(route=>route.includes('workflows')));assert.equal(model.snapshot.jobs.length,0);
 });

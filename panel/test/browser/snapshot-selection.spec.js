@@ -34,16 +34,14 @@ async function snapshots(page) {
     hosts: [{id: local, name: 'This host', local: true, connected: true}, {id: remote, name: 'Weekend host', connected: true}],
     local: [record(shared, 'Local factory', catalog.factorio.image, '2026-01-01T12:00:00Z')],
     remote: [record(shared, 'Remote factory <crew>', catalog.factorio.runtimeImage, '2026-01-02T12:00:00Z'), record(other, 'Other source', catalog.factorio.runtimeImage, '2026-01-03T12:00:00Z'), record('8'.repeat(32), 'Rust source', catalog.rust.image, '2026-01-04T12:00:00Z', {game: 'rust'}), record('7'.repeat(32), 'Incompatible image', 'synthetic-unlisted:1', '2026-01-04T12:00:00Z'), record('6'.repeat(32), 'Unavailable snapshot', catalog.factorio.image, '2026-01-04T12:00:00Z', {unavailable: true})],
-    checked: [], created: [], ready: true, snapshotReads: 0, inspected: [],
+    created: [], ready: true, snapshotReads: 0, inspected: [],
   };
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname, method = route.request().method();
-    if (method === 'POST' && path.endsWith('/creation-preflight')) {
-      state.checked.push({path, body: route.request().postDataJSON()});
-      return route.fulfill({json: {ready: state.ready, checks: [{label: 'Fixture host', status: state.ready ? 'pass' : 'fail', message: state.ready ? 'Synthetic checks passed.' : 'Synthetic capacity check failed.'}]}});
-    }
     if (method === 'POST' && /\/servers$/.test(path)) {
       state.created.push({path, body: route.request().postDataJSON()});
+      if (!state.ready)
+        return route.fulfill({status: 409, json: {error: 'Synthetic host capacity exceeded.'}});
       return route.fulfill({status: 202, json: {id: 'synthetic-copy', state: 'queued'}});
     }
     if (method !== 'GET') return route.fallback();
@@ -82,7 +80,8 @@ test('snapshot choices show source and date, preserve compatible host identity a
   await expect(picker.locator('option')).toContainText(['New world', 'Shared title — Remote factory <crew>', 'Shared title — Other source']);
   const date = await page.evaluate(value => new Date(value).toLocaleString(), state.remote[0].created);
   await expect(picker.locator('option[value="' + shared + '"]')).toContainText(date);
-  await picker.focus(); await picker.press('ArrowDown'); await picker.press('Enter');
+  await picker.focus(); await expect(picker).toBeFocused();
+  await picker.selectOption(shared);
   await expect(picker).toHaveValue(shared);
   await expect(context(page)).toContainText('Remote factory <crew>');
   await expect(context(page)).toContainText('Weekend host'); await expect(context(page)).toContainText(date);
@@ -101,10 +100,10 @@ test('snapshot choices show source and date, preserve compatible host identity a
   await expect(context(page)).toBeEmpty();
   await page.getByRole('button', {name: 'Create server', exact: true}).click();
   await expect(context(page)).toBeHidden(); await expect(picker).toHaveValue('');
-  expect(state.checked).toEqual([]); expect(state.created).toEqual([]);
+  expect(state.created).toEqual([]);
 });
 
-test('milestone journey finds, inspects and selects the remote snapshot before cancel or checked independent creation', async ({page}) => {
+test('milestone journey finds, inspects and selects the remote snapshot before cancel or submit independent creation', async ({page}) => {
   const state = await snapshots(page); await login(page);
   await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
   await page.getByRole('searchbox', {name: 'Find snapshots', exact: true}).fill('Remote factory');
@@ -120,19 +119,18 @@ test('milestone journey finds, inspects and selects the remote snapshot before c
   await expect(form(page).locator('[name=snapshotId]')).toHaveValue(shared);
   await expect(context(page)).toContainText('Remote factory <crew>');
   await form(page).getByRole('button', {name: 'Close', exact: true}).click();
-  expect(state.checked).toEqual([]); expect(state.created).toEqual([]);
+  expect(state.created).toEqual([]);
   await card.getByRole('button', {name: 'Create server on this host'}).click();
   await expect(context(page)).toContainText('Remote factory <crew>');
   await expect(form(page).locator('[name=name]')).toHaveValue('Shared title copy');
   await form(page).locator('[name=name]').fill('Independent remote copy');
-  state.ready = false; await page.locator('#check-creation').click();
-  await expect(page.locator('#creation-checks')).toContainText('Synthetic capacity check failed');
-  await page.locator('#create-submit').click(); await expect.poll(() => state.checked.length).toBe(2);
-  expect(state.created).toEqual([]); await expect(context(page)).toContainText('Remote factory <crew>');
-  state.ready = true; await page.locator('#create-submit').click(); await expect.poll(() => state.created.length).toBe(1);
-  const created = state.created[0], {requestId, ...body} = created.body;
+  state.ready = false; await page.locator('#create-submit').click();
+  await expect(page.locator('#creation-error')).toHaveText('Synthetic host capacity exceeded.');
+  expect(state.created).toHaveLength(1);
+  await expect(context(page)).toContainText('Remote factory <crew>');
+  state.ready = true; await page.locator('#create-submit').click(); await expect.poll(() => state.created.length).toBe(2);
+  const created = state.created[1], {requestId, ...body} = created.body;
   expect(created.path).toBe('/api/hosts/' + remote + '/servers'); expect(requestId).toEqual(expect.any(String));
-  expect(body).toEqual(state.checked.at(-1).body);
   expect(body).toMatchObject({hostId: remote, game: 'factorio', snapshotId: shared, softwareMode: 'runtime', name: 'Independent remote copy'});
   for (const key of ['sourceName', 'created', 'hostName', 'snapshotContext']) expect(body).not.toHaveProperty(key);
   await expect(page.locator('#create-dialog')).not.toBeVisible(); await expect(context(page)).toBeEmpty();
@@ -185,6 +183,6 @@ test('a cancelled clone catalogue cannot restore snapshot context in a later dia
     await expect(page.locator('#create-submit')).toBeDisabled();
     releaseCurrent(); await expect(page.locator('#create-submit')).toBeEnabled();
     await expect(context(page)).toBeHidden(); await expect(context(page)).toBeEmpty();
-    expect(state.checked).toEqual([]); expect(state.created).toEqual([]);
+    expect(state.created).toEqual([]);
   } finally {releaseOld(); releaseCurrent();}
 });

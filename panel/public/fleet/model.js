@@ -106,10 +106,12 @@ export function createFleetModel({
             hostJobs.set(
               host.id,
               operations.active ||
-                native.find((job) =>
-                  ['queued', 'running'].includes(job.state),
-                ) ||
-                allJobs.find((job) => job.recovery?.required),
+                allJobs.find(
+                  (job) =>
+                    job.source !== 'host-setup' &&
+                    (['queued', 'running'].includes(job.state) ||
+                      job.recovery?.required),
+                ),
             );
             servers.push(
               ...result.servers

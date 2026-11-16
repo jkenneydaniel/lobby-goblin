@@ -187,10 +187,13 @@ export function assertManagementIdle(snapshot) {
     'Every workflow history must be available before management activation.',
     409,
   );
+  // A settled SSH failure may leave a partial installation on the target
+  // machine. Its history remains reviewable; it holds no local writer.
   const idle = snapshot.operations.every(
       (operation) =>
         ['succeeded', 'failed', 'interrupted'].includes(operation.state) &&
-        !operation.recovery?.required &&
+        (!operation.recovery?.required ||
+          (operation.source === 'host-setup' && operation.state === 'failed')) &&
         (operation.state !== 'interrupted' ||
           operation.recovery?.required === false),
     );

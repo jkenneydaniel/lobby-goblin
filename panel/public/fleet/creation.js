@@ -15,13 +15,7 @@ export function createServerDialog({
 }) {
   const $ = (selector) => document.querySelector(selector);
   let creationGames = [],
-    creationRevision = 0,
-    setupRevision = 0;
-  function invalidateSetup() {
-    setupRevision++;
-    $('#creation-checks').replaceChildren();
-    $('#creation-check-note').textContent = '';
-  }
+    creationRevision = 0;
   function creationBody(f) {
     const body = {
       ...Object.fromEntries(new FormData(f)),
@@ -30,39 +24,6 @@ export function createServerDialog({
     if (f.elements.softwareMode.disabled && f.elements.softwareMode.value)
       body.softwareMode = f.elements.softwareMode.value;
     return body;
-  }
-  async function checkSetup(f) {
-    const revision = ++setupRevision,
-      host = f.elements.hostId.value,
-      body = creationBody(f),
-      identity = JSON.stringify(body);
-    $('#creation-check-note').textContent =
-      'Checking host and installation requirements…';
-    let result;
-    try {
-      result = await api(routeFor(host, '/creation-preflight'), body);
-    } catch (error) {
-      if (revision !== setupRevision || !$('#create-dialog').open) return null;
-      throw error;
-    }
-    if (
-      revision !== setupRevision ||
-      !$('#create-dialog').open ||
-      host !== f.elements.hostId.value ||
-      identity !== JSON.stringify(creationBody(f))
-    )
-      return null;
-    const list = $('#creation-checks');
-    list.replaceChildren();
-    for (const check of result.checks) {
-      const item = document.createElement('li');
-      item.textContent = `${check.label}: ${check.status} — ${check.message}`;
-      list.append(item);
-    }
-    $('#creation-check-note').textContent = result.ready
-      ? 'Setup checks passed. Creation rechecks availability before reserving resources.'
-      : 'Resolve the failed checks before creating this application.';
-    return result.ready ? {body, host} : null;
   }
   const snapshotDate = (snapshot) =>
     Number.isFinite(Date.parse(snapshot.created))
@@ -85,7 +46,6 @@ export function createServerDialog({
     $('#snapshot-context').replaceChildren();
   }
   function configureCreation(keepSnapshot = '') {
-    invalidateSetup();
     const f = $('#create'),
       game = creationGames.find((game) => game.id === f.elements.game.value);
     if (!game) return;
@@ -135,10 +95,9 @@ export function createServerDialog({
     f.elements.snapshotId.value = keepSnapshot;
     cloneChanged();
     $('#creation-help').textContent =
-      `${game.name} ${game.version}. Ports are allocated automatically. ${policy.help || ''} Memory reservations include a separate controller.`;
+      `${game.name} ${game.version}. Ports are allocated automatically. ${policy.help || ''}`;
   }
   function cloneChanged() {
-    invalidateSetup();
     const f = $('#create'),
       clone = !!f.elements.snapshotId.value,
       game = creationGames.find((game) => game.id === f.elements.game.value),
@@ -178,7 +137,6 @@ export function createServerDialog({
       f.elements[field.key].disabled = clone && field.lockOnClone === true;
   }
   async function creationHostChanged(snapshotId = '') {
-    invalidateSetup();
     clearSnapshotContext();
     const hosts = getHosts();
     const revision = ++creationRevision,
@@ -198,8 +156,11 @@ export function createServerDialog({
         .map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`)
         .join('');
       configureCreation(snapshotId);
-      $('#creation-host-help').textContent =
-        'This application and its data will be created on ' + host.name + '.';
+      $('#creation-host-help').textContent = Number.isFinite(
+        data.memoryBudgetGiB,
+      )
+        ? `${host.name} has a ${data.memoryBudgetGiB} GiB managed memory budget. Each server uses another 1 GiB for its controller.`
+        : 'This application and its data will be created on ' + host.name + '.';
       $('#create-submit').textContent = 'Create on ' + host.name;
       $('#create-submit').disabled = hostBusy(host.id);
       return revision;
@@ -235,31 +196,17 @@ export function createServerDialog({
       f.elements.name.value = snapshot.title + ' copy';
     }
   }
-  $('#new-server').onclick = () => openCreate();
-  $('#close-create').onclick = () => {
-    setupRevision++;
+  function closeCreate() {
     creationRevision++;
-    $('#create-dialog').close();
-  };
-  $('#create-dialog').addEventListener('close', () => {
     clearSnapshotContext();
-    setupRevision++;
-    creationRevision++;
+    $('#create-dialog').close();
+  }
+  $('#new-server').onclick = () => openCreate();
+  $('#close-create').onclick = closeCreate;
+  $('#create-dialog').addEventListener('cancel', (event) => {
+    event.preventDefault();
+    closeCreate();
   });
-  $('#create').addEventListener('input', invalidateSetup);
-  $('#create').addEventListener('change', invalidateSetup);
-  $('#check-creation').onclick = async () => {
-    const f = $('#create');
-    if (!f.reportValidity()) return;
-    $('#check-creation').disabled = true;
-    try {
-      await checkSetup(f);
-    } catch (e) {
-      if ($('#create-dialog').open) error(e.message, '#creation-error');
-    } finally {
-      $('#check-creation').disabled = false;
-    }
-  };
   $('#create').elements.hostId.onchange = () => creationHostChanged();
   $('#create').elements.game.onchange = () => configureCreation();
   $('#create').elements.snapshotId.onchange = cloneChanged;
@@ -270,15 +217,15 @@ export function createServerDialog({
   $('#create').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.currentTarget,
-      attempt = creationRevision;
-    $('#create-submit').disabled = true;
+      attempt = creationRevision,
+      submit = $('#create-submit');
+    if (submit.disabled) return;
+    submit.disabled = true;
     try {
       error('', '#creation-error');
-      const checked = await checkSetup(f);
-      if (!checked) return;
-      await api(routeFor(checked.host, '/servers'), checked.body);
+      await api(routeFor(f.elements.hostId.value, '/servers'), creationBody(f));
       if (attempt !== creationRevision) return;
-      $('#create-dialog').close();
+      closeCreate();
       notice(
         'Creating your server. Progress appears below; existing servers stay available.',
       );
@@ -294,11 +241,6 @@ export function createServerDialog({
 
   return {
     open: openCreate,
-    cancel() {
-      clearSnapshotContext();
-      creationRevision++;
-      setupRevision++;
-      $('#create-dialog').close();
-    },
+    cancel: closeCreate,
   };
 }

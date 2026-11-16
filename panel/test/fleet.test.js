@@ -197,6 +197,16 @@ test('saved world presets are scoped by account and server and are removed with 
  await accounts.update({username:'Owner',operation:'delete',confirm:true});assert.deepEqual(await fs.readdir(path.join(root,'world-setups')),[]);
 });
 
+test('creation checks current capacity before allocating any game resources',async t=>{
+ const f=await fakeManager(t);
+ await f.manager.updateHostSettings({memoryBudgetGiB:4,revision:0},'Owner');
+ const before=f.calls.length;
+ const job=await f.settled(await f.manager.submit('create',{game:'factorio',name:'Over budget',memoryGiB:4}));
+ assert.equal(job.state,'failed');assert.match(job.message,/5 GiB including its controller/);
+ assert.equal(f.manager.state.servers.length,0);
+ assert.ok(f.calls.slice(before).every(call=>call.method==='GET'));
+});
+
 test('a higher host budget admits default Rust while existing Factorio limits and runtime are unchanged',async t=>{
  const f=await fakeManager(t),first=await f.submit({game:'factorio',name:'Existing factory',memoryGiB:3});const before=structuredClone(f.containers.get(first.container));
  await f.manager.updateHostSettings({memoryBudgetGiB:24,revision:0});const rust=await f.submit({game:'rust',name:'New island',memoryGiB:12});assert.equal(rust.state,'installed');assert.deepEqual(f.containers.get(first.container),before);assert.equal((await f.manager.hostSettings()).allocatedMemoryGiB,17);

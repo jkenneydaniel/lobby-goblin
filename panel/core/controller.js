@@ -45,7 +45,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const audit=new AuditLog(state);
   if(maintenance.held)await audit.list();
   const operations=new Operations({failure:(error,job)=>retainOperationDiagnostic(state,error,{id:job.id,source:'application-operations',phase:job.phase||'unknown'}),record:event=>audit.append({...event,scope:env.FLEET_INSTANCE?'/servers/'+env.FLEET_INSTANCE:'standalone'}),getJobs:()=>jobs,setJobs:value=>{jobs=value;},getActive:()=>active,setActive:value=>{active=value;},persist:persistJobs,
-    retryable:job=>module.contract.actions[job.action]?.retry==='convergent',inspect:async job=>{
+    discardOnRestart:module.discardOnRestart,retryable:job=>module.contract.actions[job.action]?.retry==='convergent',inspect:async job=>{
       if(game.inspectOperation)return game.inspectOperation(job);
       for(const source of game.operationSources||[]){const observation=await source.inspectJob?.(job);if(observation)return observation;}
       game.invalidate();const value=normalizeStatus(module,await game.status());

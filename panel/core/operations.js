@@ -38,6 +38,7 @@ export class Operations {
     id = () => crypto.randomUUID(),
     inspect,
     retryable = () => false,
+    discardOnRestart = () => false,
     record = async () => {},
     failure = async error => operationDiagnostic(error),
   }) {
@@ -49,7 +50,7 @@ export class Operations {
       persist,
       id,
       inspector: inspect,
-      retryable,record,failure,
+      retryable,discardOnRestart,record,failure,
     });
     this.storageError = false;
     this.recovering = false;
@@ -86,8 +87,9 @@ export class Operations {
     );
   }
   async init() {
-    for (const job of this.getJobs())
-      if (unfinished(job)) {
+    for (const job of this.getJobs()) {
+      const interrupted = unfinished(job);
+      if (interrupted) {
         const interruptedPhase = job.phase || 'unknown';
         Object.assign(job, {
           state: 'interrupted',
@@ -102,8 +104,23 @@ export class Operations {
             retryable: this.retryable(job),
           },
         });
-        this.describe(job);
       }
+      // Modules may release restart recovery for rebuildable background output.
+      const discard =
+        job.state === 'interrupted' &&
+        job.recovery?.required &&
+        this.discardOnRestart(job);
+      if (discard) {
+        job.recovery = {
+          ...job.recovery,
+          required: false,
+          state: 'discarded',
+          retryable: false,
+        };
+        job.message = 'Background work was interrupted. It can be rebuilt from its source.';
+      }
+      if (interrupted || discard) this.describe(job);
+    }
     await this.persist();
   }
   describe(job,actor) {

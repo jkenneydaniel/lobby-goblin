@@ -343,6 +343,8 @@ test('unavailable histories and unreviewed work block management activation; rev
     {...snapshot, sources: [{available: false}]},
     {...snapshot, operations: [{state: 'running'}]},
     {...snapshot, operations: [{state: 'queued'}]},
+    {...snapshot, operations: [{source: 'host-setup', state: 'running'}]},
+    {...snapshot, operations: [{source: 'host-setup', state: 'interrupted', recovery: {required: true}}]},
     {...snapshot, operations: [{state: 'interrupted'}]},
     {...snapshot, operations: [{state: 'failed', recovery: {required: true}}]},
   ])
@@ -350,6 +352,7 @@ test('unavailable histories and unreviewed work block management activation; rev
   assertManagementIdle({
     ...snapshot,
     operations: [
+      {source: 'host-setup', state: 'failed', recovery: {required: true}},
       {state: 'interrupted', recovery: {required: false}},
       {state: 'succeeded'},
     ],
