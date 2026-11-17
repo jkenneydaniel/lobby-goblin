@@ -108,3 +108,15 @@ export function assertApplicationStart(containers, owner, fleet) {
     409,
   );
 }
+
+export function assertPreparationResize(containers, owner, fleet) {
+  const id = owner.Config.Labels['io.lobby-goblin.instance'];
+  assert(
+    !containers.some((info) =>
+      preparationWorker(info, fleet) &&
+      info.Config.Labels['io.lobby-goblin.instance'] === id &&
+      info.HostConfig?.Memory > owner.HostConfig.Memory),
+    'Finish software preparation before lowering the memory limit.',
+    409,
+  );
+}

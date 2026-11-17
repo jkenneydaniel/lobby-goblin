@@ -16,6 +16,7 @@ import {ownedDocker} from './owned-docker.js';
 import {hostDockerPolicy} from './broker-policy.js';
 import {registeredApplications} from '../applications/index.js';
 import {resources, validId} from './instance.js';
+import {containerLimitUpdate, giB} from './container-limits.js';
 import {AuditLog} from './audit.js';
 import {softwareWorkerDeployment} from './software-worker-policy.js';
 import {ManagementPanel} from './management-panel.js';
@@ -25,6 +26,7 @@ import {
   softwareReservedMemory,
   assertPreparationAdmission,
   assertApplicationStart,
+  assertPreparationResize,
 } from './software-worker-resources.js';
 export {BROKER_PROTOCOL} from './broker-client.js';
 
@@ -189,6 +191,24 @@ export async function startDockerBroker({
   async function admittedRequest(method, route, data, options) {
     const url = new URL(route, 'http://docker'),
       bits = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+    if (method === 'POST' && bits[0] === 'containers' && bits.length === 3 && bits[2] === 'update') {
+      const target = await engine('GET', '/containers/' + encodeURIComponent(bits[1]) + '/json');
+      assert(target.Id === bits[1] && applicationContainer(target, fleet),
+        'Only a fleet game container can change resource limits.', 403);
+      const update = containerLimitUpdate(target, data);
+      if (update.Memory) {
+        const specs = await instanceContainers();
+        const changed = {...target, HostConfig: {...target.HostConfig, Memory: update.Memory}};
+        assertPreparationResize(specs, changed, fleet);
+        if (update.Memory > target.HostConfig.Memory) {
+          const capacity = await engine('GET', '/info');
+          assert(softwareReservedMemory([...specs.filter((info) => info.Id !== target.Id), changed], fleet) <= capacity.MemTotal - 2 * giB,
+            'The broker reserves host memory headroom before increasing limits.', 409);
+        }
+      }
+      if (!Object.keys(update).length) return {Warnings: []};
+      return engine(method, route, update, options);
+    }
     if (method === 'POST' && url.pathname === '/containers/create') {
       const specs = await instanceContainers(),
         capacity = await engine('GET', '/info');
@@ -246,7 +266,7 @@ export async function startDockerBroker({
     if (
       (method === 'POST' &&
         (pathname === '/containers/create' ||
-          /^\/containers\/[^/]+\/(start|restart)$/.test(pathname))) ||
+          /^\/containers\/[^/]+\/(start|restart|update)$/.test(pathname))) ||
       (method === 'DELETE' && /^\/containers\/[^/]+$/.test(pathname))
     ) {
       const next = resourceChanges.then(() =>

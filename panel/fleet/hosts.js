@@ -37,7 +37,7 @@ export function remoteRoute(method,route){
  if(['/status','/catalog','/servers','/snapshots','/jobs','/host-settings'].includes(route))return method==='GET'||['/servers','/host-settings'].includes(route);
  const match=route.match(/^\/servers\/[a-f0-9]{32}(?:\/(.*))?$/);if(!match)return false;
  if(!match[1])return method==='GET';
- if(['snapshot','remove'].includes(match[1]))return method==='POST';
+ if(['snapshot','remove','limits'].includes(match[1]))return method==='POST';
  if(!match[1].startsWith('controller/'))return false;
  const action='/'+match[1].slice(11);
  return registeredApplications().some(module=>controllerAccess(module,method,action));

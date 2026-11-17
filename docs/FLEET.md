@@ -100,6 +100,13 @@ lock. Resource limits are applied to games and controllers; the memory budget
 includes 1 GiB per controller and must leave at least 2 GiB for the host manager.
 Existing host workloads need their own headroom when choosing this budget.
 
+Administrators can use **Edit limits** on a server card or table row to change
+that server's CPU and memory. CPU changes and memory increases can apply while
+the server runs. Stop the server before lowering memory. The host checks the
+memory budget, including the separate controller allowance, and reports the
+result under Host operations. The changes apply to the existing game container
+and persist across restarts.
+
 Open server uses the existing game-specific controls under an explicit server
 URL. Multiple tabs remain independent. Factorio keeps worlds, previews/maps,
 settings, players, logs, saves and backups. Rust keeps lifecycle, settings,
