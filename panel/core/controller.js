@@ -64,6 +64,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const softwareWorkers=transport.brokered&&env.FLEET_ID&&module.managed?.softwareWorker?new SoftwareWorkers({docker,env,declaration:module.managed.softwareWorker}):null;
   const ctx={config,env,host,docker,every,runJob,stageMessage,softwareWorkers,
     get jobs(){return jobs;},get active(){return active;},get schedule(){return schedule;},
+    get backgroundAvailable(){return !maintenance.held&&!migrationPending&&!active&&!retentionConfiguring&&!operations.blocked&&!updater.busy&&!updater.pendingRestore;},
     get updater(){return updater;},get backups(){return backups;},get imageMigrationPending(){return migrationPending;}};
   let migrationPending=false,migrationLaunching=false,migrationError=null,migrationWorker=null;
   const game=validateController(module,await module.createController(ctx));

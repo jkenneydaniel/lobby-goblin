@@ -27,29 +27,34 @@ test('save queue coalesces bursts, waits for other jobs, and retains newer saves
   queue.observe(first,null,0);assert.equal(queue.claim(false,99),null);assert.equal(queue.claim(true,100),null);
   const task=queue.claim(false,100);assert.equal(task.version,'one');assert.equal(queue.claim(false,101),null);
   queue.observe({...first,version:'two'},null,102);queue.observe(latest,null,103);queue.finish(task,true,null,104);
-  assert.equal(queue.pending.version,'three');assert.equal(queue.claim(false,202),null);assert.equal(queue.claim(false,203).version,'three');
-  queue.finish(latest,true,null,204);assert.equal(queue.pending,null);
-  queue.observe(latest,{world:'Factory.zip',sourceVersion:'three'},205);assert.equal(queue.claim(false,1000),null,'exporting the same saved file must not cause a loop');
+  assert.equal(queue.pending.version,'three');assert.equal(queue.claim(false,900099),null);assert.equal(queue.claim(false,900100).version,'three');
+  queue.finish(latest,true,null,900104);assert.equal(queue.pending,null);
+  queue.observe(latest,{world:'Factory.zip',sourceVersion:'three'},900105);assert.equal(queue.claim(false,2000000),null,'exporting the same saved file must not cause a loop');
 });
 test('failed exports retry later, pending saves survive restart, and manual exports satisfy queued work',()=>{
   const candidate={world:'Factory.zip',source:'Factory.zip',version:'latest'},queue=new SaveMapQueue({}, {debounceMs:10,retryMs:1000});
   queue.observe(candidate,null,0);queue.claim(false,10);queue.finish(candidate,false,'Worker unavailable',20);assert.equal(queue.claim(false,1019),null);
-  const restarted=new SaveMapQueue(JSON.parse(JSON.stringify(queue)),{debounceMs:10,retryMs:1000});assert.equal(restarted.claim(false,1020).version,'latest');
+  const restarted=new SaveMapQueue(JSON.parse(JSON.stringify(queue)),{debounceMs:10,retryMs:1000});assert.equal(restarted.claim(false,900009),null);assert.equal(restarted.claim(false,900010).version,'latest');
   restarted.finish(candidate,true);assert.equal(restarted.lastError,null);
-  const manual=new SaveMapQueue();manual.observe(candidate,null,0);manual.observe(candidate,{world:'Factory.zip',sourceVersion:'latest'},1);assert.equal(manual.pending,null);
+  const manual=new SaveMapQueue();manual.observe({...candidate,version:'older-autosave'},null,0);manual.observe(candidate,{world:'Factory.zip',sourceVersion:'latest'},1);assert.equal(manual.pending,null);
 });
-test('refresh preferences preserve legacy defaults and coalesce newer saves across persisted rate limits',()=>{
+test('legacy settings are capped at 15 minutes and longer choices survive restart',()=>{
   const first={world:'Factory.zip',source:'Factory.zip',version:'one'},second={...first,version:'two'},latest={...first,version:'three'},queue=new SaveMapQueue({}, {debounceMs:0});
-  assert.deepEqual(mapRefreshSettings({enabled:true,intervalMinutes:0}),{enabled:true,intervalMinutes:0});
-  assert.equal(queue.status().intervalMinutes,0);assert.equal(queue.status().enabled,true);
-  queue.configure({enabled:true,intervalMinutes:5});queue.observe(first,null,1000);const task=queue.claim(false,1000);
+  assert.deepEqual(mapRefreshSettings({enabled:true,intervalMinutes:0}),{enabled:true,intervalMinutes:15});
+  assert.equal(new SaveMapQueue({intervalMinutes:5}).status().intervalMinutes,15);
+  assert.equal(queue.status().intervalMinutes,15);assert.equal(queue.status().enabled,true);
+  queue.configure({enabled:true,intervalMinutes:30});queue.observe(first,null,1000);const task=queue.claim(false,1000);
   queue.finish(task,true,null,1001);queue.observe(second,null,2000);queue.observe(latest,null,3000);
   const restarted=new SaveMapQueue(JSON.parse(JSON.stringify(queue)),{debounceMs:0});
-  assert.equal(restarted.claim(false,300999),null);assert.equal(restarted.claim(false,301000).version,'three');
-  restarted.configure({enabled:false,intervalMinutes:5});restarted.finish(latest,true,null,301001);
-  restarted.observe({...first,version:'four'},null,400000);assert.equal(restarted.claim(false,900000),null);
+  assert.equal(restarted.claim(false,1800999),null);assert.equal(restarted.claim(false,1801000).version,'three');
+  restarted.configure({enabled:false,intervalMinutes:30});restarted.finish(latest,true,null,1801001);
+  restarted.observe({...first,version:'four'},null,1802000);assert.equal(restarted.claim(false,4000000),null);
   const disabled=new SaveMapQueue(JSON.parse(JSON.stringify(restarted)),{debounceMs:0});assert.equal(disabled.status().enabled,false);
-  disabled.configure({enabled:true,intervalMinutes:0});assert.equal(disabled.claim(false,900000).version,'four');
+  disabled.configure({enabled:true,intervalMinutes:0});assert.equal(disabled.claim(false,2701000).version,'four');
+  disabled.finish({...first,version:'four'},true);
+  disabled.claimManual(3000000);disabled.observe(latest,null,3100000);
+  assert.equal(disabled.claim(false,3899999),null);
+  assert.equal(disabled.claim(false,3900000).version,'three');
 });
 test('refresh preferences reject unknown keys, coercions and unbounded intervals',()=>{
   for(const value of [null,[],{}, {enabled:'false',intervalMinutes:0},{enabled:true,intervalMinutes:-1},{enabled:true,intervalMinutes:1441},{enabled:true,intervalMinutes:0.5},{enabled:true,intervalMinutes:'5'},{enabled:true,intervalMinutes:0,source:'another.zip'}])assert.throws(()=>mapRefreshSettings(value),/Choose automatic refresh/);

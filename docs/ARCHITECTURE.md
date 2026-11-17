@@ -60,9 +60,11 @@ after an uncertain response so a retry can recover the original job. Child start
 and backup requests also carry stable parent-derived IDs. This is bounded
 single-process coordination, not a multi-replica queue or a power-loss guarantee.
 
-Startup marks unfinished records without replaying their actions. Interrupted
-automatic Factorio map exports stay in history without a manual hold. Startup
-reconciles their isolated workers before normal operations resume. A terminal
+Startup marks unfinished records without replaying their actions. Older
+automatic Factorio map jobs stay in history without a manual hold. Automatic
+exports now run under the Factorio map queue, surface progress on the Map screen,
+and release the shared operation slot for server commands and backups. Startup
+reconciles interrupted workers and their private workspaces. A terminal
 SSH setup failure stays reviewable without making the local host busy or
 preventing its management update.
 Administrators use the shared recovery panel to check outcomes. Instance start/stop

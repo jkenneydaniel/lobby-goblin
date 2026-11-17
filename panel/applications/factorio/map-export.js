@@ -2,6 +2,7 @@ import {mapObjectLimit,mapChunkLimit,mapExportByteLimit} from './public/map-limi
 import {runtimeHelper} from './runtime.js';
 import {prepareOfflineMap,validateMapCompletion} from './map-offline.js';
 import {helperWorkspace,readScopedFile,removeHelperWorker} from '../../core/helper-workspace.js';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import {docker as dockerAPI,demultiplex} from '../../core/docker.js';
 import {gameContainerRoute as containerRoute} from './transport.js';
@@ -18,7 +19,7 @@ export function validateMap(value){
   }
   return value;
 }
-export async function exportMap({data,state,env={},server,source,world=source,save=true,expectedVersion,saveNow,running,job,stageMessage},{docker=dockerAPI,gameContainerRoute=containerRoute}={}){
+export async function exportMap({data,state,env={},server,source,world=source,save=true,expectedVersion,saveNow,running,job,stageMessage=async()=>{},checkInputs=async()=>{}},{docker=dockerAPI,gameContainerRoute=containerRoute}={}){
   assert(source,'No world save is available.');
   if(save&&running){await stageMessage(job,'Saving the latest progress for the map…');await saveNow();}
   const helper=`factorio-panel-map-${job.id}`,workspace=await helperWorkspace({data,state,env,server,docker},job.id);
@@ -32,6 +33,7 @@ export async function exportMap({data,state,env={},server,source,world=source,sa
     await workspace.write('saves/source.zip',bytes);
     const command=await prepareOfflineMap(workspace,runtime,job.id),prepared=performance.now();
 
+    await checkInputs();
     await stageMessage(job,'Exporting the map from an isolated world copy…');
     // Favor the active game when CPU is contested; let exports use idle CPU.
     await docker('POST',gameContainerRoute(helper),{Image:server.Image||server.Config.Image,...command,Env:runtime.env,Labels:{'factorio-panel.job':job.id},HostConfig:{NetworkMode:'none',Mounts:runtime.mounts,Memory:1073741824,CpuShares:128}});exists=true;
@@ -46,7 +48,9 @@ export async function exportMap({data,state,env={},server,source,world=source,sa
     validateMap(value);const receipt=await workspace.json('script-output/panel-map.complete.json').catch(()=>null);validateMapCompletion(receipt,value,job.id);
     Object.assign(value,{world,sourceFile:source,sourceVersion:version,created:new Date().toISOString(),sourceModified:sourceStat.mtime.toISOString()});
     await writeJSON(path.join(state,'map-export-metrics.json'),{version:1,jobId:job.id,engine:receipt.engine,chunks:value.chunks.length,entities:value.entities.length,prepareMs:Math.round(prepared-started),workerMs:Math.round(exported-prepared),decodeMs:Math.round(performance.now()-exported)});
-    await writeJSON(path.join(state,'map.json'),value);
+    await workspace.write('publish-map.json',JSON.stringify(value));
+    await checkInputs();
+    await fs.rename(path.join(workspace.work,'publish-map.json'),path.join(state,'map.json'));
     return `Map refreshed: ${value.chunks.length} explored chunks and ${value.entities.length} objects.${value.limited?' Limited to the 4,096 chunks nearest spawn.':''}`;
   }finally{
     if(exists)await removeHelperWorker(docker,helper);

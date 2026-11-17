@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {exportMap} from '../applications/factorio/map-export.js';
+import {HttpError} from '../common.js';
 
-for(const failure of ['worker','memory','receipt'])test('offline '+failure+' failure retains the prior map and removes only its own helper',async t=>{
+for(const failure of ['worker','memory','receipt','changed-inputs'])test('offline '+failure+' failure retains the prior map and removes only its own helper',async t=>{
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'goblin-map-failure-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const data=path.join(root,'data'),state=path.join(root,'state');
  for(const dir of ['mods','saves'])await fs.mkdir(path.join(data,dir),{recursive:true});await fs.mkdir(state);
@@ -18,8 +19,11 @@ for(const failure of ['worker','memory','receipt'])test('offline '+failure+' fai
   if(route==='/containers/fixture-controller/json')return {Mounts:[{Type:'bind',Source:state,Destination:state}]};
   if(route.startsWith('/containers/create?')){assert.ok(body.Cmd.includes('--benchmark'));assert.equal(body.HostConfig.NetworkMode,'none');return {Id:helper};}
   if(route.endsWith('/wait?condition=not-running')){
-   if(failure==='receipt'){
-    await fs.mkdir(path.join(work,'script-output'));await fs.writeFile(path.join(work,'script-output/panel-map.json'),JSON.stringify({version:1,step:2,seed:1,tick:123,chunks:[],entities:[],palette:[],players:[],tags:[]}));return {StatusCode:0};
+   if(['receipt','changed-inputs'].includes(failure)){
+    await fs.mkdir(path.join(work,'script-output'));
+    await fs.writeFile(path.join(work,'script-output/panel-map.json'),JSON.stringify({version:1,step:2,seed:1,tick:123,chunks:[],entities:[],palette:[],players:[],tags:[]}));
+    if(failure==='changed-inputs')await fs.writeFile(path.join(work,'script-output/panel-map.complete.json'),JSON.stringify({format:1,jobId:job.id,tick:123,chunks:0,entities:0,engine:'2.0.77'}));
+    return {StatusCode:0};
    }
    return {StatusCode:1};
   }
@@ -28,10 +32,13 @@ for(const failure of ['worker','memory','receipt'])test('offline '+failure+' fai
   assert.ok(route.startsWith('/containers/'+helper+'/')||method==='DELETE'&&route==='/containers/'+helper,'No active game operation is allowed.');
   return {};
  };
- const operation=()=>exportMap({data,state,env:{CONTROLLER_CONTAINER:'fixture-controller'},server,source:'source.zip',job,running:false,stageMessage:async()=>{}},{docker});
+ let checks=0;
+ const checkInputs=()=>{if(failure==='changed-inputs'&&++checks===2)throw new HttpError(409,'The active world changed.');};
+ const operation=()=>exportMap({data,state,env:{CONTROLLER_CONTAINER:'fixture-controller'},server,source:'source.zip',job,running:false,checkInputs},{docker});
  await assert.rejects(operation(),error=>{
-  assert.equal(error.status,409);assert.match(error.message,failure==='memory'?/memory budget/:failure==='receipt'?/did not complete/:/exit code 1/);
-  assert.ok(!error.message.includes('Private fixture'));if(failure!=='receipt')assert.match(error.cause.message,/Private fixture/);return true;
+  const expected={memory:/memory budget/,receipt:/did not complete/,'changed-inputs':/active world changed/,worker:/exit code 1/};
+  assert.equal(error.status,409);assert.match(error.message,expected[failure]);
+  assert.ok(!error.message.includes('Private fixture'));if(failure==='worker'||failure==='memory')assert.match(error.cause.message,/Private fixture/);return true;
  });
  assert.equal(await fs.readFile(path.join(state,'map.json'),'utf8'),'previous-map');
  assert.equal(await fs.readFile(path.join(data,'saves/source.zip'),'utf8'),'Synthetic save input');

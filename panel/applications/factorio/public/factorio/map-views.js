@@ -20,8 +20,9 @@ export function createMapViews(getState, ui) {
       const controls = template('map-refresh-settings');
       part(controls, '[name=enabled]').checked =
         payload.automatic?.enabled !== false;
-      part(controls, '[name=intervalMinutes]').value = String(
-        payload.automatic?.intervalMinutes || 0,
+      const interval = part(controls, '[name=intervalMinutes]');
+      interval.value = String(
+        Math.max(Number(interval.min), payload.automatic?.intervalMinutes || 0),
       );
       part(view, '[data-part=map-settings]').append(controls);
     }

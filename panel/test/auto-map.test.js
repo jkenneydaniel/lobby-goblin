@@ -12,9 +12,12 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 async function until(check){for(let i=0;i<160;i++){const value=await check();if(value)return value;await delay(25);}throw new Error('Test condition timed out.');}
 
-test('save-triggered exports use the completed autosave, coalesce saves, and never save recursively',{timeout:20000},async t=>{
+test('a save-triggered export stays off the operation lock and throttles subsequent exports',{timeout:20000},async t=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'factorio-auto-map-')),data=path.join(root,'data'),state=path.join(root,'state'),backups=path.join(root,'backups');
-  for(const dir of ['saves','mods','config'])await fs.mkdir(path.join(data,dir),{recursive:true});await fs.mkdir(state);await fs.writeFile(path.join(state,'map-refresh.json'),JSON.stringify({enabled:true,intervalMinutes:0}));
+  for(const dir of ['saves','mods','config'])await fs.mkdir(path.join(data,dir),{recursive:true});await fs.mkdir(state);
+  const workerId=crypto.randomUUID(),abandoned=path.join(state,'.panel-work',workerId);
+  await fs.mkdir(path.dirname(abandoned),{mode:0o700});await fs.mkdir(abandoned);
+  await fs.writeFile(path.join(state,'map-refresh.json'),JSON.stringify({enabled:true,intervalMinutes:0,workerId}));
   const priorJobs=['running','interrupted'].map(state=>({
     id:crypto.randomUUID(),action:'refresh-map',actor:'automatic map refresh',state,
     phase:state==='running'?'executing':'interrupted',started:new Date().toISOString(),
@@ -64,6 +67,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
     }
     if(req.method==='DELETE'){helpers.delete(name);return reply(204);}
     if(url.pathname==='/containers/factorio-server/stop')gameRunning=false;
+    if(url.pathname==='/containers/factorio-server/start')gameRunning=true;
     if(url.pathname.endsWith('/start')||url.pathname.endsWith('/stop'))return reply(204);
     return reply(404,{message:'No such container'});
   });
@@ -75,6 +79,7 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
   async function api(route,body){const result=await fetch(`http://127.0.0.1:${port}`+route,{method:body===undefined?'GET':'POST',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});assert.ok(result.ok,await result.clone().text());return result.json();}
   await until(async()=>{try{return (await fetch(`http://127.0.0.1:${port}/health`)).ok;}catch{assert.equal(controller.exitCode,null,errors);return false;}});
   const startup=await api('/jobs');
+  await assert.rejects(fs.stat(abandoned),{code:'ENOENT'});
   assert.equal(startup.recoveryRequired,false);
   assert.equal(startup.jobs.length,priorJobs.length);
   for(const job of startup.jobs){
@@ -88,23 +93,29 @@ test('save-triggered exports use the completed autosave, coalesce saves, and nev
   async function autosave(number,complete=true){await fs.writeFile(path.join(data,`saves/_autosave${number}.zip`),world('autosave-'+number));await fs.appendFile(log,`${number*10} Saving to _autosave${number} (blocking).\n`+(complete?`${number*10+1} Saving finished\n`:''));}
   await autosave(1,false);await delay(200);assert.equal((await currentJobs()).jobs.length,0,'Save-start must not render an incomplete save');
   await fs.appendFile(log,'11 Saving finished\n');await until(()=>copied.length===1);
-  await autosave(2);await delay(35);await autosave(3);await delay(120);assert.equal(copied.length,1,'Only one map worker can run');holdFirst=false;
-  await until(async()=>{const {jobs,active}=await currentJobs();return jobs.length===2&&!active&&jobs.every(job=>job.state==='succeeded');});
-  assert.deepEqual(copied,['autosave-1','autosave-3']);assert.equal(liveSaves,0);
-  const map=await api('/map');assert.equal(map.snapshot.world,'Factory.zip');assert.equal(map.snapshot.sourceFile,'_autosave3.zip');assert.equal(map.automatic.enabled,true);assert.equal(map.automatic.pending,false);
+  assert.equal((await api('/map-status')).automatic.running,true);
+  assert.equal((await currentJobs()).active,null);
   const override=await fetch(`http://127.0.0.1:${port}/jobs`,{method:'POST',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:JSON.stringify({action:'refresh-map',params:{automatic:{source:'_autosave1.zip'}}})});assert.equal(override.status,400);
-  await api('/jobs',{action:'refresh-map',params:{},actor:'manual test'});
-  await until(async()=>{const {jobs,active}=await currentJobs();return jobs.length===3&&!active&&jobs.every(job=>job.state==='succeeded');});
-  await delay(300);assert.equal((await currentJobs()).jobs.length,3,'A manual refresh must satisfy its own save event');assert.equal(liveSaves,1);assert.equal(helpers.size,0);
-  const status=await api('/map-status');assert.equal(status.automatic.pending,false);assert.equal(status.automatic.running,false);assert.ok(status.created);
-  for(const action of ['stop','backup']){
+  const concurrentManual=await fetch(`http://127.0.0.1:${port}/jobs`,{method:'POST',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:JSON.stringify({action:'refresh-map',params:{}})});
+  assert.equal(concurrentManual.status,409);
+  for(const action of ['stop','backup','start']){
     const accepted=await api('/jobs',{action,params:{confirm:true}});
     const completed=await until(async()=>{
       const {jobs,active}=await currentJobs();
       return !active&&jobs.find(job=>job.id===accepted.id);
     });
     assert.equal(completed.state,'succeeded',completed.message);
+    assert.equal((await api('/map-status')).automatic.running,true);
   }
-  assert.equal(gameRunning,false);
+  assert.equal(gameRunning,true);
+  await autosave(2);await autosave(3);holdFirst=false;
+  await until(async()=>{const {automatic}=await api('/map-status');return !automatic.running&&automatic.pending;});
+  const map=await api('/map');
+  assert.equal(map.snapshot.world,'Factory.zip');assert.equal(map.snapshot.sourceFile,'_autosave1.zip');assert.equal(map.automatic.intervalMinutes,15);
+  assert.deepEqual(copied,['autosave-1']);assert.equal(liveSaves,0);
+  const manual=await api('/jobs',{action:'refresh-map',params:{},actor:'manual test'});
+  await until(async()=>{const {jobs,active}=await currentJobs();return !active&&jobs.some(job=>job.id===manual.id&&job.state==='succeeded');});
+  await delay(300);assert.deepEqual(copied,['autosave-1','manual-1']);assert.equal(liveSaves,1);assert.equal(helpers.size,0);
   assert.equal((await api('/map')).snapshot.sourceFile,'Factory.zip');
+  const status=await api('/map-status');assert.equal(status.automatic.pending,false);assert.equal(status.automatic.running,false);assert.ok(status.created);
 });

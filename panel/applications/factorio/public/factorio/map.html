@@ -162,17 +162,15 @@
         >Minimum time between refreshes (minutes)<input
           name="intervalMinutes"
           type="number"
-          min="0"
+          min="15"
           max="1440"
           step="1"
           required
       /></label>
       <p class="hint">
-        15 minutes is recommended for background refresh. Existing settings are
-        kept. 0 refreshes after every completed save. Choose 1–1440 to limit
-        background work. Only completed saves are used; this does not change
-        game autosaves. Turning this off leaves any refresh already running to
-        finish.
+        Automatic refresh uses completed saves at most once every 15 minutes.
+        Choose a longer interval or turn it off. Factorio keeps its own autosave
+        schedule. A refresh already underway can finish.
       </p>
       <button class="button">Save map refresh settings</button>
       <p id="map-settings-result" class="form-note" role="status"></p>
