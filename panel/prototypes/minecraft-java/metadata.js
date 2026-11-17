@@ -3,6 +3,7 @@
 import {assert} from '../../common.js';
 import {definitionData, freezeDefinition} from '../../core/definition-data.js';
 import {exactRecord, javaFixtureRelease} from './provider.js';
+import {fixtureJsonProblem} from './fixture-json.js';
 
 export const maxFixtureCatalogueBytes = 64 * 1024;
 export const maxFixtureCatalogueEntries = 64;
@@ -36,42 +37,17 @@ export function parseJavaFixtureCatalogue(bytes) {
     throw Error('Invalid synthetic Minecraft catalogue encoding or JSON.');
   }
 
-  // Native JSON.parse owns grammar. This bounded lexical pass only detects
-  // ambiguous duplicate object keys and nesting, which JSON.parse normalizes.
-  // Strings are skipped as units; escaped key spellings compare after decoding.
-  const frames = [];
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (char === '{' || char === '[') {
-      frames.push(char === '{' ? {keys: new Set(), key: true} : null);
-      assert(
-        frames.length <= maxFixtureCatalogueDepth,
-        'Minecraft fixture catalogue exceeds its nesting limit.',
-        413,
-      );
-    } else if (char === '}' || char === ']') {
-      frames.pop();
-    } else if (char === ',') {
-      if (frames.at(-1)) frames.at(-1).key = true;
-    } else if (char === '"') {
-      const start = i;
-      while (++i < text.length) {
-        if (text[i] === '\\') i++;
-        else if (text[i] === '"') break;
-      }
-      const frame = frames.at(-1);
-      if (frame?.key) {
-        const key = JSON.parse(text.slice(start, i + 1));
-        assert(
-          !frame.keys.has(key),
-          'Minecraft fixture catalogue contains duplicate fields.',
-          409,
-        );
-        frame.keys.add(key);
-        frame.key = false;
-      }
-    }
-  }
+  const problem = fixtureJsonProblem(text, maxFixtureCatalogueDepth);
+  assert(
+    problem !== 'nesting',
+    'Minecraft fixture catalogue exceeds its nesting limit.',
+    413,
+  );
+  assert(
+    problem !== 'duplicate',
+    'Minecraft fixture catalogue contains duplicate fields.',
+    409,
+  );
   return javaFixtureCatalogue(value);
 }
 

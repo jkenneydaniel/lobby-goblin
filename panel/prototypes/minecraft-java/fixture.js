@@ -26,6 +26,7 @@ import {
   verifyFixtureBytes,
   validateFixtureWorkerRequest,
 } from './provider.js';
+import {fixtureJsonProblem} from './fixture-json.js';
 
 export function fixtureManagementBinding(value) {
   exactRecord(value, ['minecraftManagement']);
@@ -286,6 +287,7 @@ export async function createJavaFixture({
     let result;
     try {
       result = JSON.parse(raw);
+      if (fixtureJsonProblem(raw, 1)) throw Error();
     } catch {
       throw Error('Invalid synthetic Minecraft response.');
     }

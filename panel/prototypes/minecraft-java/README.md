@@ -58,6 +58,15 @@ caller's wait alone still does not cancel the operation before an internal
 deadline expires. These are synthetic transport contracts, not real network or
 MSMP/TLS qualification.
 
+Synthetic replies retain the 16 KiB string budget and exact flat schemas.
+Native JSON grammar validation is followed by decoded field-name inspection:
+duplicate fields, including identical values and escaped aliases, are refused
+before readiness or mutation acknowledgment can be accepted. Ordinary whitespace,
+field ordering and uniquely escaped names remain valid. Ambiguous initial status
+leaves control idle without save/stop; ambiguity after a mutation leaves durable
+unknown and blocks replay after reconstruction. Errors contain no response excerpts.
+Run `node --test panel/test/minecraft-control-replies.test.js` for these fixtures.
+
 This directory has no production registration, image recipe, real broker adapter,
 Mojang downloader, JAR semantic validator or MSMP/TLS adapter. Intent schema checks
 are not proof of real resource isolation or a sandbox. Production dispatch and
