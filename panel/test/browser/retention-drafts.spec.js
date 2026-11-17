@@ -78,7 +78,7 @@ test('cleanup drafts survive unrelated backup completion and stale save until ex
 });
 
 async function moduleFixture(page) {
-  const files = ['shared/backups.js', 'backup-retention.js', 'scope.js', 'shared/view.js'];
+  const files = ['shared/backups.js', 'backup-retention.js', 'scope.js', 'shared/view.js', 'shared/list-pages.js'];
   await page.route('**/fixture-assets/**', async route => {
     const relative = new URL(route.request().url()).pathname.slice('/fixture-assets/'.length);
     if (!files.includes(relative)) return route.abort();

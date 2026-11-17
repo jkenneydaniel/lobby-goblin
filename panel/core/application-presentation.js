@@ -148,6 +148,7 @@ export function validateApplicationPresentation(module){
       if(options.forms)forms(options.forms,action);
     }else if(screen.component==='backups'){
       assert(module.contract.features.backups===true,'Backups component requires backup support.');
+      // The shell owns the page title. Retain showHeading in older fingerprinted definitions.
       keys(options,['description','restore','showHeading'],'backup component');assert(text(options.description),'Invalid backup description.');
       for(const flag of ['restore','showHeading'])assert(options[flag]===undefined||typeof options[flag]==='boolean','Invalid backup display flag.');
       assert(!options.restore||Object.hasOwn(module.contract.actions,'restore'),'Restore needs a declared action.');

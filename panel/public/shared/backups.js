@@ -94,7 +94,6 @@ export function mountBackups(
     allow = () => isAdmin(),
     confirm,
     notify,
-    showHeading = true,
     restore = false,
     interruption = false,
     description = 'Verified copies of your server data.',
@@ -304,7 +303,7 @@ export function mountBackups(
       range =
         focused === query ? [query.selectionStart, query.selectionEnd] : null;
     record = result;
-    view.innerHTML = `<div class="product-workflow">${showHeading ? '<h1>Backups</h1>' : ''}<div data-archive-slot></div>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention, retentionDraft)}</div>` : ''}</div>`;
+    view.innerHTML = `<div class="product-workflow"><div data-archive-slot></div>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention, retentionDraft)}</div>` : ''}</div>`;
     const health = archives.querySelector('[data-backup-health]'),
       healthOpen = health.querySelector('details')?.open;
     health.innerHTML = backupHealthView(result.health);

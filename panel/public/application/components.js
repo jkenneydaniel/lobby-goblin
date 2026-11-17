@@ -615,8 +615,6 @@ export function createApplicationComponents({
                   })
                 : mountBackups(ctx.root, {
                     request: ctx.request,
-                    // The shell already renders the screen heading.
-                    showHeading: false,
                     startJob,
                     isAdmin: () => getSession()?.role === 'admin',
                     allow: can,
