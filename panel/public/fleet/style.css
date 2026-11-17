@@ -126,6 +126,9 @@ nav [aria-current='page'] {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 20px;
 }
+.grid > .list-pages {
+  grid-column: 1 / -1;
+}
 .server-filters,
 .snapshot-filters {
   grid-column: 1/-1;

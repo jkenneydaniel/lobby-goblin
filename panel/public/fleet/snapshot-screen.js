@@ -15,6 +15,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
     host: '',
     sort: 'newest',
     composing: false,
+    page: 1,
   };
   const admin = () => getSession()?.role === 'admin';
   function paintFiles(ctx) {
@@ -41,6 +42,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
     if (!ctx.isCurrent() || filters.composing || fileComposing) return;
     const active = document.activeElement,
       fileFocused = fileView?.contains(active) ? active : null,
+      pageFocused = ctx.root.contains(active) && active.closest('.list-pages'),
       fileRange = fileFocused?.matches('[data-file-query]')
         ? [fileFocused.selectionStart, fileFocused.selectionEnd]
         : null,
@@ -97,6 +99,8 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
     const input = ctx.root.querySelector(
       `[data-snapshot-filter="${focusSearch ? 'search' : focused}"]`,
     );
+    if (pageFocused && !focusSearch)
+      ctx.root.querySelector('[data-list-range]')?.focus();
     if (input) {
       input.focus({preventScroll: !focusSearch});
       if (range && !focusSearch) input.setSelectionRange(...range);
@@ -104,7 +108,10 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
     ctx.on(ctx.root, 'input', (event) => {
       if (event.target.dataset.snapshotFilter !== 'search') return;
       filters.search = event.target.value;
-      if (!event.isComposing && !filters.composing) paint(ctx);
+      if (!event.isComposing && !filters.composing) {
+        filters.page = 1;
+        paint(ctx);
+      }
     });
     ctx.on(ctx.root, 'compositionstart', (event) => {
       if (event.target.dataset.snapshotFilter === 'search')
@@ -114,17 +121,24 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
       if (event.target.dataset.snapshotFilter !== 'search') return;
       filters.composing = false;
       filters.search = event.target.value;
+      filters.page = 1;
       paint(ctx);
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.snapshotFilter;
       if (!['application', 'host', 'sort'].includes(key)) return;
       filters[key] = event.target.value;
+      filters.page = 1;
       paint(ctx);
     });
     ctx.on(ctx.root, 'click', async (event) => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if (button.dataset.listPage) {
+        filters.page = Number(button.dataset.listPage);
+        paint(ctx);
+        return;
+      }
       if (button.hasAttribute('data-file-clear') && fileView) {
         const input = fileView.querySelector('[data-file-query]');
         fileComposing = false;
@@ -135,6 +149,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
       }
       if (button.hasAttribute('data-clear-snapshot-filters')) {
         filters.search = filters.application = filters.host = '';
+        filters.page = 1;
         paint(ctx, true);
         return;
       }

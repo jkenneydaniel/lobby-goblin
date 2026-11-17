@@ -1020,3 +1020,31 @@ test('cold unavailable host does not make loaded availability claim a complete i
   await expect(summary).not.toContainText('Unavailable hosts');
   await expect(summary).toContainText('Ready: 2');
 });
+
+test('fleet pagination limits cards and table rows while keeping the complete filtered inventory', async ({page}) => {
+  await page.clock.install();
+  const state = await fleet(page);
+  state.local.push(...Array.from({length: 20}, (_, index) => ({
+    ...state.local[0],
+    id: (index + 1).toString(16).padStart(32, '0'),
+    name: 'Fixture server ' + (index + 1),
+  })));
+  await login(page);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  const before = state.reads,
+    pages = page.getByRole('navigation', {name: 'List pages'}),
+    next = pages.getByRole('button', {name: 'Next'});
+  await expect(cards(page)).toHaveCount(20);
+  await next.click();
+  await expect(cards(page)).toHaveCount(3);
+  await expect(pages.getByRole('status')).toHaveText('Showing 21–23 of 23');
+  await page.getByRole('combobox', {name: 'View servers'}).selectOption('table');
+  const rows = page.locator('.server-table tbody tr');
+  await expect(rows).toHaveCount(20);
+  await next.click();
+  await expect(rows).toHaveCount(3);
+  await search(page).fill('Fixture server 1');
+  await expect(rows).toHaveCount(11);
+  await expect(pages).toHaveCount(0);
+  expect(state.reads).toBe(before);
+});

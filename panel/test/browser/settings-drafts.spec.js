@@ -1,5 +1,5 @@
 import {test as base, expect} from '@playwright/test';
-import {origins} from './playwright.config.js';
+import {origins, scope} from './playwright.config.js';
 
 const test = base.extend({page: async ({page}, use) => {
   const errors = [];
@@ -100,4 +100,26 @@ test('shared numeric drafts preserve zero and required blank validation with num
   await expect(page.getByText('Synthetic settings rejection', {exact: true})).toBeVisible();
   expect(writes).toHaveLength(1);
   expect(writes[0].params.values.concurrency).toBe(0);
+});
+
+test('Factorio Settings lays out compact controls on desktop and keeps labels in view on mobile', async ({page}, info) => {
+  await page.goto(origins.factorio + scope + '/#settings');
+  const form = page.locator('[data-configuration]'),
+    player = form.getByRole('spinbutton', {name: /Player limit/}),
+    interval = form.getByRole('spinbutton', {name: /Autosave interval/}),
+    pause = form.getByRole('checkbox', {name: /Pause the world/});
+  await expect(pause).toBeChecked();
+  const playerBox = await player.boundingBox(),
+    intervalBox = await interval.boundingBox(),
+    formBox = await form.boundingBox();
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth)).toBeLessThanOrEqual(page.viewportSize().width);
+  if (info.project.name === 'desktop') {
+    expect(playerBox.width).toBeLessThan(180);
+    expect(Math.abs(playerBox.y - intervalBox.y)).toBeLessThan(4);
+    expect(formBox.height).toBeLessThan(420);
+  } else {
+    expect(intervalBox.y).toBeGreaterThan(playerBox.y);
+    expect(playerBox.width).toBeLessThanOrEqual(formBox.width);
+  }
+  await page.screenshot({path: info.outputPath('compact-settings.png')});
 });

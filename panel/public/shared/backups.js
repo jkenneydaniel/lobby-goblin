@@ -1,3 +1,4 @@
+import {slicePage, paintListPageControls} from './list-pages.js';
 import {serverPath} from '../scope.js';
 import {retentionView, bindRetention} from '../backup-retention.js';
 import {escapeHTML as esc, formatBytes, formatDate} from './view.js';
@@ -80,7 +81,7 @@ export function backupHealthView(health) {
       ? health.alerts.filter((message) => typeof message === 'string')
       : [];
   // Preserve existing alerts; never add unstructured attempt messages or errors.
-  return `<div class="product-backup-health">${alerts.map((message) => `<p class="warning">${esc(message)}</p>`).join('')}<p>${whole(health.verifiedCount) ? health.verifiedCount : 'Unknown'} verified archives · Latest backup: ${esc(date(health.latestAt))}</p><dl>${fields.map(([label, value]) => `<dt>${label}</dt><dd>${esc(value)}</dd>`).join('')}</dl><p class="hint">Loaded observations only. Archive integrity does not prove game-load recovery; a reported schedule is not an execution guarantee.</p></div>`;
+  return `<div class="product-backup-health">${alerts.map((message) => `<p class="warning">${esc(message)}</p>`).join('')}<p>${whole(health.verifiedCount) ? health.verifiedCount : 'Unknown'} verified archives · Latest backup: ${esc(date(health.latestAt))}</p><details class="backup-health-details"><summary>Backup health details</summary><dl>${fields.map(([label, value]) => `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl><p class="hint">Loaded observations only. Archive integrity does not prove game-load recovery; a reported schedule is not an execution guarantee.</p></details></div>`;
 }
 
 export function mountBackups(
@@ -93,7 +94,6 @@ export function mountBackups(
     allow = () => isAdmin(),
     confirm,
     notify,
-    showHeading = true,
     restore = false,
     interruption = false,
     description = 'Verified copies of your server data.',
@@ -120,13 +120,16 @@ export function mountBackups(
   // Keep these native controls for this mount. Local selection replaces only
   // archive rows, so schedule/cleanup drafts, reviews and pending saves stay put.
   const archives = document.createElement('section');
-  archives.className = 'product-card';
+  archives.className = 'product-card backup-archives';
   archives.innerHTML =
-    '<h2>Saved archives</h2><label>Find archives<input type="search" maxlength="80" data-archive-query></label><label>Show archives<select data-archive-state><option value="all">All</option><option value="verified">Integrity verified</option><option value="failed">Verification failed</option><option value="unverified">Not verified</option></select></label><button type="button" data-archive-clear>Clear filters</button><p class="hint">Filters cover the loaded archive list and existing verification observations; finding an archive does not verify it.</p><p data-archive-count role="status"></p><div data-archive-rows></div>';
+    '<div class="product-card-header"><div><h2>Saved archives</h2><p data-backup-description></p></div><div data-backup-actions></div></div><div data-backup-health></div><div class="compact-toolbar" role="search" aria-label="Filter saved archives"><label>Find archives<input type="search" maxlength="80" data-archive-query></label><label>Show archives<select data-archive-state><option value="all">All</option><option value="verified">Integrity verified</option><option value="failed">Verification failed</option><option value="unverified">Not verified</option></select></label><button type="button" data-archive-clear>Clear filters</button></div><div class="archive-list-heading"><p class="hint" data-archive-count role="status"></p><div data-archive-pages></div></div><div data-archive-rows></div>';
+  archives.querySelector('[data-backup-description]').textContent = description;
   const query = archives.querySelector('[data-archive-query]'),
     state = archives.querySelector('[data-archive-state]'),
-    rows = archives.querySelector('[data-archive-rows]');
-  let composing = false;
+    rows = archives.querySelector('[data-archive-rows]'),
+    pagination = archives.querySelector('[data-archive-pages]');
+  let composing = false,
+    page = 1;
   function setArchiveBusy() {
     for (const [selector, permission] of [
       ['[data-backup-verify]', 'backups.create'],
@@ -153,15 +156,32 @@ export function mountBackups(
       ' matching of ' +
       record.backups.length +
       ' loaded archives.';
-    rows.innerHTML = matches.length
-      ? `<div class="table-wrap"><table><thead><tr><th>Archive</th><th>Created</th><th>Size</th><th>Actions</th></tr></thead><tbody>${matches.map((item) => `<tr><td><span data-archive-label>${esc(item.relative)}<small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></span>${backupEvidenceView(item.validation)}</td><td>${esc(formatDate(item.modified))}</td><td>${formatBytes(item.size)}</td><td>${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>`
+    const visible = slicePage(matches, page);
+    page = visible.page;
+    rows.innerHTML = visible.items.length
+      ? `<div class="table-wrap" role="region" aria-label="Saved archives table" tabindex="0"><table role="table"><thead><tr><th scope="col">Archive</th><th scope="col">Created</th><th scope="col">Size</th><th scope="col">Actions</th></tr></thead><tbody role="rowgroup">${visible.items.map((item) => `<tr role="row"><td role="cell"><div class="backup-archive-info"><span data-archive-label><span class="backup-archive-name">${esc(item.relative)}</span><small>${item.validation?.ok ? 'Archive integrity verified' : item.validation ? 'Verification failed' : 'Not verified'}</small></span>${backupEvidenceView(item.validation)}</div></td><td role="cell">${esc(formatDate(item.modified))}</td><td role="cell">${formatBytes(item.size)}</td><td role="cell" class="backup-archive-actions">${showTools() ? `<button data-backup-verify="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Verify</button><a class="button" href="${serverPath('/api/download')}?kind=backup&amp;name=${encodeURIComponent(item.relative)}">Download</a>${restore ? `<button data-backup-restore="${esc(item.relative)}" ${busy() ? 'disabled' : ''}>Restore</button>` : ''}` : ''}</td></tr>`).join('')}</tbody></table></div>`
       : `<p>${record.backups.length ? 'No matching loaded archives.' : esc(empty)}</p>`;
+    paintListPageControls(pagination, visible);
     setArchiveBusy();
   }
+  function resetArchivePage() {
+    page = 1;
+    paintArchives();
+  }
+  pagination.addEventListener(
+    'click',
+    (event) => {
+      const button = event.target.closest('[data-list-page]:not(:disabled)');
+      if (!button) return;
+      page = Number(button.dataset.listPage);
+      paintArchives();
+    },
+    {signal: abort.signal},
+  );
   query.addEventListener(
     'input',
     (event) => {
-      if (!event.isComposing) paintArchives();
+      if (!event.isComposing) resetArchivePage();
     },
     {signal: abort.signal},
   );
@@ -176,7 +196,7 @@ export function mountBackups(
     'compositionend',
     () => {
       composing = false;
-      paintArchives();
+      resetArchivePage();
     },
     {signal: abort.signal},
   );
@@ -186,18 +206,18 @@ export function mountBackups(
       if (event.key !== 'Escape' || event.isComposing || composing) return;
       event.preventDefault();
       query.value = '';
-      paintArchives();
+      resetArchivePage();
     },
     {signal: abort.signal},
   );
-  state.addEventListener('change', paintArchives, {signal: abort.signal});
+  state.addEventListener('change', resetArchivePage, {signal: abort.signal});
   archives.querySelector('[data-archive-clear]').addEventListener(
     'click',
     () => {
       composing = false;
       query.value = '';
       state.value = 'all';
-      paintArchives();
+      resetArchivePage();
       query.focus();
     },
     {signal: abort.signal},
@@ -283,7 +303,16 @@ export function mountBackups(
       range =
         focused === query ? [query.selectionStart, query.selectionEnd] : null;
     record = result;
-    view.innerHTML = `<div class="product-workflow">${showHeading ? '<h1>Backups</h1>' : ''}<p>${esc(description)}</p>${showTools() ? `<button type="button" data-backup-create ${busy() ? 'disabled' : ''}>Create backup</button>` : ''}${backupHealthView(result.health)}<div data-archive-slot></div>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention, retentionDraft)}</div>` : ''}</div>`;
+    view.innerHTML = `<div class="product-workflow"><div data-archive-slot></div>${showTools() ? `<div class="product-workflow-grid"><section class="product-card"><h2>Automatic backups</h2><form id="schedule-form"><label class="check-label"><input name="enabled" type="checkbox" ${(draft?.enabled ?? result.schedule.enabled) ? 'checked' : ''}>Create backups on a schedule</label><label>Every (hours)<input name="hours" type="number" min="1" max="168" value="${esc(draft?.hours ?? result.schedule.hours)}" required></label><label>Scheduled backups to keep<input name="keep" type="number" min="2" max="100" value="${esc(draft?.keep ?? result.schedule.keep)}" required></label><p>${interruption ? 'Each backup saves, stops and resumes the game. Connected players will be disconnected.' : 'The host and Docker must be running.'} The count limit removes older scheduled copies.</p><button ${busy() ? 'disabled' : ''}>Save schedule</button></form></section>${retentionView(result.retention, retentionDraft)}</div>` : ''}</div>`;
+    const health = archives.querySelector('[data-backup-health]'),
+      healthOpen = health.querySelector('details')?.open;
+    health.innerHTML = backupHealthView(result.health);
+    if (healthOpen && health.querySelector('details'))
+      health.querySelector('details').open = true;
+    archives.querySelector('[data-backup-actions]').innerHTML =
+      showTools() && allow('backups.create')
+        ? '<button type="button" data-backup-create>Create backup</button>'
+        : '';
     view.querySelector('[data-archive-slot]').replaceWith(archives);
     paintArchives();
     if (focused) {

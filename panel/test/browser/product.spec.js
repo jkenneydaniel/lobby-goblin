@@ -2188,6 +2188,13 @@ test('shared operation history finds loaded records locally and preserves contro
   await page.clock.install();
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   const before = reads;
+  const pages = page.getByRole('navigation', {name: 'List pages'});
+  await expect(list.locator('details')).toHaveCount(23);
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 21–40 of 500');
+  await expect(list.locator('[data-id="jobs:history-fixture"]')).toBeVisible();
+  await expect(list.locator('[data-operation-state="running"]')).toBeVisible();
+  await expect(list.locator('details')).toHaveCount(23);
   for (const query of [
     ' CREATE-BACKUP ',
     'create backup',
@@ -2204,7 +2211,7 @@ test('shared operation history finds loaded records locally and preserves contro
       ['mixedoperator', 'application operations', 'verifyingsnapshot'].includes(
         query,
       )
-        ? 503
+        ? 23
         : 1,
     );
   }
@@ -2941,3 +2948,50 @@ for (const allowed of [false, true]) {
     },
   );
 }
+
+test('audit history replaces rows per cursor and retains the submitted search until refresh', async ({page}, info) => {
+  const reads = [];
+  await page.route(/\/api\/(?:operation-)?audit(?:\?|$)/, (route) => {
+    const url = new URL(route.request().url());
+    const search = url.searchParams.get('search'),
+      before = Number(url.searchParams.get('before')) || 101;
+    reads.push({search, before, source: url.pathname.split('/').at(-1)});
+    const events = Array.from({length: 55}, (_, index) => ({
+      at: '2026-11-17T16:00:00Z',
+      actor: 'Fixture actor',
+      action: 'fixture.action.' + (100 - index),
+      target: 'panel',
+      outcome: 'succeeded',
+      sequence: 100 - index,
+    })).filter((event) => event.sequence < before && event.action.includes(search));
+    return route.fulfill({
+      json: {events: events.slice(0, 50), nextBefore: events.length > 50 ? events[49].sequence : null, limit: 10000},
+    });
+  });
+  await factorio(page, '#accounts');
+  const audit = page.locator('[data-audit-history]'),
+    rows = audit.locator('tbody tr'),
+    older = audit.getByRole('button', {name: 'Older events'}),
+    newer = audit.getByRole('button', {name: 'Newer events'});
+  await expect(rows).toHaveCount(50);
+  await audit.evaluate((element) => {
+    const section = element.closest('section');
+    const header = globalThis.document.querySelector('.product-shell');
+    globalThis.scrollTo(0, section.getBoundingClientRect().top + globalThis.scrollY - header.offsetHeight - 12);
+  });
+  await page.screenshot({path: info.outputPath('compact-audit-history.png')});
+  await expect(newer).toBeDisabled();
+  await audit.getByLabel('Filter actor, action or server').fill('fixture.action.99');
+  await audit.getByRole('combobox', {name: 'History', exact: true}).selectOption('operation-audit');
+  await older.click();
+  await expect(rows).toHaveCount(5);
+  await expect(rows.first()).toContainText('fixture.action.50');
+  await expect(older).toBeDisabled();
+  expect(reads.at(-1)).toEqual({search: '', before: 51, source: 'audit'});
+  await newer.click();
+  await expect(rows).toHaveCount(50);
+  await audit.getByRole('button', {name: 'Refresh audit history'}).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('fixture.action.99');
+  expect(reads.at(-1)).toEqual({search: 'fixture.action.99', before: 101, source: 'operation-audit'});
+});
