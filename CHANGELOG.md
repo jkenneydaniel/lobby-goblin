@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.43-alpha — 2026-11-17
+
+- Backups puts saved archives up front, with compact filters and expandable health details. Settings uses a responsive grid and narrower desktop inputs. (#194)
+- Long lists show one page at a time. Search still covers all loaded records, active operations and recovery items stay visible, and audit history fetches each page on demand. (#194)
+- Management updates reuse the enrolled recovery volume when Docker recreates its anchor container. The updater checks the anchor and volume against the enrolled fleet and Docker engine before resuming a saved update. (#195)
+
 ## 0.3.42-alpha — 2026-11-17
 
 - Operations keeps active jobs and recovery alerts current and loads completed history when the page opens or refreshes. (#191)
