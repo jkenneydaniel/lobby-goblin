@@ -178,10 +178,13 @@ test('software metadata access alone loads without fetching forbidden server sta
   await expect(page.getByRole('button', {name: 'Recover inspected state', exact: true})).toBeDisabled();
 });
 
-test('runtime snapshot creation preserves its disabled installation selector in preflight and submission', async ({page}) => {
+test('runtime snapshot creation sends its disabled installation selector directly to the host', async ({page}) => {
   await page.route('**/api/snapshots', async route => {const response = await route.fetch(), data = await response.json(); data.snapshots = data.snapshots.map(item => ({...item, image: 'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'})); await route.fulfill({json: data});});
-  const checked = [], created = [];
-  await page.route('**/api/creation-preflight', async route => {checked.push(route.request().postDataJSON()); await route.fulfill({json: {ready: true, checks: []}});});
+  const created = [], preflights = [];
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.endsWith('/creation-preflight'))
+      preflights.push(request.url());
+  });
   await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
   await login(page, 'fleet', 'Preview');
   await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
@@ -191,27 +194,37 @@ test('runtime snapshot creation preserves its disabled installation selector in 
   await expect(form.locator('[name=softwareMode]')).toBeDisabled();
   await expect(form.locator('[name=softwareMode]')).toHaveValue('runtime');
   await page.locator('#create-submit').click(); await expect.poll(() => created.length).toBe(1);
-  expect(checked[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
+  expect(preflights).toEqual([]);
   expect(created[0]).toMatchObject({softwareMode: 'runtime', snapshotId: 'f'.repeat(32)});
 });
 
-test('creation checks block failures and discard a late result after input changes', async ({page}) => {
+test('a late creation response leaves a reopened dialog alone', async ({page}) => {
+  let release;
+  const pending = new Promise(resolve => {release = resolve;});
+  await page.route('**/api/servers', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    await pending;
+    await route.fulfill({status: 202, json: {id: 'created-server', state: 'queued'}});
+  });
+  const open = page.getByRole('button', {name: 'Create server', exact: true});
+  const submit = page.locator('#create-submit');
+  const dialog = page.locator('#create-dialog');
+  const name = dialog.locator('[name=name]');
   await login(page, 'fleet', 'Preview');
-  await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
-  await page.getByRole('button', {name: 'Create server', exact: true}).click();
-  const form = page.locator('#create'); await form.locator('[name=name]').fill('Disposable setup');
-  let release, requests = 0, creates = 0;
-  await page.route('**/api/creation-preflight', async route => {requests++; await new Promise(resolve => {release = resolve;}); await route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}});});
-  await page.route('**/api/servers', async route => {if (route.request().method() === 'POST') creates++; await route.continue();});
-  await page.locator('#create-submit').click(); await expect.poll(() => requests).toBe(1);
-  await form.locator('[name=name]').fill('Changed setup'); release();
-  await expect(page.locator('#create-submit')).toBeEnabled();
-  expect(creates).toBe(0); await expect(page.locator('#creation-checks')).toBeEmpty();
-  await page.unroute('**/api/creation-preflight');
-  await page.route('**/api/creation-preflight', route => route.fulfill({json: {ready: false, checks: [{label: 'Memory', status: 'fail', message: 'Insufficient host capacity.'}]}}));
-  await page.locator('#create-submit').click();
-  await expect(page.locator('#creation-checks')).toContainText('Insufficient host capacity');
-  expect(creates).toBe(0);
+  await open.click(); await name.fill('First server');
+  const posted = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/servers'));
+  try {
+    await submit.click(); await posted;
+    await expect(submit).toBeDisabled();
+    await dialog.getByRole('button', {name: 'Close', exact: true}).click();
+    await open.click(); await name.fill('Another server');
+    const replied = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/servers'));
+    release(); await (await replied).finished();
+    await page.evaluate(() => new Promise(resolve => globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(resolve))));
+    await expect(dialog).toBeVisible();
+    await expect(name).toHaveValue('Another server');
+    await expect(submit).toBeEnabled();
+  } finally {release();}
 });
 test('Factorio historical selection warns before a downgrade and never submits unlisted search text',async({page})=>{
   await page.route('**/api/status',async route=>{const response=await route.fetch();await route.fulfill({json:{...await response.json(),version:'Version: 2.1.23 (build 80123, linux64, headless)',software:{mode:'runtime',provider:'factorio-headless'},image:'ghcr.io/jkenneydaniel/factorio-server:runtime-fc.1'}});});
@@ -1775,6 +1788,7 @@ test('extracted fleet host settings preserve a draft across navigation and expli
   await nav(page)
     .getByRole('link', {name: 'Host settings', exact: true})
     .click();
+  await expect(page.locator('#host-budget')).toBeEnabled();
   await expect(page.locator('#host-budget')).toHaveValue('15');
   await page
     .getByRole('button', {name: 'Reload current settings', exact: true})
@@ -2122,6 +2136,151 @@ function historyFixture(label = 'save', {required = true} = {}) {
     ],
   };
 }
+test('shared operation history finds loaded records locally and preserves controls and expansion on refresh', async ({
+  page,
+}, info) => {
+  const value = historyFixture('create-backup');
+  const sample = value.operations[0];
+  Object.assign(sample, {
+    actor: 'MixedOperator',
+    message: 'Saved literal .* [world]?',
+    phase: 'VerifyingSnapshot',
+    parentId: 'Parent+42',
+  });
+  value.operations.push(
+    ...Array.from({length: 502}, (_, i) => ({
+      ...sample,
+      id: 'jobs:loaded-' + i,
+      sourceId: 'loaded-' + i,
+      parentId: undefined,
+      action: 'other-task',
+      message: 'Other outcome',
+      state: i === 0 ? 'failed' : i === 1 ? 'running' : 'succeeded',
+      recovery: {required: i === 0, actions: []},
+    })),
+  );
+  value.sources.push({
+    id: 'updates',
+    label: 'Image updates',
+    available: false,
+    message: 'Outcome unavailable.',
+  });
+  let reads = 0,
+    mutations = 0;
+  await page.route('**/api/operations', (route) => {
+    reads++;
+    return route.fulfill({json: value});
+  });
+  await page.route('**/api/operations/recovery', (route) => {
+    mutations++;
+    return route.fulfill({status: 409, json: {error: 'No recovery expected'}});
+  });
+  await factorio(page, '#operations');
+  const search = page.getByRole('searchbox', {
+      name: 'Find operations',
+      exact: true,
+    }),
+    show = page.getByLabel('Show operations', {exact: true}),
+    count = page.locator('[data-operation-count]'),
+    list = page.locator('[data-operation-list]');
+  await expect(count).toHaveText('503 matching of 503 loaded operations.');
+  // Pause fixture polling while proving that local input events make no reads.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  const before = reads;
+  const pages = page.getByRole('navigation', {name: 'List pages'});
+  await expect(list.locator('details')).toHaveCount(23);
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 21–40 of 500');
+  await expect(list.locator('[data-id="jobs:history-fixture"]')).toBeVisible();
+  await expect(list.locator('[data-operation-state="running"]')).toBeVisible();
+  await expect(list.locator('details')).toHaveCount(23);
+  for (const query of [
+    ' CREATE-BACKUP ',
+    'create backup',
+    'mixedoperator',
+    'application operations',
+    '.* [WORLD]?',
+    'verifyingsnapshot',
+    'jobs:history-fixture',
+    'history-fixture',
+    'PARENT+42',
+  ]) {
+    await search.fill(query);
+    await expect(list.locator('details')).toHaveCount(
+      ['mixedoperator', 'application operations', 'verifyingsnapshot'].includes(
+        query,
+      )
+        ? 23
+        : 1,
+    );
+  }
+  await show.selectOption('succeeded');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await expect(page.locator('[data-operation-sources]')).toContainText(
+    'Image updates: Outcome unavailable.',
+  );
+  await search.press('Escape');
+  await expect(show).toHaveValue('succeeded');
+  await expect(count).toHaveText('500 matching of 503 loaded operations.');
+  for (const [filter, total] of [
+    ['failed', 1],
+    ['interrupted', 1],
+    ['review', 2],
+    ['active', 1],
+  ]) {
+    await show.selectOption(filter);
+    await expect(count).toHaveText(
+      total + ' matching of 503 loaded operations.',
+    );
+  }
+  await search.fill('succeeded');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await page.getByRole('button', {name: 'Clear filters', exact: true}).focus();
+  await page.keyboard.press('Enter');
+  await expect(search).toBeFocused();
+  await expect(search).toHaveValue('');
+  await expect(show).toHaveValue('all');
+  await search.fill('Parent+42');
+  await list.locator('summary').click();
+  await search.fill('no match');
+  await expect(count).toHaveText('0 matching of 503 loaded operations.');
+  await search.fill('Parent+42');
+  await expect(list.locator('details')).toHaveAttribute('open', '');
+  expect(reads).toBe(before);
+  expect(mutations).toBe(0);
+  await show.selectOption('interrupted');
+  await search.focus();
+  await search.evaluate((input) => input.setSelectionRange(2, 6));
+  value.operations.push({...sample, id: 'jobs:new', parentId: 'Parent+42'});
+  // Trigger refresh without moving focus away from the input.
+  await page
+    .locator('[data-operation-refresh]')
+    .evaluate((button) => button.click());
+  await expect(count).toHaveText('2 matching of 504 loaded operations.');
+  await expect(search).toBeFocused();
+  expect(
+    await search.evaluate((input) => [
+      input.selectionStart,
+      input.selectionEnd,
+    ]),
+  ).toEqual([2, 6]);
+  await expect(show).toHaveValue('interrupted');
+  await expect(list.locator('details').first()).toHaveAttribute('open', '');
+  expect(reads).toBe(before + 1);
+  expect(mutations).toBe(0);
+  await page.screenshot({
+    path: info.outputPath('operation-find.png'),
+    fullPage: true,
+  });
+  expect(
+    await search.evaluate((input) => {
+      const r = input.getBoundingClientRect();
+      return r.left >= 0 && r.right <= globalThis.innerWidth;
+    }),
+  ).toBe(true);
+});
+
 test('shared operation history filters workflows and reviews recovery inside the Factorio server scope', async ({
   page,
 }, testInfo) => {
@@ -2211,13 +2370,149 @@ test('shared Rust operation history keeps an unavailable workflow explicit until
   await expect(page.locator('[data-operation-sources]')).toContainText(
     'Image updates: Outcome unavailable',
   );
+  await page.getByRole('searchbox', {name: 'Find operations'}).fill('BACKUP');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('succeeded');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '0 matching of 0 loaded operations.',
+  );
+  await expect(page.locator('[data-operation-sources]')).toContainText(
+    'Image updates: Outcome unavailable',
+  );
   unavailable = false;
   await page
     .getByRole('button', {name: 'Refresh history', exact: true})
     .click();
   await expect(page.locator('[data-operation-list]')).toContainText('backup');
+  await expect(
+    page.getByRole('searchbox', {name: 'Find operations'}),
+  ).toHaveValue('BACKUP');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '1 matching of 1 loaded operations.',
+  );
   await expect(page.locator('[data-operation-sources]')).toBeEmpty();
 });
+test('fleet operation history clears stale counts and expansion across hosts with identical public IDs', async ({
+  page,
+}) => {
+  const hostId = 'c'.repeat(32),
+    remotePrefix = '/hosts/' + hostId;
+  let release;
+  const held = new Promise((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/hosts', async (route) => {
+    const response = await route.fetch(),
+      value = await response.json();
+    value.hosts.push({
+      id: hostId,
+      name: 'Other fixture host',
+      local: false,
+      connected: false,
+    });
+    await route.fulfill({json: value});
+  });
+  await page.route('**/api/operations', (route) =>
+    route.fulfill({json: historyFixture('local-backup')}),
+  );
+  await page.route('**/api/hosts/' + hostId + '/operations', async (route) => {
+    await held;
+    await route.fulfill({json: historyFixture('remote-backup')});
+  });
+  await login(page, 'fleet', 'Preview');
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  const list = page.locator('[data-operation-list]'),
+    count = page.locator('[data-operation-count]'),
+    host = page.locator('#operations-view').getByLabel('Host', {exact: true}),
+    search = page.getByRole('searchbox', {name: 'Find operations'});
+  await list.locator('summary').click();
+  await search.fill('history-fixture');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('interrupted');
+  await host.selectOption(remotePrefix);
+  await expect(list).toBeEmpty();
+  await expect(count).toHaveText('Loading operations…');
+  await expect(search).toHaveValue('history-fixture');
+  await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
+  await expect(host).toHaveValue(remotePrefix);
+  await expect(search).toBeFocused();
+  await expect(count).toHaveText('Loading operations…');
+  release();
+  await expect(list).toContainText('remote backup');
+  await expect(count).toHaveText('1 matching of 1 loaded operations.');
+  await expect(list.locator('details')).not.toHaveAttribute('open', '');
+  await list.locator('summary').click();
+  await host.selectOption('');
+  await expect(list).toContainText('local backup');
+  await expect(list.locator('details')).not.toHaveAttribute('open', '');
+});
+test('fleet keeps jobs and recovery visible while Operations history waits for a refresh', async ({page}) => {
+  const history = historyFixture('fleet-backup', {required: false});
+  const job = {id: 'live', action: 'create', state: 'running', message: 'Creating a fixture server'};
+  let historyReads = 0;
+  await page.route('**/api/operations', (route) => {
+    historyReads++;
+    return route.fulfill({json: history});
+  });
+  await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => {
+    expect(new URL(route.request().url()).searchParams.get('progress')).toBe('1');
+    return route.fulfill({json: {jobs: [job], active: job.state === 'running' ? job : null}});
+  });
+  await page.clock.install();
+  await login(page, 'fleet', 'Preview');
+  await expect(page.locator('.product-operation')).toContainText(job.message);
+  expect(historyReads).toBe(0);
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await expect(page.locator('[data-operation-list]')).toContainText('fleet backup');
+  expect(historyReads).toBe(1);
+
+  job.state = 'interrupted';
+  job.recovery = {required: true, message: 'Review the fixture server.'};
+  await page.clock.runFor(12_000);
+  await expect(page.locator('.product-operation')).toBeHidden();
+  await expect(page.locator('.product-recovery')).toContainText(job.recovery.message);
+  expect(historyReads).toBe(1);
+  await page.getByRole('button', {name: 'Refresh history', exact: true}).click();
+  await expect.poll(() => historyReads).toBe(2);
+});
+
+for (const username of ['Viewer', 'Assigned'])
+  test(
+    'fleet operation history preserves visibility and host access for ' +
+      username,
+    async ({page}) => {
+      let reads = 0;
+      await page.route('**/api/operations', (route) => {
+        reads++;
+        return route.continue();
+      });
+      await login(page, 'fleet', username);
+      const operations = nav(page).getByRole('link', {
+        name: 'Operations',
+        exact: true,
+      });
+      // Existing fleet navigation keeps owner-only links for unscoped viewers.
+      if (username === 'Viewer') await expect(operations).toBeVisible();
+      else {
+        await expect(operations).toBeHidden();
+        await page.goto(origins.fleet + '/#operations');
+      }
+      await expect(
+        page.getByRole('searchbox', {name: 'Find operations'}),
+      ).toBeHidden();
+      expect(reads).toBe(0);
+      expect(
+        (
+          await page.request.get(
+            origins.fleet + '/api/hosts/' + 'a'.repeat(32) + '/operations',
+          )
+        ).status(),
+      ).toBe(403);
+    },
+  );
+
 test('fleet operation history drops a delayed previous host result and keeps recovery on the selected host', async ({
   page,
 }) => {
@@ -2281,17 +2576,71 @@ test('fleet operation history drops a delayed previous host result and keeps rec
 test('a non-game application receives the same operation history from its definition without custom browser code', async ({
   page,
 }) => {
+  // This case also runs independently of the suite's earlier creation journey.
+  await page.route('**/api/operations', (route) =>
+    route.fulfill({
+      json: historyFixture('application-backup', {required: false}),
+    }),
+  );
   await page.goto(origins.application);
   await page.getByLabel('Username', {exact: true}).fill('Owner');
   await page
     .getByLabel('Password', {exact: true})
     .fill('application-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+  await expect(page.locator('.product-shell')).toBeVisible();
+  // Seed a real controller job independently of earlier suite journeys. The
+  // browser route above remains deterministic; page.request uses the real API.
+  const session = await (
+      await page.request.get(origins.application + '/api/session')
+    ).json(),
+    configuration = await (
+      await page.request.get(origins.application + '/api/settings')
+    ).json();
+  const accepted = await page.request.post(origins.application + '/api/jobs', {
+    headers: {origin: origins.application, 'x-csrf-token': session.csrf},
+    data: {
+      action: 'save-settings',
+      params: {
+        values: {
+          ...configuration.values,
+          applicationName: 'History projection ' + Date.now(),
+        },
+        revision: configuration.revision,
+      },
+    },
+  });
+  expect(accepted.status()).toBe(202);
+  const job = await accepted.json();
+  await expect
+    .poll(async () => {
+      const snapshot = await (
+        await page.request.get(origins.application + '/api/jobs')
+      ).json();
+      return (
+        !snapshot.active &&
+        snapshot.jobs.find((item) => item.id === job.id)?.state
+      );
+    })
+    .toBe('succeeded');
   await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
   await expect(
     page.getByRole('heading', {name: 'Operation history', exact: true}),
   ).toBeVisible();
   await expect(page.locator('[data-operation-sources]')).toBeEmpty();
+  await page
+    .getByRole('searchbox', {name: 'Find operations'})
+    .fill('APPLICATION BACKUP');
+  await page
+    .getByLabel('Show operations', {exact: true})
+    .selectOption('succeeded');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '1 matching of 1 loaded operations.',
+  );
+  await page.getByRole('searchbox', {name: 'Find operations'}).fill('no-match');
+  await expect(page.locator('[data-operation-count]')).toHaveText(
+    '0 matching of 1 loaded operations.',
+  );
   const response = await page.request.get(
     origins.application + '/api/operations',
   );
@@ -2303,7 +2652,16 @@ test('a non-game application receives the same operation history from its defini
     label: 'Application operations',
     available: true,
   });
-  expect(feed.operations.length).toBeGreaterThan(0);
+  // jobOperation projects the accepted job's canonical action and stable ID.
+  expect(feed.operations).toContainEqual(
+    expect.objectContaining({
+      id: 'jobs:' + job.id,
+      source: 'jobs',
+      sourceId: job.id,
+      action: job.action,
+      state: 'succeeded',
+    }),
+  );
 });
 
 test('native update progress and specialized recovery share the global shell without submitting a game operation', async ({
@@ -2318,7 +2676,11 @@ test('native update progress and specialized recovery share the global shell wit
     message: 'Verifying the independent replacement',
   };
   const recovery = [];
-  let jobs = 0;
+  let jobs = 0, historyReads = 0;
+  await page.route('**/api/operations', (route) => {
+    historyReads++;
+    return route.fulfill({json: historyFixture('archived-backup')});
+  });
   await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => {
     if (route.request().method() === 'POST') {
       jobs++;
@@ -2327,9 +2689,9 @@ test('native update progress and specialized recovery share the global shell wit
         json: {error: 'No game operation expected.'},
       });
     }
-    expect(new URL(route.request().url()).searchParams.get('workflows')).toBe(
-      '1',
-    );
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get('workflows')).toBe('1');
+    expect(query.get('progress')).toBe('1');
     return route.fulfill({
       json: {
         jobs: [],
@@ -2348,11 +2710,16 @@ test('native update progress and specialized recovery share the global shell wit
     });
     return route.fulfill({json: native});
   });
+  await page.clock.install();
   await factorio(page);
   await expect(page.locator('.product-operation')).toContainText(
     native.message,
   );
   await expect(page.locator('[data-action=start]')).toBeDisabled();
+  expect(historyReads).toBe(0);
+  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await expect(page.locator('[data-operation-list]')).toContainText('archived backup');
+  expect(historyReads).toBe(1);
   native.state = 'interrupted';
   native.recovery = {
     required: true,
@@ -2362,8 +2729,9 @@ test('native update progress and specialized recovery share the global shell wit
       {id: 'open', label: 'Open backup recovery', href: '#backups'},
     ],
   };
-  await page.reload();
+  await page.clock.runFor(12_000);
   await expect(page.locator('.product-operation')).toBeHidden();
+  expect(historyReads).toBe(1);
   await page
     .getByRole('button', {name: 'Inspect update outcome', exact: true})
     .click();
@@ -2580,3 +2948,50 @@ for (const allowed of [false, true]) {
     },
   );
 }
+
+test('audit history replaces rows per cursor and retains the submitted search until refresh', async ({page}, info) => {
+  const reads = [];
+  await page.route(/\/api\/(?:operation-)?audit(?:\?|$)/, (route) => {
+    const url = new URL(route.request().url());
+    const search = url.searchParams.get('search'),
+      before = Number(url.searchParams.get('before')) || 101;
+    reads.push({search, before, source: url.pathname.split('/').at(-1)});
+    const events = Array.from({length: 55}, (_, index) => ({
+      at: '2026-11-17T16:00:00Z',
+      actor: 'Fixture actor',
+      action: 'fixture.action.' + (100 - index),
+      target: 'panel',
+      outcome: 'succeeded',
+      sequence: 100 - index,
+    })).filter((event) => event.sequence < before && event.action.includes(search));
+    return route.fulfill({
+      json: {events: events.slice(0, 50), nextBefore: events.length > 50 ? events[49].sequence : null, limit: 10000},
+    });
+  });
+  await factorio(page, '#accounts');
+  const audit = page.locator('[data-audit-history]'),
+    rows = audit.locator('tbody tr'),
+    older = audit.getByRole('button', {name: 'Older events'}),
+    newer = audit.getByRole('button', {name: 'Newer events'});
+  await expect(rows).toHaveCount(50);
+  await audit.evaluate((element) => {
+    const section = element.closest('section');
+    const header = globalThis.document.querySelector('.product-shell');
+    globalThis.scrollTo(0, section.getBoundingClientRect().top + globalThis.scrollY - header.offsetHeight - 12);
+  });
+  await page.screenshot({path: info.outputPath('compact-audit-history.png')});
+  await expect(newer).toBeDisabled();
+  await audit.getByLabel('Filter actor, action or server').fill('fixture.action.99');
+  await audit.getByRole('combobox', {name: 'History', exact: true}).selectOption('operation-audit');
+  await older.click();
+  await expect(rows).toHaveCount(5);
+  await expect(rows.first()).toContainText('fixture.action.50');
+  await expect(older).toBeDisabled();
+  expect(reads.at(-1)).toEqual({search: '', before: 51, source: 'audit'});
+  await newer.click();
+  await expect(rows).toHaveCount(50);
+  await audit.getByRole('button', {name: 'Refresh audit history'}).click();
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toContainText('fixture.action.99');
+  expect(reads.at(-1)).toEqual({search: 'fixture.action.99', before: 101, source: 'operation-audit'});
+});

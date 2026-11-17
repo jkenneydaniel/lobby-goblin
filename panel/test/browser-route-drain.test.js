@@ -10,14 +10,20 @@ const deferred = () => {
   return {promise, resolve};
 };
 const fakePage = () => ({
+  registrations: [],
+  removals: [],
   route(url, handler, options) {
     this.registered = {url, handler, options};
+    this.registrations.push(this.registered);
   },
   unroute(url, handler) {
     this.removed = {url, handler};
+    this.removals.push(this.removed);
   },
-  async unrouteAll(options) {
-    this.unregistered = options;
+  unrouteAll() {
+    throw new Error(
+      'Page interception must remain installed until context close.',
+    );
   },
 });
 
@@ -60,12 +66,12 @@ test(
     const running = page.registered.handler({}, {});
     await entered.promise;
     await assert.rejects(tracked.dispose(), /did not drain and unregister/);
-    assert.equal(page.unregistered, undefined);
+    assert.equal(page.removed, undefined);
     assert.equal(page.route, original);
     gate.resolve();
     await running;
     await Promise.resolve();
-    assert.equal(page.unregistered, undefined);
+    assert.equal(page.removed, undefined);
   },
 );
 
@@ -76,11 +82,21 @@ test(
     const page = fakePage(),
       hold = deferred(),
       original = page.route;
-    page.unrouteAll = () => hold.promise;
+    let removals = 0;
+    page.unroute = () => {
+      removals++;
+      return hold.promise;
+    };
     const tracked = trackPageRoutes(page, {timeout: 20});
+    await page.route('first', () => {});
+    await page.route('second', () => {});
     await assert.rejects(tracked.dispose(), /did not drain and unregister/);
     assert.equal(page.route, original);
+    assert.equal(removals, 1);
     hold.resolve();
+    await hold.promise;
+    await Promise.resolve();
+    assert.equal(removals, 1);
   },
 );
 
@@ -121,9 +137,9 @@ test('a callback arriving at the final completion boundary is drained before rem
     entered = deferred();
   let active = 0,
     late;
-  page.unrouteAll = async () => {
+  page.unroute = async () => {
     assert.equal(active, 0);
-    page.unregistered = true;
+    page.removed = true;
   };
   const tracked = trackPageRoutes(page);
   await page.route('fixture', async () => {
@@ -134,7 +150,7 @@ test('a callback arriving at the final completion boundary is drained before rem
   await entered.promise;
   const cleanup = tracked.dispose();
   const arrival = first.then(() => {
-    if (!page.unregistered)
+    if (!page.removed)
       late = page.registered.handler(
         {
           abort: async () => {
@@ -149,9 +165,105 @@ test('a callback arriving at the final completion boundary is drained before rem
   firstGate.resolve();
   await arrival;
   assert.ok(late, 'Completion-boundary route must enter before removal');
-  assert.equal(page.unregistered, undefined);
+  assert.equal(page.removed, undefined);
   lateGate.resolve();
   await late;
   await cleanup;
-  assert.equal(page.unregistered, true);
+  assert.equal(page.removed, true);
+});
+
+test('cleanup removes only owned registrations and keeps a fallback until context close', async () => {
+  const page = fakePage(),
+    foreign = () => {},
+    owned = () => {};
+  await page.route('foreign', foreign);
+  const tracked = trackPageRoutes(page);
+  await page.route('owned', owned, {times: 1});
+  const wrapped = page.registered.handler;
+  assert.deepEqual(page.registered.options, {times: 1});
+  const cleanup = tracked.dispose();
+  assert.equal(tracked.dispose(), cleanup);
+  await cleanup;
+  assert.deepEqual(page.removals, [{url: 'owned', handler: wrapped}]);
+  assert.equal(page.registered.url, '**/*');
+  let fallbacks = 0;
+  await page.registered.handler({fallback: () => fallbacks++});
+  assert.equal(fallbacks, 1);
+});
+
+test('cleanup retains owned removal failures', async () => {
+  const page = fakePage(),
+    failure = new Error('owned removal failed');
+  page.unroute = () => {
+    throw failure;
+  };
+  const tracked = trackPageRoutes(page);
+  await page.route('owned', () => {});
+  await assert.rejects(
+    tracked.dispose(),
+    (error) => error instanceof AggregateError && error.errors[0] === failure,
+  );
+});
+
+test('cleanup drains and reports late abort failures dispatched during owned removal', async () => {
+  const page = fakePage(),
+    entered = deferred(),
+    gate = deferred(),
+    failure = new Error('late abort failed during removal');
+  let wrapped, lateRejection;
+  page.unroute = () => {
+    const late = wrapped(
+      {
+        abort: async () => {
+          entered.resolve();
+          await gate.promise;
+          throw failure;
+        },
+      },
+      {},
+    );
+    lateRejection = assert.rejects(late, (error) => error === failure);
+  };
+  const tracked = trackPageRoutes(page);
+  await page.route('owned', () => {});
+  wrapped = page.registered.handler;
+  const cleanup = tracked.dispose();
+  let settled = false;
+  cleanup.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  await entered.promise;
+  await Promise.resolve();
+  assert.equal(settled, false);
+  gate.resolve();
+  await lateRejection;
+  await assert.rejects(
+    cleanup,
+    (error) => error instanceof AggregateError && error.errors[0] === failure,
+  );
+});
+
+test('the cleanup deadline bounds barrier registration before any owned removal', async () => {
+  const page = fakePage(),
+    gate = deferred(),
+    originalRoute = page.route;
+  page.route = function (url, handler, options) {
+    originalRoute.call(this, url, handler, options);
+    if (url === '**/*') return gate.promise;
+  };
+  const original = page.route,
+    tracked = trackPageRoutes(page, {timeout: 20});
+  await page.route('owned', () => {});
+  await assert.rejects(tracked.dispose(), /did not drain and unregister/);
+  assert.equal(page.route, original);
+  assert.deepEqual(page.removals, []);
+  gate.resolve();
+  await gate.promise;
+  await Promise.resolve();
+  assert.deepEqual(page.removals, []);
 });

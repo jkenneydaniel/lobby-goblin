@@ -1,3 +1,4 @@
+import {slicePage, listPageControls} from '../shared/list-pages.js';
 import {escapeHTML as esc, formatBytes, formatDate} from '../shared/view.js';
 import {serverKey} from './host-paths.js';
 
@@ -95,6 +96,7 @@ export function createStorageScreen({model, notice}) {
           : '';
     return `<article class="storage-entry" data-storage="${esc(key)}"><div class="storage-entry-main"><div class="storage-identity"><span class="game">${esc(model.snapshot.games.find((game) => game.id === item.game)?.name || item.game)} · ${esc(item.hostName)}</span><h2>${esc(item.name)}</h2><p>${currentState === 'assigned' ? 'Worlds, settings and local backups for this server.' : currentState === 'deleted' ? 'Data permanently deleted.' : `Server removed ${esc(formatDate(item.removedAt))}.`}</p><p class="storage-volume"><span>Volume</span> <code>${esc(item.volume || 'Not recorded')}</code></p></div><div class="storage-summary"><span class="storage-state ${currentState}">${label}</span>${unavailable ? '<p>Host offline · last known storage</p>' : currentState === 'retained' ? `<p>${operation?.action === 'inspect' ? 'Checking storage…' : item.storageStatus?.state === 'missing' || item.storageStatus?.state === 'unavailable' ? esc(item.storageStatus.message) : review ? `${esc(formatBytes(review.summary.bytes))} · ${esc(review.summary.files.toLocaleString())} files` : 'Size checked when you choose an action'}</p>` : currentState === 'assigned' ? '<p>Managed by its server</p>' : ''}${currentState === 'retained' && busy(item) && !operation ? '<p class="storage-host-busy">Another operation is in progress on this host. <a href="#operations">View progress</a></p>' : ''}</div><div class="storage-entry-actions">${currentState === 'assigned' ? ` ${unavailable ? '<span class="button" aria-disabled="true">Open server</span>' : `<a class="button" href="${esc(manage)}">Open server</a>`}` : currentState === 'retained' ? `<button data-storage-action="recover" data-key="${esc(key)}" aria-expanded="${selected?.key === key && selected.action === 'recover'}" aria-controls="storage-action-${esc(key)}" ${unavailable || busy(item) ? 'disabled' : ''}>Recover</button><button class="danger quiet" data-storage-action="remove" data-key="${esc(key)}" aria-expanded="${selected?.key === key && selected.action === 'remove'}" aria-controls="storage-action-${esc(key)}" ${unavailable || busy(item) ? 'disabled' : ''}>Delete data</button><button class="quiet" data-storage-action="details" data-key="${esc(key)}" aria-expanded="${selected?.key === key && selected.action === 'details'}" aria-controls="storage-action-${esc(key)}" ${unavailable || busy(item) ? 'disabled' : ''}>View details</button>` : ''}</div></div>${currentState === 'retained' ? actionView(item, key) : ''}</article>`;
   }
+  let page = 1;
   function paint(ctx, focusAction = false) {
     if (!ctx.isCurrent()) return;
     const active = document.activeElement,
@@ -126,6 +128,9 @@ export function createStorageScreen({model, notice}) {
               .toLocaleLowerCase()
               .includes(query)),
       );
+    const paged = slicePage(visible, page),
+      pageFocused = ctx.root.contains(active) && active.closest('.list-pages');
+    page = paged.page;
     ctx.render(`<div class="heading storage-heading"><div><h1>Server storage</h1><p>All server data across your hosts, including data kept after removal.</p></div><button data-refresh-storage ${loading ? 'disabled' : ''}>${loading ? 'Refreshing…' : 'Refresh'}</button></div>
       <div class="storage-filters" role="search" aria-label="Filter server storage"><label>Host<select data-storage-filter="host"><option value="">All hosts</option>${model.snapshot.hosts.map((host) => `<option value="${esc(host.id)}" ${filters.host === host.id ? 'selected' : ''}>${esc(host.name)}${host.connected ? '' : ' (offline)'}</option>`).join('')}</select></label><label>Storage status<select data-storage-filter="state">${[
         ['', 'All current storage'],
@@ -142,7 +147,7 @@ export function createStorageScreen({model, notice}) {
         )}</select></label><label>Find storage<input type="search" data-storage-filter="search" value="${esc(filters.search)}" placeholder="Server, application or volume"></label></div>
       ${problems.map((message) => `<p role="status">${esc(message)}</p>`).join('')}
       <p class="storage-count" role="status">${loading && !items.length ? 'Loading server storage…' : `${visible.length} ${visible.length === 1 ? 'entry' : 'entries'}`}${!loading && (filters.host || filters.state || filters.search) ? ' · <button class="quiet" data-clear-storage-filters>Clear filters</button>' : ''}</p>
-      <div class="storage-list">${visible.map(card).join('')}</div>${!loading && !visible.length ? `<div class="empty"><h2>${items.length ? 'No matching storage' : 'No server storage yet'}</h2><p>${items.length ? 'Try a different host, storage status or search.' : 'Storage will appear here when you create a server on a connected host.'}</p></div>` : ''}
+      ${listPageControls(paged)}<div class="storage-list">${paged.items.map(card).join('')}</div>${!loading && !visible.length ? `<div class="empty"><h2>${items.length ? 'No matching storage' : 'No server storage yet'}</h2><p>${items.length ? 'Try a different host, storage status or search.' : 'Storage will appear here when you create a server on a connected host.'}</p></div>` : ''}
       <p class="hint storage-footnote">Assigned storage stays with its server. Recovery and deletion are available for removed servers after a safety check. Only registered server volumes are listed. Published snapshots are managed in the <a href="#library">snapshot library</a>.</p>`);
     const focus = focusFilter
       ? ctx.root.querySelector(`[data-storage-filter="${focusFilter}"]`)
@@ -163,6 +168,8 @@ export function createStorageScreen({model, notice}) {
       );
       heading?.focus({preventScroll: true});
       heading?.scrollIntoView({block: 'center'});
+    } else if (pageFocused) {
+      ctx.root.querySelector('[data-list-range]')?.focus();
     } else if (focus) {
       focus.focus({preventScroll: true});
       if (range && focus.setSelectionRange) focus.setSelectionRange(...range);
@@ -174,6 +181,7 @@ export function createStorageScreen({model, notice}) {
       const filter = event.target.dataset.storageFilter;
       if (filter) {
         filters[filter] = event.target.value;
+        page = 1;
         paint(ctx);
         return;
       }
@@ -197,6 +205,11 @@ export function createStorageScreen({model, notice}) {
     ctx.on(ctx.root, 'click', async (event) => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if (button.dataset.listPage) {
+        page = Number(button.dataset.listPage);
+        paint(ctx);
+        return;
+      }
       if (button.hasAttribute('data-refresh-storage')) {
         await model.refresh();
         revision = '';
@@ -205,6 +218,7 @@ export function createStorageScreen({model, notice}) {
       }
       if (button.hasAttribute('data-clear-storage-filters')) {
         Object.assign(filters, {host: '', state: '', search: ''});
+        page = 1;
         paint(ctx);
         return;
       }
@@ -286,6 +300,9 @@ export function createStorageScreen({model, notice}) {
       );
       operation.id = job.id;
       if (!ctx.isCurrent()) return;
+      model.trackJob(item.hostId, job.id, (result) => {
+        operation.job = result;
+      });
       if (action !== 'inspect')
         notice(
           action === 'recover'
@@ -360,18 +377,7 @@ export function createStorageScreen({model, notice}) {
     failures.sort();
     for (const [key, operation] of pending) {
       const item = next.find((value) => serverKey(value) === key),
-        job = model.snapshot.jobs.find(
-          (value) =>
-            operation.id &&
-            value.hostId === item?.hostId &&
-            value.id === operation.id &&
-            value.action ===
-              {
-                inspect: 'inspectStorage',
-                recover: 'recoverStorage',
-                remove: 'deleteStorage',
-              }[operation.action],
-        ),
+        job = operation.job,
         inspected =
           operation.action === 'inspect' &&
           item?.storageReview?.token &&
@@ -445,7 +451,7 @@ export function createStorageScreen({model, notice}) {
       await load(ctx);
     },
     async refresh(ctx, options) {
-      if (options.reason !== 'model') await model.refresh();
+      if (!['model', 'poll'].includes(options.reason)) await model.refresh();
       await load(ctx);
     },
   };

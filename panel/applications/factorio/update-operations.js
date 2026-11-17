@@ -2,6 +2,7 @@ import {
   describeOperation,
   writeOperationRecord,
 } from '../../core/operation-record.js';
+import {needsOperationAttention} from '../../public/shared/operation-progress.js';
 
 export function updateDescriptor(job) {
   const interrupted = !!job.recovery?.interrupted;
@@ -52,6 +53,13 @@ export function updateOperationSource(updater) {
     async read() {
       await updater.refresh();
       return updater.jobs.map(updateOperation);
+    },
+    async readProgress() {
+      if (updater.refreshError) throw updater.refreshError;
+      return updater.jobs.flatMap((job) => {
+        const view = updateDescriptor(job);
+        return needsOperationAttention(view) ? [describeOperation(job, view)] : [];
+      });
     },
     async recover(input, actor) {
       return updateOperation(await updater.review(input, actor));

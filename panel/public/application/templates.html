@@ -15,7 +15,7 @@
       <div data-fields class="application-metrics"></div>
     </section>
     <section class="product-card">
-      <h2>Recent operations</h2>
+      <h2>Current operations</h2>
       <div id="jobs"></div>
     </section>
   </div>
@@ -34,6 +34,14 @@
       <button id="refresh-logs">Refresh logs</button>
     </div>
     <p data-description></p>
+    <div class="log-search-controls" role="search" aria-label="Search loaded log output">
+      <label>Search log lines<input data-log-search type="search" maxlength="200" placeholder="Find text in loaded lines" /></label>
+      <button data-clear-log-search type="button" disabled>Clear search</button>
+      <button data-copy-log-lines type="button" disabled>Copy shown lines</button>
+    </div>
+    <p class="hint">Searches only the recent output already loaded here. Refresh logs to fetch the latest output.</p>
+    <p data-log-line-count role="status" aria-live="polite" aria-atomic="true"></p>
+    <p data-log-copy-result role="status" aria-live="polite" aria-atomic="true"></p>
     <pre id="logs" tabindex="0" aria-label="Application logs"></pre>
   </section>
   <div data-forms class="product-workflow-grid"></div>
@@ -61,6 +69,7 @@
     </div>
     <div data-actions class="application-actions"></div>
     <p data-note role="status"></p>
+    <div data-table-pages></div>
     <div class="table-wrap">
       <table>
         <thead>

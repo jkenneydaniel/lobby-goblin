@@ -67,6 +67,14 @@ Settings → Diagnostics offers expandable, read-only checks with next steps,
 explicit unknown/manual states and a sanitized JSON support report. Controller
 failure does not block this page. Setup and connection failures link to it.
 
+Shared application and game logs support literal, case-insensitive line search,
+matching/total counts and clear/no-match states over the recent output already
+loaded. Refresh keeps the query, while session/server changes clear it. Searching
+does not fetch additional history or submit a console command. **Copy shown lines**
+explicitly copies the current excerpt, announces success after the clipboard write
+finishes, and gives manual-copy guidance when clipboard access is unavailable.
+It does not upload logs or fetch additional output.
+
 World creation retains the existing three stages and art direction. Account-owned
 drafts save automatically, including unfinished advanced edits, and resume from the
 library. Up to 20 custom presets reuse validated exact settings without a world
@@ -108,7 +116,7 @@ are tracked in [issue #77](https://github.com/jkenneydaniel/lobby-goblin/issues/
 | Priority | Addition | Acceptance boundary |
 | --- | --- | --- |
 | Next | Installed-engine play-style library | Custom presets are implemented; additional named engine presets must use exact engine values. |
-| Next | Seed shortlist and comparison | Persistent drafts are implemented; compare saved seeds with their exact configuration fingerprint and bound background rendering. |
+| Implemented | Choose a compared seed | Keep one in-editor reference and explicitly apply its seed and complete settings to the creation draft before Review/Create. Persistent shortlists remain separate work. |
 | Soon | Richer world metadata | Seed, playtime and last played must come from verified world data. |
 | Soon | Maintenance countdown and scheduled restart | Warn players, save/back up, persist timezone and cancellation. |
 | Soon | Game/mod compatibility planner | Check exact mod/client versions and explain upgrade/recovery limits; no silent game updates. |
@@ -123,9 +131,22 @@ maps are illustrative game art, not verified seed renders. Production continues
 to use the installed Factorio preview and existing sampled map renderer. The
 isolated UI fixture uses clearly synthetic imagery and has no Docker access.
 
-Generated mockup features such as seed comparison, an editable release-channel
+Generated mockup features such as persistent seed shortlists, an editable release-channel
 selector and a complete engine preset library are not claimed as implemented.
 No achievement eligibility badge is inferred from an image. Base-game 2.0.x
 compatibility remains the alpha scope. Browser review and automated checks do
 not establish game execution on Mac/Linux/ARM or live deployment acceptance.
 See [verification](VERIFICATION.md) for the exact tested boundary.
+
+### In-editor seed comparison
+
+Factorio creation can keep one completed map preview beside the current candidate
+while another seed or applied configuration is tried. The kept reference retains
+its seed and complete request settings; terrain preview identity alone does not
+identify gameplay rules. It stays only while that editor is open and clears when
+leaving, signing out or changing server scope. Keeping/removing a reference does
+not create or switch a world. **Use kept seed and settings** confirms replacement
+of the current seed, terrain and gameplay edits, preserves the world name and
+leaves switching unchecked. The controls, autosaved draft and existing Review/Create
+flow then use the complete captured configuration. Persistent shortlists remain
+separate work.

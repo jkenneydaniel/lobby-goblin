@@ -27,7 +27,14 @@ async function mockStorage(page, item, options = {}) {
     item.storageReview = review('synthetic-review-' + (++inspections));
     Object.assign(jobs[0], {state: 'succeeded', message: 'Storage checked.'});
   }, fail(message) { Object.assign(jobs[0], {state: 'failed', message}); }};
-  await page.route('**/api' + prefix + '/jobs**', route => route.fulfill({json: {jobs, active: jobs.find(job => job.state === 'running') || null}}));
+  await page.route('**/api' + prefix + '/jobs**', route => {
+    const query = new URL(route.request().url()).searchParams;
+    expect(query.get('progress')).toBe('1');
+    return route.fulfill({json: {
+      jobs: jobs.filter(job => job.state === 'running' || query.getAll('job').includes(job.id)),
+      active: jobs.find(job => job.state === 'running') || null,
+    }});
+  });
   await page.route('**/api' + prefix + '/removed-servers**', async route => {
     const request = route.request(), pathname = new URL(request.url()).pathname;
     if (request.method() === 'GET') return route.fulfill({json: {servers: [item]}});

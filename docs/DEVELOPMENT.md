@@ -170,6 +170,11 @@ There is no configurable live-panel URL or real Docker/game transport. The
 browser context blocks external requests, and recovery fixtures reject host
 mutations. Temporary accounts/storage are removed when fixture processes exit.
 
+Browser mock cleanup drains callbacks and removes only its owned page routes.
+A fallback page route remains until the test context closes, keeping interception
+installed while requests pass from page mocks to the context network guard.
+The context guard continues to record and block external requests during cleanup.
+
 Coverage includes scoped creation/completion/reload, setup completion/deferral,
 delayed authentication, game creation defaults, viewer permissions, expired
 sessions, cancellation of disruptive actions, and persisted recovery review.

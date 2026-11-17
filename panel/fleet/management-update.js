@@ -122,12 +122,13 @@ export class ManagementUpdate {
         if (/^[a-f0-9]{32}$/.test(name)) {
           const value = await this.load(name);
           assert(
-            ['complete', 'rolled-back'].includes(value.record.phase) &&
+            (value.record.phase === 'complete' && value.record.state === 'succeeded' ||
+              value.record.phase === 'rolled-back' && value.record.state === 'failed') &&
               value.record.pending === null,
             'Recover the unfinished management update before planning another.',
             409,
           );
-          retained.push({id: name, services: value.plan.services});
+          retained.push({id: name, services: value.plan.services, imageId: value.plan.imageId});
         }
       const plan = await this.engine.plan({
         fleet: this.installation.id,

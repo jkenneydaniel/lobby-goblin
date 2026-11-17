@@ -2,6 +2,7 @@ import path from 'node:path';
 import {assert} from '../common.js';
 import {describeOperation, recordOperation} from '../core/operation-record.js';
 import {workflowJournal} from '../core/workflow-journal.js';
+import {needsOperationAttention} from '../public/shared/operation-progress.js';
 
 export function setupDescriptor(job) {
   const required =
@@ -38,6 +39,11 @@ export function setupOperationSource(setup) {
     label: 'Host setup',
     read: async () =>
       setup.jobs.map((job) => describeOperation(job, setupDescriptor(job))),
+    readProgress: async () =>
+      setup.jobs.flatMap((job) => {
+        const view = setupDescriptor(job);
+        return needsOperationAttention(view) ? [describeOperation(job, view)] : [];
+      }),
     async recover({id, operation, confirm}, actor) {
       const job = setup.jobs.find((job) => job.id === id);
       assert(
@@ -132,6 +138,10 @@ export function agentOperationSource(agent) {
     async read() {
       await agent.status();
       return agent.journal.operationSource.read();
+    },
+    async readProgress() {
+      await agent.status();
+      return agent.journal.operationSource.readProgress();
     },
     async recover({id}) {
       await agent.status();

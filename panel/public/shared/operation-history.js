@@ -1,4 +1,37 @@
+import {slicePage, paintListPageControls} from './list-pages.js';
 import {loadTemplates, part, text} from './templates.js';
+
+// Search only the checked public summary fields, never native payloads or events.
+export function selectOperationHistory(records, query, filter) {
+  const needle = query.trim().toLowerCase();
+  return records.filter((record) => {
+    const shown =
+      filter === 'all' ||
+      (filter === 'review'
+        ? record.recovery?.required
+        : filter === 'active'
+          ? ['queued', 'running'].includes(record.state)
+          : record.state === filter);
+    return (
+      shown &&
+      (!needle ||
+        [
+          record.action,
+          record.action.replaceAll('-', ' '),
+          record.actor,
+          record.sourceLabel,
+          record.message,
+          record.phase,
+          record.id,
+          record.sourceId,
+          record.parentId,
+        ].some(
+          (value) =>
+            typeof value === 'string' && value.toLowerCase().includes(needle),
+        ))
+    );
+  });
+}
 
 // This is a standard product component. Applications supply checked operation
 // providers on the server; no per-application history page or recovery dispatcher
@@ -25,8 +58,11 @@ export async function mountOperationHistory(
   const prefix = () => (locations.length ? locationControl.value : '');
   let snapshot = null,
     reading = null,
-    checked = 0;
+    page = 1;
   const opened = new Set();
+  const search = part(ctx.root, '[data-operation-search]'),
+    filterControl = part(ctx.root, '[data-operation-filter]'),
+    pagination = part(ctx.root, '[data-operation-pages]');
   function paint() {
     if (!ctx.isCurrent() || !snapshot) return;
     const list = part(ctx.root, '[data-operation-list]'),
@@ -43,16 +79,31 @@ export async function mountOperationHistory(
       text(view, 'p', source.label + ': ' + source.message);
       sources.append(view);
     }
-    const filter = part(ctx.root, '[data-operation-filter]').value;
     list.replaceChildren();
-    const records = snapshot.operations.filter(
-      (record) =>
-        filter === 'all' ||
-        (filter === 'review'
-          ? record.recovery?.required
-          : ['queued', 'running'].includes(record.state)),
+    const records = selectOperationHistory(
+      snapshot.operations,
+      search.value,
+      filterControl.value,
     );
-    for (const record of records) {
+    text(
+      ctx.root,
+      '[data-operation-count]',
+      records.length +
+        ' matching of ' +
+        snapshot.operations.length +
+        ' loaded operations.',
+    );
+    const priority = [],
+      history = [];
+    for (const record of records)
+      (record.recovery?.required || ['queued', 'running'].includes(record.state)
+        ? priority
+        : history
+      ).push(record);
+    const visible = slicePage(history, page);
+    page = visible.page;
+    paintListPageControls(pagination, visible);
+    for (const record of [...priority, ...visible.items]) {
       const view = template('operation-record'),
         details = part(view, 'details');
       details.dataset.id = record.id;
@@ -132,7 +183,6 @@ export async function mountOperationHistory(
       )
         throw Error('Unsupported operation history response.');
       snapshot = value;
-      checked = Date.now();
       paint();
     })();
     reading = pending;
@@ -146,12 +196,39 @@ export async function mountOperationHistory(
     generation++;
     reading = null;
     snapshot = null;
+    opened.clear();
+    page = 1;
+    pagination.replaceChildren();
     part(ctx.root, '[data-operation-list]').replaceChildren();
     part(ctx.root, '[data-operation-sources]').replaceChildren();
+    text(ctx.root, '[data-operation-count]', 'Loading operations…');
     await refresh();
   });
   ctx.on(part(ctx.root, '[data-operation-refresh]'), 'click', refresh);
-  ctx.on(part(ctx.root, '[data-operation-filter]'), 'change', paint);
+  function resetPage() {
+    page = 1;
+    paint();
+  }
+  ctx.on(pagination, 'click', (event) => {
+    const button = event.target.closest('[data-list-page]:not(:disabled)');
+    if (!button) return;
+    page = Number(button.dataset.listPage);
+    paint();
+  });
+  ctx.on(filterControl, 'change', resetPage);
+  ctx.on(search, 'input', resetPage);
+  ctx.on(search, 'keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    search.value = '';
+    resetPage();
+  });
+  ctx.on(part(ctx.root, '[data-operation-clear]'), 'click', () => {
+    search.value = '';
+    filterControl.value = 'all';
+    resetPage();
+    search.focus();
+  });
   ctx.on(ctx.root, 'click', async (event) => {
     const button = event.target.closest('button[data-operation-action]');
     if (!button || !ctx.root.contains(button)) return;
@@ -187,13 +264,7 @@ export async function mountOperationHistory(
   await refresh();
   return {
     async refresh(_ctx, reason = {}) {
-      if (
-        (reason.reason !== 'status' &&
-          reason.reason !== 'poll' &&
-          reason.reason !== 'model') ||
-        Date.now() - checked > 5000
-      )
-        await refresh();
+      if (reason.reason === 'reload') await refresh();
     },
   };
 }

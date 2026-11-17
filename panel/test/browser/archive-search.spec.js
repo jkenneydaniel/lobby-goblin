@@ -1,0 +1,799 @@
+import {test as base, expect} from '@playwright/test';
+import {origins, scope} from './playwright.config.js';
+import {trackPageRoutes} from './route-drain.js';
+
+const test = base.extend({
+  page: async ({page}, use) => {
+    const routes = trackPageRoutes(page),
+      errors = [],
+      external = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.context().route('**/*', (route) => {
+      if (
+        Object.values(origins).includes(new URL(route.request().url()).origin)
+      )
+        return route.continue();
+      external.push(route.request().url());
+      return route.abort();
+    });
+    try {
+      await use(page);
+    } finally {
+      await routes.dispose();
+    }
+    expect(errors).toEqual([]);
+    expect(external).toEqual([]);
+  },
+});
+const nav = (page) => page.getByRole('navigation', {name: /navigation/});
+const query = (page) =>
+  page.getByRole('searchbox', {name: 'Find archives', exact: true});
+const show = (page) =>
+  page.getByRole('combobox', {name: 'Show archives', exact: true});
+const count = (page) => page.locator('[data-archive-count]');
+const rows = (page) => page.locator('[data-archive-rows] tbody tr');
+const clear = (page) => page.locator('[data-archive-clear]');
+const exactName = 'Zulu .* [before]&+.zip';
+async function fixture(
+  page,
+  game,
+  role = 'admin',
+  validations = null,
+  health = undefined,
+  extra = [],
+) {
+  await page.clock.install();
+  const state = {
+    reads: 0,
+    jobs: [],
+    submitted: [],
+    policyWrites: [],
+    scheduleWrites: [],
+    empty: false,
+    validations,
+    health,
+  };
+  await page.route('**/api/backups', async (route) => {
+    state.reads++;
+    const response = await route.fetch(),
+      value = await response.json();
+    await route.fulfill({
+      json: {
+        ...value,
+        backups: state.empty
+          ? []
+          : [
+              {
+                relative: exactName,
+                modified: '2026-01-04T12:00:00Z',
+                size: 1024,
+                validation: {ok: true},
+              },
+              {
+                relative: 'alpha-failed.zip',
+                modified: '2026-01-03T12:00:00Z',
+                size: 512,
+                validation: {ok: false},
+              },
+              {
+                relative: 'ALPHA-unverified.zip',
+                modified: '2026-01-02T12:00:00Z',
+                size: 128,
+                validation: null,
+              },
+              {
+                relative: '<other>.zip',
+                modified: '2026-01-01T12:00:00Z',
+                size: 0,
+              },
+              ...extra,
+            ].map((item, index) => ({
+              ...item,
+              ...(state.validations
+                ? {validation: state.validations[index]}
+                : {}),
+            })),
+        health:
+          state.health === undefined
+            ? {
+                alerts: ['Synthetic archive warning'],
+                verifiedCount: 1,
+                latestAt: '2026-01-04T12:00:00Z',
+              }
+            : state.health,
+      },
+    });
+  });
+  await page.route(/\/api\/jobs(?:\?.*)?$/, (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON();
+      state.submitted.push({url: route.request().url(), body});
+      const job = {
+        id: 'archive-job-' + state.submitted.length,
+        action: body.action,
+        state: 'succeeded',
+        message: 'Synthetic archive checked',
+        started: new Date().toISOString(),
+      };
+      state.jobs.unshift(job);
+      return route.fulfill({status: 202, json: job});
+    }
+    return route.fulfill({json: {jobs: state.jobs, active: null}});
+  });
+  await page.route('**/api/backup-retention', async (route) => {
+    const body = route.request().postDataJSON();
+    state.policyWrites.push(body);
+    if (body.operation === 'preview')
+      return route.fulfill({
+        json: {
+          id: 'archive-review',
+          candidates: [{relative: 'synthetic-old.zip', size: 4}],
+          protected: [],
+          bytes: 4,
+          cutoff: '2026-01-01T00:00:00Z',
+        },
+      });
+    if (state.holdPolicy) {
+      await new Promise((resolve) => {
+        state.releasePolicy = resolve;
+      });
+      return route.fulfill({
+        status: 503,
+        json: {error: 'Synthetic pending policy rejection'},
+      });
+    }
+    return route.fulfill({
+      status: 409,
+      json: {error: 'No policy save expected'},
+    });
+  });
+  await page.route('**/api/schedule', async (route) => {
+    state.scheduleWrites.push(route.request().postDataJSON());
+    if (state.holdSchedule)
+      await new Promise((resolve) => {
+        state.releaseSchedule = resolve;
+      });
+    return route.fulfill({
+      status: 503,
+      json: {error: 'Synthetic pending schedule rejection'},
+    });
+  });
+  if (game === 'factorio') {
+    await page.route('**/api/session', async (route) => {
+      const response = await route.fetch(),
+        value = await response.json();
+      await route.fulfill({
+        json:
+          role === 'delegated'
+            ? {
+                username: 'Assigned',
+                role: 'member',
+                csrf: 'fixture',
+                permissions: ['server.view', 'backups.read'],
+                allowedActions: [],
+                onboarding: {completed: true},
+              }
+            : {...value, onboarding: {completed: true}},
+      });
+    });
+    await page.goto(origins.factorio + scope + '/#backups');
+  } else {
+    await page.goto(origins.rust);
+    await page
+      .getByLabel('Username', {exact: true})
+      .fill(role === 'viewer' ? 'viewer' : 'admin');
+    await page
+      .getByLabel('Password', {exact: true})
+      .fill('rust-preview-password');
+    await page.getByRole('button', {name: 'Sign in', exact: true}).click();
+    if (role === 'viewer') {
+      await expect(page.locator('.product-shell')).toBeVisible();
+      return state;
+    }
+    await nav(page).getByRole('link', {name: 'Backups', exact: true}).click();
+  }
+  const total = 4 + extra.length;
+  await expect(count(page)).toHaveText(`${total} matching of ${total} loaded archives.`);
+  await page.clock.pauseAt(new Date(Date.now() + 1000));
+  return state;
+}
+
+for (const game of ['factorio', 'rust'])
+  test(
+    game +
+      ' finds loaded archive names and states locally while preserving drafts, review and scoped actions',
+    async ({page}, info) => {
+      const state = await fixture(page, game);
+      await page.getByLabel('Every (hours)', {exact: true}).fill('17');
+      await page.getByLabel('Keep backups for (days)', {exact: true}).fill('7');
+      await page
+        .getByRole('button', {name: 'Review cleanup', exact: true})
+        .click();
+      await expect(page.locator('#delete-old-backups')).toBeVisible();
+      await page.evaluate(() => {
+        globalThis.savedArchiveNodes = {
+          query: globalThis.document.querySelector('[data-archive-query]'),
+          schedule: globalThis.document.querySelector('#schedule-form'),
+          retention: globalThis.document.querySelector('#retention-form'),
+          review: globalThis.document.querySelector('#retention-review'),
+        };
+      });
+      const requests = [],
+        downloads = [];
+      page.on('request', (request) => {
+        if (request.url().includes('/api/'))
+          requests.push(
+            request.method() + ' ' + new URL(request.url()).pathname,
+          );
+      });
+      page.on('download', (download) =>
+        downloads.push(download.suggestedFilename()),
+      );
+      for (const [value, amount] of [
+        [' ALPHA ', 2],
+        ['.* [BEFORE]&+', 1],
+        ['^Zulu', 0],
+        ['manual|scheduled', 0],
+      ]) {
+        await query(page).fill(value);
+        await expect(rows(page)).toHaveCount(amount);
+      }
+      await expect(page.locator('.product-backup-health')).toContainText(
+        'Synthetic archive warning',
+      );
+      await expect(page.locator('[data-archive-rows]')).toContainText(
+        'No matching loaded archives',
+      );
+      await query(page).fill('alpha');
+      await show(page).selectOption('failed');
+      await expect(rows(page)).toHaveCount(1);
+      await expect(rows(page)).toContainText('alpha-failed.zip');
+      await show(page).selectOption('unverified');
+      await expect(rows(page)).toHaveCount(1);
+      await show(page).selectOption('verified');
+      await expect(count(page)).toHaveText('0 matching of 4 loaded archives.');
+      await query(page).press('Escape');
+      await expect(show(page)).toHaveValue('verified');
+      await expect(rows(page)).toHaveCount(1);
+      await clear(page).focus();
+      await page.keyboard.press('Enter');
+      await expect(query(page)).toBeFocused();
+      await expect(show(page)).toHaveValue('all');
+      await expect(query(page)).toHaveValue('');
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText([
+        exactName + 'Archive integrity verified',
+        'alpha-failed.zipVerification failed',
+        'ALPHA-unverified.zipNot verified',
+        '<other>.zipNot verified',
+      ]);
+      // Native composition keeps the input/neighboring forms mounted and defers row filtering.
+      await query(page).evaluate((input) => {
+        input.dispatchEvent(
+          new globalThis.CompositionEvent('compositionstart', {
+            bubbles: true,
+          }),
+        );
+        input.value = 'alpha';
+        input.dispatchEvent(
+          new globalThis.InputEvent('input', {
+            bubbles: true,
+            isComposing: true,
+          }),
+        );
+      });
+      await expect(rows(page)).toHaveCount(4);
+      await query(page).evaluate((input) =>
+        input.dispatchEvent(
+          new globalThis.CompositionEvent('compositionend', {bubbles: true}),
+        ),
+      );
+      await expect(rows(page)).toHaveCount(2);
+      expect(
+        await page.evaluate(() =>
+          Object.entries(globalThis.savedArchiveNodes).every(
+            ([key, value]) =>
+              value ===
+              globalThis.document.querySelector(
+                {
+                  query: '[data-archive-query]',
+                  schedule: '#schedule-form',
+                  retention: '#retention-form',
+                  review: '#retention-review',
+                }[key],
+              ),
+          ),
+        ),
+      ).toBe(true);
+      await expect(page.getByLabel('Every (hours)', {exact: true})).toHaveValue(
+        '17',
+      );
+      await expect(
+        page.getByLabel('Keep backups for (days)', {exact: true}),
+      ).toHaveValue('7');
+      await expect(page.locator('#delete-old-backups')).toBeVisible();
+      expect(requests).toEqual([]);
+      expect(downloads).toEqual([]);
+      expect(state.submitted).toEqual([]);
+      await query(page).fill('.* [BEFORE]&+');
+      await show(page).selectOption('verified');
+      const download = rows(page).getByRole('link', {
+        name: 'Download',
+        exact: true,
+      });
+      await expect(download).toHaveAttribute(
+        'href',
+        (game === 'factorio' ? scope : '') +
+          '/api/download?kind=backup&name=' +
+          encodeURIComponent(exactName),
+      );
+      await expect(
+        rows(page).getByRole('button', {name: 'Verify', exact: true}),
+      ).toHaveAttribute('data-backup-verify', exactName);
+      await query(page).focus();
+      await query(page).evaluate((input) => input.setSelectionRange(2, 7));
+      const before = state.reads;
+      await rows(page)
+        .getByRole('button', {name: 'Verify', exact: true})
+        .evaluate((button) => button.click());
+      await expect.poll(() => state.reads).toBeGreaterThan(before);
+      await expect(query(page)).toBeFocused();
+      await expect(query(page)).toHaveValue('.* [BEFORE]&+');
+      expect(
+        await query(page).evaluate((input) => [
+          input.selectionStart,
+          input.selectionEnd,
+        ]),
+      ).toEqual([2, 7]);
+      await expect(show(page)).toHaveValue('verified');
+      expect(
+        await query(page).evaluate(
+          (input) => input === globalThis.savedArchiveNodes.query,
+        ),
+      ).toBe(true);
+      expect(state.submitted[0].body).toMatchObject({
+        action: 'verify-backup',
+        params: {name: exactName},
+      });
+      expect(state.submitted[0].url).toBe(
+        origins[game] + (game === 'factorio' ? scope : '') + '/api/jobs',
+      );
+      if (game === 'factorio') {
+        await expect(
+          rows(page).getByRole('button', {name: 'Restore', exact: true}),
+        ).toHaveAttribute('data-backup-restore', exactName);
+        await rows(page)
+          .getByRole('button', {name: 'Restore', exact: true})
+          .click();
+        await expect(page.getByRole('dialog')).toContainText(
+          'Restore this backup',
+        );
+        await page
+          .getByRole('dialog')
+          .getByRole('button', {name: 'Cancel', exact: true})
+          .click();
+        expect(state.submitted).toHaveLength(1);
+      }
+      expect(
+        await page.evaluate(
+          () =>
+            globalThis.document.documentElement.scrollWidth <=
+            globalThis.innerWidth,
+        ),
+      ).toBe(true);
+      await page.screenshot({
+        path: info.outputPath(game + '-archive-find.png'),
+        fullPage: true,
+      });
+      state.empty = true;
+      await rows(page)
+        .getByRole('button', {name: 'Verify', exact: true})
+        .evaluate((button) => button.click());
+      await expect(count(page)).toHaveText('0 matching of 0 loaded archives.');
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'No matching loaded archives',
+      );
+      await expect(page.locator('.product-backup-health')).toContainText(
+        'Synthetic archive warning',
+      );
+    },
+  );
+
+for (const [game, role] of [['factorio', 'delegated']])
+  test(
+    role + ' archive find adds no tools and resets after disposal',
+    async ({page}) => {
+      const state = await fixture(page, game, role),
+        requests = [];
+      page.on('request', (request) => {
+        if (request.url().includes('/api/')) requests.push(request.method());
+      });
+      await query(page).fill('alpha');
+      await show(page).selectOption('failed');
+      await expect(count(page)).toHaveText('1 matching of 4 loaded archives.');
+      await expect(
+        page.locator(
+          '[data-backup-create],[data-backup-verify],[data-backup-restore],a[href*="kind=backup"],#schedule-form,#retention-form',
+        ),
+      ).toHaveCount(0);
+      expect(requests).toEqual([]);
+      expect(state.submitted).toEqual([]);
+      await nav(page)
+        .getByRole('link', {name: 'Overview', exact: true})
+        .click();
+      await nav(page).getByRole('link', {name: 'Backups', exact: true}).click();
+      await expect(query(page)).toHaveValue('');
+      await expect(show(page)).toHaveValue('all');
+      await expect(count(page)).toHaveText('4 matching of 4 loaded archives.');
+    },
+  );
+
+for (const [game, role] of [
+  ['factorio', 'admin'],
+  ['rust', 'admin'],
+  ['factorio', 'delegated'],
+])
+  test(
+    game +
+      ' ' +
+      role +
+      ' reads archive integrity evidence locally with native keyboard controls',
+    async ({page}) => {
+      const hash = 'a1'.repeat(32),
+        checked = '2026-11-07T10:12:13.000Z',
+        privateError =
+          'Unexpected token after JSON: {"password":"ARCHIVE-CONTENT"} /private/server/settings.json <img src=x onerror="fail()"> ' +
+          'LONG-PRIVATE-TEXT'.repeat(500),
+        state = await fixture(page, game, role, [
+          {
+            ok: true,
+            checked,
+            sha256: hash,
+            identity: 'PRIVATE-IDENTITY',
+            software: {name: 'PRIVATE-SOFTWARE'},
+          },
+          {
+            ok: false,
+            checked: 'invalid',
+            sha256: hash,
+            error: privateError,
+          },
+          null,
+          {ok: 1, checked: 123, sha256: hash, error: 'NOT-A-FAILED-CHECK'},
+        ]),
+        before = state.reads,
+        first = rows(page).nth(0).locator('details'),
+        failed = rows(page).nth(1).locator('details');
+      await expect(first).not.toHaveAttribute('open', '');
+      await first.locator('summary').focus();
+      await page.keyboard.press('Enter');
+      await expect(first).toHaveAttribute('open', '');
+      await expect(first).toContainText(
+        'Checked: ' +
+          (await page.evaluate(
+            (value) => new Date(value).toLocaleString(),
+            checked,
+          )),
+      );
+      await expect(first.locator('code')).toHaveText(hash);
+      await expect(first).toContainText(
+        'do not prove that the game can load or recover this backup',
+      );
+      await page.keyboard.press('Space');
+      await expect(first).not.toHaveAttribute('open', '');
+      await failed.locator('summary').click();
+      await expect(failed).toContainText('Checked: Unknown');
+      await expect(failed).toContainText('Recorded integrity check failed.');
+      for (const privateText of [
+        'ARCHIVE-CONTENT',
+        '/private/server',
+        'onerror',
+        'LONG-PRIVATE-TEXT',
+      ])
+        await expect(failed).not.toContainText(privateText);
+      await expect(failed.locator('code')).toHaveText(
+        'Not available in this recorded check',
+      );
+      await rows(page).nth(2).locator('summary').click();
+      await expect(rows(page).nth(2)).toContainText(
+        'No matching integrity check is recorded for this archive',
+      );
+      await rows(page).nth(3).locator('summary').click();
+      await expect(rows(page).nth(3)).toContainText('Checked: Unknown');
+      await expect(rows(page).nth(3).locator('code')).toHaveText(
+        'Not available in this recorded check',
+      );
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'PRIVATE-',
+      );
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'NOT-A-FAILED-CHECK',
+      );
+      await expect(page.locator('[data-archive-rows] img')).toHaveCount(0);
+      await show(page).selectOption('failed');
+      await expect(rows(page)).toHaveCount(1);
+      await expect(rows(page)).toContainText('alpha-failed.zip');
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText(
+        'alpha-failed.zipVerification failed',
+      );
+      expect(state.reads).toBe(before);
+      expect(state.submitted).toEqual([]);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
+      if (role === 'delegated')
+        await expect(rows(page).locator('button,a')).toHaveCount(0);
+      else
+        await expect(
+          rows(page).getByRole('button', {name: 'Verify', exact: true}),
+        ).toBeEnabled();
+      state.validations = [null, null, null, null];
+      await page.reload();
+      await expect(rows(page)).toHaveCount(4);
+      await expect(rows(page).locator('[data-archive-label]')).toHaveText([
+        exactName + 'Not verified',
+        'alpha-failed.zipNot verified',
+        'ALPHA-unverified.zipNot verified',
+        '<other>.zipNot verified',
+      ]);
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(hash);
+      await expect(page.locator('[data-archive-rows]')).not.toContainText(
+        'Recorded integrity check failed.',
+      );
+      expect(state.submitted).toEqual([]);
+    },
+  );
+
+for (const [game, role] of [
+  ['factorio', 'admin'],
+  ['rust', 'admin'],
+  ['factorio', 'delegated'],
+])
+  test(
+    game +
+      ' ' +
+      role +
+      ' reads backup health observations without adding actions or requests',
+    async ({page}) => {
+      const observed = '2026-11-07T10:12:13.000Z',
+        state = await fixture(page, game, role, null, {
+          alerts: ['Existing warning'],
+          count: 4,
+          totalBytes: 2048,
+          verifiedCount: 1,
+          latestAt: observed,
+          lastVerifiedAt: observed,
+          lastAttempt: {
+            state: 'failed',
+            finished: observed,
+            message: 'PRIVATE-ATTEMPT',
+            error: 'PRIVATE-ERROR',
+          },
+          nextScheduledAt: observed,
+          storage: {freeBytes: 0, path: '/PRIVATE/storage'},
+          software: {identity: 'PRIVATE-IDENTITY'},
+        }),
+        health = page.locator('.product-backup-health'),
+        value = (label) =>
+          health
+            .locator('dt')
+            .filter({hasText: label})
+            .locator('xpath=following-sibling::dd[1]'),
+        time = await page.evaluate(
+          (date) => new Date(date).toLocaleString(),
+          observed,
+        ),
+        before = state.reads;
+      await expect(value('Loaded archives')).toHaveText('4');
+      await expect(value('Loaded archive size')).toHaveText('2.0 KiB');
+      await expect(value('Latest successful integrity check')).toHaveText(time);
+      await expect(value('Last recorded backup attempt')).toHaveText('Failed');
+      await expect(value('Finished')).toHaveText(time);
+      await expect(value('Next scheduled backup (reported)')).toHaveText(time);
+      await expect(value('Observed free backup storage')).toHaveText('0 B');
+      await expect(health).toContainText('Existing warning');
+      await expect(health).toContainText(
+        '1 verified archives · Latest backup: ' + time,
+      );
+      await expect(health).toContainText('not an execution guarantee');
+      await expect(health).not.toContainText('PRIVATE');
+      await query(page).fill('Zulu');
+      await show(page).selectOption('verified');
+      await expect(rows(page)).toHaveCount(1);
+      await rows(page).locator('summary').focus();
+      await page.keyboard.press('Enter');
+      await expect(rows(page).locator('details')).toHaveAttribute('open', '');
+      if (role === 'admin') {
+        await page.getByLabel('Every (hours)', {exact: true}).fill('17');
+        await page
+          .getByLabel('Keep backups for (days)', {exact: true})
+          .fill('7');
+      } else await expect(rows(page).locator('button,a')).toHaveCount(0);
+      expect(state.reads).toBe(before);
+      expect(state.submitted).toEqual([]);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
+      state.health = {
+        alerts: [],
+        count: '0',
+        totalBytes: -1,
+        verifiedCount: false,
+        latestAt: 'invalid',
+        lastVerifiedAt: false,
+        nextScheduledAt: 'invalid',
+        storage: 'PRIVATE-STORAGE',
+        lastAttempt: {
+          state: 'PRIVATE-STATE',
+          finished: {},
+          message: 'PRIVATE-ATTEMPT',
+        },
+      };
+      if (role === 'admin') {
+        await rows(page)
+          .getByRole('button', {name: 'Verify', exact: true})
+          .click();
+        await expect.poll(() => state.reads).toBeGreaterThan(before);
+        await expect(query(page)).toHaveValue('Zulu');
+        await expect(show(page)).toHaveValue('verified');
+        await expect(
+          page.getByLabel('Every (hours)', {exact: true}),
+        ).toHaveValue('17');
+        await expect(
+          page.getByLabel('Keep backups for (days)', {exact: true}),
+        ).toHaveValue('7');
+        expect(state.submitted).toHaveLength(1);
+        expect(state.submitted[0].body).toMatchObject({
+          action: 'verify-backup',
+          params: {name: exactName},
+        });
+      } else await page.reload();
+      await expect(health.locator('dd')).toHaveText(Array(7).fill('Unknown'));
+      await expect(health).not.toContainText('PRIVATE');
+      await expect(health).not.toContainText(time);
+      state.empty = true;
+      state.health = {
+        alerts: [],
+        count: 0,
+        totalBytes: 0,
+        verifiedCount: 0,
+        storage: {freeBytes: 0},
+        lastAttempt: {state: 'interrupted'},
+      };
+      await page.reload();
+      await expect(count(page)).toHaveText('0 matching of 0 loaded archives.');
+      await expect(value('Loaded archives')).toHaveText('0');
+      await expect(value('Loaded archive size')).toHaveText('0 B');
+      await expect(value('Observed free backup storage')).toHaveText('0 B');
+      await expect(value('Last recorded backup attempt')).toHaveText(
+        'Interrupted',
+      );
+      await expect(value('Finished')).toHaveText('Unknown');
+      state.health = null;
+      await page.reload();
+      await expect(health).toHaveText(
+        'Backup health observations unavailable.',
+      );
+      expect(state.submitted).toHaveLength(role === 'admin' ? 1 : 0);
+      expect(state.policyWrites).toEqual([]);
+      expect(state.scheduleWrites).toEqual([]);
+    },
+  );
+
+test('Rust Viewer keeps its existing restricted navigation and receives no archive controls', async ({
+  page,
+}) => {
+  const state = await fixture(page, 'rust', 'viewer');
+  await expect(
+    nav(page).getByRole('link', {name: 'Backups', exact: true}),
+  ).toBeHidden();
+  await page.goto(origins.rust + '/#backups');
+  await expect(query(page)).toHaveCount(0);
+  await expect(
+    page.locator(
+      '[data-backup-create],[data-backup-verify],[data-backup-restore]',
+    ),
+  ).toHaveCount(0);
+  expect(state.reads).toBe(0);
+  expect(state.submitted).toEqual([]);
+});
+
+test('local archive filtering preserves pending saves, cleanup review and confirmation state', async ({
+  page,
+}) => {
+  const state = await fixture(page, 'rust');
+  try {
+    await page.getByLabel('Every (hours)', {exact: true}).fill('17');
+    await page.getByLabel('Keep backups for (days)', {exact: true}).fill('7');
+    await page
+      .getByRole('button', {name: 'Review cleanup', exact: true})
+      .click();
+    state.holdSchedule = true;
+    await page
+      .getByLabel('Create backups on a schedule', {exact: true})
+      .uncheck();
+    const schedule = page.getByRole('button', {
+      name: 'Save schedule',
+      exact: true,
+    });
+    await schedule.click();
+    await expect.poll(() => state.scheduleWrites.length).toBe(1);
+    const requests = [];
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) requests.push(request.method());
+    });
+    await query(page).fill('alpha');
+    await show(page).selectOption('failed');
+    await clear(page).click();
+    await expect(schedule).toBeDisabled();
+    await expect(page.locator('#delete-old-backups')).toBeVisible();
+    await expect(page.getByLabel('Every (hours)', {exact: true})).toHaveValue(
+      '17',
+    );
+    expect(requests).toEqual([]);
+    state.releaseSchedule();
+    await expect(schedule).toBeEnabled();
+    state.holdPolicy = true;
+    await page
+      .getByRole('button', {name: 'Save cleanup settings', exact: true})
+      .click();
+    await expect.poll(() => !!state.releasePolicy).toBe(true);
+    requests.length = 0;
+    await query(page).fill('alpha');
+    await show(page).selectOption('unverified');
+    await expect(
+      page.getByLabel('Keep backups for (days)', {exact: true}),
+    ).toBeDisabled();
+    await expect(page.locator('#delete-old-backups')).toBeVisible();
+    expect(requests).toEqual([]);
+    state.releasePolicy();
+    await expect(
+      page.getByLabel('Keep backups for (days)', {exact: true}),
+    ).toBeEnabled();
+    await page.locator('#delete-old-backups').click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await query(page).evaluate((input) => {
+      input.value = 'Zulu';
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    await expect(page.getByRole('dialog')).toContainText(
+      'Delete 1 old backups',
+    );
+    await expect(page.locator('#delete-old-backups')).toBeVisible();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', {name: 'Cancel', exact: true})
+      .click();
+    expect(state.submitted).toEqual([]);
+  } finally {
+    state.releaseSchedule?.();
+    state.releasePolicy?.();
+  }
+});
+
+test('archive pages stay bounded and local search includes archives on later pages', async ({page}, info) => {
+  const extra = Array.from({length: 40}, (_, index) => ({
+    relative: `fixture-${String(index + 1).padStart(2, '0')}.zip`,
+    modified: '2026-01-01T12:00:00Z',
+    size: 8192,
+  }));
+  const state = await fixture(page, 'factorio', 'admin', null, undefined, extra);
+  const pages = page.getByRole('navigation', {name: 'List pages'}),
+    health = page.getByText('Backup health details', {exact: true});
+  await expect(page.getByRole('heading', {name: 'Backups', exact: true})).toHaveCount(1);
+  await expect(rows(page)).toHaveCount(20);
+  await page.screenshot({path: info.outputPath('compact-backups.png')});
+  await health.click();
+  await expect(page.locator('.backup-health-details')).toHaveAttribute('open', '');
+  await health.click();
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 21–40 of 44');
+  await expect(rows(page).first()).toContainText('fixture-17.zip');
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(rows(page)).toHaveCount(4);
+  await expect(pages.getByRole('button', {name: 'Next'})).toBeDisabled();
+  await query(page).fill('fixture-01.zip');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toContainText('fixture-01.zip');
+  await clear(page).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 1–20 of 44');
+  expect(state.reads).toBe(1);
+  expect(state.submitted).toEqual([]);
+});

@@ -58,7 +58,8 @@ if(process.env.UI_RETENTION_TEST==='1'){
 }
 if(process.env.UI_READY_TEST==='waiting'){status.ready=false;status.saveVerified=false;}
 
-const fixtureImage=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><rect width="512" height="512" fill="#506e37"/><path d="M0 100Q250 350 512 100V220Q200 450 0 220Z" fill="#467889"/><text x="30" y="475" fill="white" font-size="20">Synthetic preview fixture</text></svg>');
+// Synthetic PNG artwork; not an engine-generated map.
+const fixtureImage=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABs0lEQVR4nO3bQUpGMQwE4N7KG7gOUkLIIURE5L/Cf2qdK2SoMQxdzGY2hSze1wfpsveXnzdkI44Ekgjbvz6epZw6l+2XfaBANuJIIImwfXkAh85l+2WfKJCNOBJIImxfHsChc9l+2RcKZCOOBJII25cHcOhctl/2jQLZiCOBJML25QEcOpftlz1QIBtxJJBE2L48gEPnsv36i69rdQhSCmxCAikFNiGBlAKbkEBKgU1IIKXAJiSQU8AJCaQUcEICKQWckEBKASckkFLACQmkFHBCAjkFgpBASoEgJJBSIAgJpBQIQgIpBYKQQEqBICSQUyAJCaQUSEICKQWSkEBKgSQkkFIgCQmkFEhCAjkFjJBASgEjJJBSwAgJpBQwQgIpBYyQQEoBIySQU2Dy7lCLApN3h1oUmLw71KLA5N2hFgUm7w61KDB5d6hNgam7Q20KTN0dalNg6u5QmwJTd4faFJi6O9SmwNTdoeMKlLlruvPf9wJdCpQH0HTnv+8FuhQoD6Dpzn/fC3T+C5S5U1Jg6p3/vhfo/BcoD0BJgal3/vteoFOB+16AkEBKgftegJDgvxT4BUHdtkE2kqVhAAAAAElFTkSuQmCC','base64');
 let draftPreview=null,previewRequests=0;
 let playerSample=0;
 function previewPlayers(){playerSample++;return process.env.UI_LIVE_PLAYERS_TEST==='1'?{enabled:true,state:'live',world:snapshot.world,seed:snapshot.seed,updatedAt:new Date().toISOString(),players:[{name:'Preview engineer',x:playerSample*3,y:0,surface:snapshot.surface,color:[90,200,220]}]}:{enabled:false,state:'disabled',players:[]};}
@@ -107,7 +108,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='POST'&&req.url==='/api/onboarding'&&process.env.UI_ONBOARDING_TEST==='1'){data.session.onboarding={completed:true};res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(data.session.onboarding));}
   if(req.method!=='GET'){res.writeHead(403,{'content-type':'application/json'});return res.end('{"error":"This isolated preview cannot change the real server or accounts."}');}
-  const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/svg+xml'});return res.end(fixtureImage);}
+  const route=req.url.split('?')[0];if(route==='/api/world-preview-image'){res.writeHead(200,{'content-type':'image/png'});return res.end(fixtureImage);}
   if(route==='/api/world-preview'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify(draftPreview||{state:'idle'}));}
   if(route==='/api/players'){res.writeHead(200,{'content-type':'application/json'});return res.end(JSON.stringify({available:status.ready,players:status.players.map(name=>({name})),message:status.ready?'':'Factorio is not ready.'}));}
   if(route==='/api/map'&&new URL(req.url,'http://fixture').searchParams.get('format')==='compact-v1'){

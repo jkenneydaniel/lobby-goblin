@@ -234,13 +234,21 @@ export function mountProductShell({
         recovery.append(row);
       }
     },
-    notify(message, {error = false, timeout = error ? 10000 : 6500} = {}) {
+    notify(
+      message,
+      {error = false, timeout = error ? 10000 : 6500, source = ''} = {},
+    ) {
       const node = find('.product-feedback');
-      if (!message && node.dataset.error !== String(error)) return;
+      if (
+        !message &&
+        (node.dataset.error !== String(error) || node.dataset.source !== source)
+      )
+        return;
       clearTimeout(timer);
       node.textContent = message;
       node.hidden = !message;
       node.dataset.error = String(error);
+      node.dataset.source = source;
       node.setAttribute('role', error ? 'alert' : 'status');
       if (message && timeout)
         timer = setTimeout(() => {

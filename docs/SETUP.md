@@ -308,15 +308,17 @@ The map, world-preview and ZIP limits below apply to Factorio. Rust has separate
 - Saved maps are sampled overviews of explored Nauvis, capped at 2,048 chunks,
   80,000 objects and 24 MB. They are not full game graphics.
   Map → Map refresh settings controls automatic refresh after completed saves:
-  disable it or set a minimum interval of 0–1440 minutes (0 keeps every-save
-  refresh). This setting persists and does not change game autosaves. Cancel draft
-  in the world editor discards the draft only; submitted world creation continues.
+  disable it or choose a minimum interval of 15–1440 minutes. Older shorter
+  settings use the 15-minute minimum. Automatic exports run on a private save
+  copy while server controls and backups stay available. Factorio keeps its
+  own autosave schedule. Cancel draft in the world editor leaves submitted
+  world creation running.
 - Live player positions are off by default. Enabling them requires explicit
   acknowledgement that Lua commands disable achievements for that world; the
   panel creates a verified backup first. Turning tracking off does not undo this.
 - Save uploads: 128 MB. Backup ZIP uncompressed total: 512 MB. ZIP64 and encrypted
   ZIPs are unsupported. Backups stored on the same host are not disaster recovery.
-- World previews take a few seconds and can delay another management operation
-  until the current preview finishes. Version-specific world options target 2.0.77.
+- World previews and world generation share the preview worker budget.
+  Version-specific world options target 2.0.77.
 - Tests cover access controls and destructive-operation recovery, but this alpha
   has not received an independent security audit.

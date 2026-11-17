@@ -25,6 +25,7 @@ manager.state.snapshots=[{...snapshotRecord,...snapshotResult,created:snapshotMa
 manager.state.servers.push({id:'9'.repeat(32),game:'factorio',name:'Retired factory',state:'removed',volume:'disposable-retained-volume',removedAt:new Date().toISOString()});await manager.persist();
 manager.assertHost=async()=>{};
 const remoteId='d'.repeat(32),previewVersion='0.3.5-alpha';let remote=null,setupPlan=null;const setupJobs=[];
+let remoteBudget={memoryBudgetGiB:16,revision:0,allocatedMemoryGiB:3,availableMemoryGiB:13,dockerMemoryGiB:24,minMemoryBudgetGiB:3,maxMemoryBudgetGiB:22,hostHeadroomGiB:2,allocations:[{id:'e'.repeat(32),name:'Remote Friday factory',game:'factorio',gameGiB:2,controllerGiB:1,totalGiB:3}],updatedAt:null};
 const backend=http.createServer((req,res)=>{void(async()=>{
  assert(req.headers.authorization==='Bearer '+token,'Unauthorized',401);
  if(req.method==='GET'&&req.url==='/status')return json(res,200,{ready:true,version:'0.3.13-alpha',isolation:'broker-v1'});
@@ -39,7 +40,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
  if(req.url==='/host-setup-plan'){
   const input=await requestJSON(req);setupPlan=setupInput(input,previewVersion);return json(res,200,{...setupPlan,id:'e'.repeat(32),fingerprint:'SHA256:'+'a'.repeat(43),expires:Date.now()+900000,directory:'/opt/lobby-goblin-host-preview'});
  }
- if(req.url==='/host-setup'){
+ if(new URL(req.url,'http://fixture').pathname==='/host-setup'){
   if(req.method==='POST'){await requestJSON(req);remote={id:remoteId,name:setupPlan.name,origin:setupPlan.options.origin,connection:'persistent',local:false,connected:true,version:previewVersion,panelVersion:previewVersion,aligned:true,agentOnly:true};setupJobs.unshift({id:'setup',name:remote.name,host:setupPlan.host,state:'succeeded',message:'Host connected. You can create a server on it now.'});return json(res,202,setupJobs[0]);}
   return json(res,200,{jobs:setupJobs,active:null});
  }
@@ -50,6 +51,7 @@ const backend=http.createServer((req,res)=>{void(async()=>{
   if(route==='/agent-update-plan')return json(res,200,{id:'f'.repeat(32),current:remote.version,version:previewVersion});
   if(route==='/agent-update'){await requestJSON(req);remote.version=previewVersion;remote.aligned=true;return json(res,202,{state:'running'});}
  }
+ if(route==='/host-settings'){if(req.method==='GET')return json(res,200,remoteBudget);const input=await requestJSON(req);assert(input.revision===remoteBudget.revision,'Host settings changed. Reload current settings.',409);assert(Number.isInteger(input.memoryBudgetGiB)&&input.memoryBudgetGiB>=3&&input.memoryBudgetGiB<=22,'Synthetic host budget must be 3–22 GiB.',409);remoteBudget={...remoteBudget,memoryBudgetGiB:input.memoryBudgetGiB,revision:remoteBudget.revision+1,availableMemoryGiB:input.memoryBudgetGiB-3};return json(res,200,remoteBudget);}
  if(route==='/creation-preflight'){const body=await requestJSON(req);return json(res,200,{ready:true,checks:[{label:'Fixture host',status:'pass',message:'Disposable preview only.'}],application:body.game});}
  if(route==='/catalog')return json(res,200,{games:Object.values(catalog)});
  if(route==='/servers'){

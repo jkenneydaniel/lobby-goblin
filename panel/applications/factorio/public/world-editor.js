@@ -98,7 +98,8 @@ function baseline(options, base) {
   return value;
 }
 function baselineNote(options) {
-  if (draft.base === 'preset') return 'Your saved play style.';
+  if (draft.base === 'preset')
+    return 'Your selected terrain and gameplay settings.';
   return draft.base === 'copied' && canCopy(options)
     ? 'Copied from ' + options.copied.sourceWorld + '.'
     : draft.base === 'peaceful'
@@ -502,6 +503,42 @@ export function bindWorldEditor(
     getDraft: () => draft,
     isValid: () => !advancedDirty,
     onSeed: () => scheduleSave(),
+    onUse: async (selected, isReferenceCurrent) => {
+      if (
+        !(await confirmAction(
+          'Use kept seed ' + selected.seed + '?',
+          'This replaces your current seed, terrain and gameplay settings, including unapplied edits. Your world name is kept. Switching stays unchecked. Review the draft before creating a world.',
+          'Use kept seed',
+        )) ||
+        !isReferenceCurrent() ||
+        !isCurrent() ||
+        epoch !== editorEpoch ||
+        !form.isConnected
+      )
+        return false;
+      basics();
+      draft.seed = String(selected.seed);
+      draft.configuration = clone(selected.configuration);
+      // Reuse the existing selected-settings draft shape; no new stored format.
+      draft.base = 'preset';
+      draft.activate = false;
+      draft.inputs = null;
+      draft.advancedDirty = false;
+      form.elements.seed.value = draft.seed;
+      form.elements.activate.checked = false;
+      form.querySelectorAll('[name=base]').forEach((i) => (i.checked = false));
+      form
+        .querySelector('#world-editor-settings')
+        .replaceChildren(settingsView(draft.configuration, template));
+      form.querySelector('#world-base-note').textContent =
+        'Kept preview · Seed ' + selected.seed;
+      bindFields();
+      previewChanged();
+      showImpact();
+      stage(2);
+      scheduleSave();
+      return true;
+    },
   });
   const showImpact = () => {
     form

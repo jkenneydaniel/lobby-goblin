@@ -29,8 +29,8 @@ controller routes and their HTTP methods/roles, and backup strategy/format.
 checks configuration, explicit action/route permissions, namespaced game grants,
 shared browser screen metadata, image policy, bounded helper declarations,
 the controller lifecycle, action implementations and updater
-interfaces before the listener starts. Historical v1 adapters remain readable through an
-explicit compatibility policy; built-in games use the complete v2 declaration.
+interfaces before the listener starts. Historical v1 contracts remain readable. Delegated game controls require
+an explicit access policy. Built-in games use the complete v2 declaration.
 Game parameter validation remains inside
 the module and is awaited before accepting a job. The conformance suite instantiates
 both real game adapters without contacting a host or starting a game.
@@ -49,8 +49,8 @@ Unknown counts remain `null`.
 and removal using the existing `jobs.json` array and host registry. It persists
 reservations and stages before effects, serializes controller history writes,
 and retains the operation lock through cleanup and final persistence. A completion
-or cleanup failure records a required recovery review and prevents subsequent
-operations. Existing completed records without the new metadata remain readable.
+or cleanup failure records a recovery review for work with an uncertain outcome.
+Existing completed records without the new metadata remain readable.
 No persisted-state version or directory migration is required.
 
 Operation request IDs deduplicate repeated submissions within retained history.
@@ -60,7 +60,13 @@ after an uncertain response so a retry can recover the original job. Child start
 and backup requests also carry stable parent-derived IDs. This is bounded
 single-process coordination, not a multi-replica queue or a power-loss guarantee.
 
-Startup marks unfinished records for review without replaying their actions.
+Startup marks unfinished records without replaying their actions. Older
+automatic Factorio map jobs stay in history without a manual hold. Automatic
+exports now run under the Factorio map queue, surface progress on the Map screen,
+and release the shared operation slot for server commands and backups. Startup
+reconciles interrupted workers and their private workspaces. A terminal
+SSH setup failure stays reviewable without making the local host busy or
+preventing its management update.
 Administrators use the shared recovery panel to check outcomes. Instance start/stop
 can be reconciled from current status or explicitly retried after inspection;
 restart, world changes and host operations are never blindly replayed. Host
@@ -312,8 +318,8 @@ never performs lifecycle actions.
 reserved shared-route policy and scoped session projection. Game action and
 endpoint permissions come from the selected module contract; custom grants use
 `game.<module-id>.<permission>` names. Core administrative routes and reserved
-backup actions cannot be relaxed. The compatibility action map applies only to
-callers without a new module policy. Game screen declarations under
+backup actions cannot be relaxed. A module without a policy grants no
+delegated game actions. Game screen declarations under
 `public/<game>/screens.js` are consumed by both browser and backend validation. `core/web.js` checks grants
 before proxying; `fleet/web.js` checks assignment before resource lookup and
 constructs the minimal assigned-server list. Existing admin/viewer contracts

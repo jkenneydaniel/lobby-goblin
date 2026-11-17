@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {recordOperation, jobOperation} from '../core/operation-record.js';
-import {OperationFeed} from '../core/operation-feed.js';
+import {OperationFeed, jobOperationSource, readJobsSnapshot} from '../core/operation-feed.js';
 import {workflowJournal} from '../core/workflow-journal.js';
 import {
   setupOperationSource,
@@ -143,6 +143,7 @@ test('native transaction history survives restart and later transactions, retain
   assert.equal(snapshot[0].state, 'interrupted');
   assert.equal(snapshot[0].recovery.required, true);
   assert.equal(snapshot[0].parentId, parent.id);
+  assert.equal((await restarted.operationSource.readProgress())[0].recovery.required, true);
   assert.doesNotMatch(JSON.stringify(snapshot), /credentials|hidden/);
   first.phase = 'recovered';
   await restarted.write(first);
@@ -154,6 +155,7 @@ test('native transaction history survives restart and later transactions, retain
   await restarted.write(second);
   const retained = await restarted.operationSource.read();
   assert.equal(retained.length, 2);
+  assert.deepEqual(await restarted.operationSource.readProgress(), []);
   assert.equal(
     retained.find((record) => record.sourceId === first.id).state,
     'failed',
@@ -172,6 +174,38 @@ test('native transaction history survives restart and later transactions, retain
     ).state,
     'interrupted',
   );
+  assert.equal((await restarted.operationSource.readProgress())[0].recovery.required, true);
+  await writeJSON(path.join(history, first.id, 'operation.json'), {...first, phase: 'applying'});
+  assert.deepEqual((await restarted.operationSource.readProgress()).map((record) => record.sourceId), [first.id, second.id]);
+});
+
+test('progress returns live jobs, unresolved recovery, and only explicitly watched terminal jobs', async () => {
+  const jobs = [
+    {...job(), id: 'active'},
+    {...job(), id: 'recovery', state: 'interrupted', recovery: {required: true}},
+    {...job(), id: 'watched', state: 'succeeded'},
+    {...job(), id: 'completed', state: 'failed'},
+  ];
+  const operations = {status: () => ({jobs, active: jobs[0], recoveryRequired: true})};
+  const setup = setupOperationSource({jobs: [
+    {...job(), id: 'setup-history', state: 'succeeded'},
+    {...job(), id: 'setup-recovery', state: 'failed'},
+  ]});
+  let historyReads = 0;
+  const readHistory = setup.read;
+  setup.read = () => { historyReads++; return readHistory(); };
+  const feed = new OperationFeed({scope: 'host', sources: [jobOperationSource(operations), setup]});
+  const read = (query) => readJobsSnapshot(operations, feed, new URLSearchParams(query));
+  const progress = await read('progress=1&workflows=1&job=watched');
+  assert.deepEqual(progress.jobs.map(({id}) => id), ['active', 'recovery', 'watched']);
+  assert.deepEqual(progress.workflow.operations.map(({sourceId}) => sourceId), ['setup-recovery']);
+  assert.equal(progress.active, jobs[0]);
+  assert.equal(progress.recoveryRequired, true);
+  assert.equal(historyReads, 0);
+  assert.deepEqual((await read('progress=1')).jobs.map(({id}) => id), ['active', 'recovery']);
+  assert.equal((await read('')).jobs.length, 4);
+  assert.equal((await read('workflows=1')).workflow.operations.length, 2);
+  assert.equal(historyReads, 1);
 });
 test('independent update records retain one envelope and expose explicit world recovery without host paths', async (t) => {
   const root = await directory(t),

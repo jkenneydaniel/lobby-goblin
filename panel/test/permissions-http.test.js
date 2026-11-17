@@ -50,6 +50,14 @@ test('real fleet and scoped web enforce server assignments before proxying, sepa
  assert.equal((await f.request(member,one+'/api/download?kind=backup&name=private.zip')).status,403);
  const viewer=await f.login('Viewer','viewer-fixture-password');for(const user of [member,viewer]){assert.equal((await f.request(user,one+'/api/jobs?workflows=1')).status,403);assert.equal((await f.request(user,'/api/hosts/'+'c'.repeat(32)+'/jobs?workflows=1')).status,403);} assert.equal((await f.request(viewer,two+'/api/status')).status,200);assert.equal((await f.request(viewer,one+'/api/jobs',{action:'save'})).status,403);
 });
+test('assigned lists include only their applications display names without requesting a catalog',async t=>{
+ const f=await fixture(t,{games:{[one]:'status-page'}}),member=await f.login('Assigned','member-fixture-password');
+ const before=f.calls.length,listed=await(await f.request(member,'/api/assigned-servers')).json();
+ assert.deepEqual(listed.servers.map(item=>item.applicationName),['Status Page','Factorio']);
+ assert.deepEqual(listed.servers.map(item=>item.applicationKind),['application','game']);assert.equal(listed.servers[0].webProtocol,'http');assert.equal(listed.servers[1].webProtocol,undefined);
+ assert.deepEqual(f.calls.slice(before).map(call=>call.route),[one,remote]);
+ assert.ok(!JSON.stringify(listed).includes('never-public'));
+});
 test('permission changes revoke existing sessions and refresh available tools after reauthentication',async t=>{
  const f=await fixture(t),owner=await f.login('Owner','owner-fixture-password'),member=await f.login('Assigned','member-fixture-password');
  assert.equal((await f.request(owner,'/api/accounts',{username:'Assigned',operation:'grants',grants:{[remote]:['server.view']},revision:0,confirm:true})).status,200);
@@ -246,4 +254,14 @@ test('coordinated panel updates require administrator, CSRF and a displayed rele
  await f.request(owner,'/api/updates/settings',{enabled:true,channel:'preview',revision:0});
  assert.equal((await f.request(owner,routes[0],{action:'plan',version:'evil/runtime:latest'})).status,409);
  for(const route of routes){assert.equal((await f.request(owner,route)).status,200);assert.equal((await f.request(owner,route,{action:'plan',version:'99.0.0-alpha'})).status,200);assert.equal(f.calls.at(-1).user,'Owner');}
+});
+
+test('host capacity reads retain viewer scope while assigned reads and viewer budget writes stay blocked',async t=>{
+ const f=await fixture(t),viewer=await f.login('Viewer','viewer-fixture-password'),member=await f.login('Assigned','member-fixture-password'),paths=['/api/host-settings','/api/hosts/'+'c'.repeat(32)+'/host-settings'];
+ const before=f.calls.length;
+ for(const route of paths)assert.equal((await f.request(viewer,route)).status,200);
+ assert.deepEqual(f.calls.slice(before).filter(x=>x.route.endsWith('/host-settings')).map(x=>x.route),['/host-settings','/hosts/'+'c'.repeat(32)+'/host-settings']);
+ const after=f.calls.length;
+ for(const route of paths){assert.equal((await f.request(member,route)).status,403);assert.equal((await f.request(viewer,route,{memoryBudgetGiB:32,revision:0})).status,403);}
+ assert.equal(f.calls.length,after);
 });

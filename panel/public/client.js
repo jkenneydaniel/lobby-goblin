@@ -17,7 +17,7 @@ export function createApi({
       !raw &&
       body &&
       (route === '/jobs' ||
-        /(?:^|\/)servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove))?$/.test(
+        /(?:^|\/)servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove|limits))?$/.test(
           route,
         ) ||
         (route.endsWith('/jobs/recovery') && body.operation === 'retry'));

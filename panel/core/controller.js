@@ -21,7 +21,7 @@ import {validateApplicationModule} from './application-module.js';
 import {AuditLog,auditedResponse}  from './audit.js';
 import {Operations} from './operations.js';
 import {JobsRepository,ConfigurationRepository} from './storage/state-repositories.js';
-import {OperationFeed,jobOperationSource,operationProgressSnapshot} from './operation-feed.js';
+import {OperationFeed,jobOperationSource,readJobsSnapshot} from './operation-feed.js';
 import {validateConfiguration,validateController,validateUpdater,validateActionRequest,normalizeStatus,publicContract} from './game-contract.js';
 import {controllerAccess} from './routes.js';
 import {SoftwareWorkers} from './software-workers.js';
@@ -45,7 +45,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const audit=new AuditLog(state);
   if(maintenance.held)await audit.list();
   const operations=new Operations({failure:(error,job)=>retainOperationDiagnostic(state,error,{id:job.id,source:'application-operations',phase:job.phase||'unknown'}),record:event=>audit.append({...event,scope:env.FLEET_INSTANCE?'/servers/'+env.FLEET_INSTANCE:'standalone'}),getJobs:()=>jobs,setJobs:value=>{jobs=value;},getActive:()=>active,setActive:value=>{active=value;},persist:persistJobs,
-    retryable:job=>module.contract.actions[job.action]?.retry==='convergent',inspect:async job=>{
+    discardOnRestart:module.discardOnRestart,retryable:job=>module.contract.actions[job.action]?.retry==='convergent',inspect:async job=>{
       if(game.inspectOperation)return game.inspectOperation(job);
       for(const source of game.operationSources||[]){const observation=await source.inspectJob?.(job);if(observation)return observation;}
       game.invalidate();const value=normalizeStatus(module,await game.status());
@@ -64,6 +64,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
   const softwareWorkers=transport.brokered&&env.FLEET_ID&&module.managed?.softwareWorker?new SoftwareWorkers({docker,env,declaration:module.managed.softwareWorker}):null;
   const ctx={config,env,host,docker,every,runJob,stageMessage,softwareWorkers,
     get jobs(){return jobs;},get active(){return active;},get schedule(){return schedule;},
+    get backgroundAvailable(){return !maintenance.held&&!migrationPending&&!active&&!retentionConfiguring&&!operations.blocked&&!updater.busy&&!updater.pendingRestore;},
     get updater(){return updater;},get backups(){return backups;},get imageMigrationPending(){return migrationPending;}};
   let migrationPending=false,migrationLaunching=false,migrationError=null,migrationWorker=null;
   const game=validateController(module,await module.createController(ctx));
@@ -144,7 +145,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
     if(req.method==='GET'&&url.pathname==='/diagnostics')return json(res,200,await module.diagnostics({docker,container:config.container,version:updater.current,recentStatus:game.recentStatus(),locations:[...game.locations,{id:'backups',title:'Backup storage',path:backupDir},{id:'state',title:'Controller storage',path:state}]}));
     if(req.method==='GET'&&url.pathname==='/backups'){const items=await backups.list();return json(res,200,{backups:items,schedule,retention:retention.status(),health:await backups.health(items)});}
     if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
-    if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(operations,operationFeed):operations.status());
+    if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,await readJobsSnapshot(operations,operationFeed,url.searchParams));
     if(req.method==='GET'&&url.pathname==='/download'&&url.searchParams.get('kind')==='backup'){
       const name=url.searchParams.get('name'),file=await existingFile(backupDir,name),stat=await fs.stat(file);
       assert(name.endsWith(game.backupExtension||'.zip'),'Unsupported backup format.');

@@ -1,3 +1,47 @@
+import {slicePage, paintListPageControls} from './shared/list-pages.js';
+
+import {downloadJSON} from './diagnostics.js';
+
+export function selectInstalledItems(items, query, state) {
+  const needle = typeof query === 'string' ? query.trim().toLowerCase() : '';
+  return items.filter((item) => {
+    const name = item.title || item.name || item.id;
+    return (
+      (!needle ||
+        [name, item.id].some(
+          (value) =>
+            typeof value === 'string' && value.toLowerCase().includes(needle),
+        )) &&
+      (state === 'all' ||
+        (state === 'enabled' && !!item.enabled) ||
+        (state === 'disabled' && !item.enabled) ||
+        (state === 'modified' && !!item.modified) ||
+        (state === 'manual' && !item.modified && !item.source))
+    );
+  });
+}
+
+export function installedInventoryReport(value) {
+  const text = (input) => (typeof input === 'string' ? input : null);
+  return {
+    game: text(value.game),
+    scope: text(value.scope),
+    reportedScopeVersion: text(value.version),
+    items: value.items.map((item) => ({
+      id: text(item.id),
+      title: text(item.title),
+      version: text(item.version),
+      enabled: item.enabled === true,
+      managed: item.managed === true,
+      modified: item.modified === true,
+      sha256:
+        typeof item.sha256 === 'string' && /^[a-f\d]{64}$/i.test(item.sha256)
+          ? item.sha256
+          : null,
+    })),
+  };
+}
+
 const esc = (value) =>
   String(value ?? '').replace(
     /[&<>"']/g,
@@ -18,17 +62,27 @@ export function mountModLibrary(
       query: '',
       page: 1,
       mode: 'stopped',
+      installedQuery: '',
+      installedState: 'all',
     };
   saved.set(key, state);
   mounts.get(root)?.();
   const events = new AbortController();
   let disposed = false;
   let value = null,
+    inventory = null,
     loading = false,
     request = 0,
-    review = null;
+    review = null,
+    localPage = 1;
   const dispose = () => {
     disposed = true;
+    inventory = null;
+    inventoryControl();
+    if (state.tab === 'installed') {
+      installedCount.textContent = 'Installed list unavailable.';
+      results.replaceChildren();
+    }
     request++;
     events.abort();
     if (mounts.get(root) === dispose) mounts.delete(root);
@@ -39,10 +93,31 @@ export function mountModLibrary(
     <div class="ml-tabs" role="tablist" aria-label="Mod library"><button role="tab" data-tab="browse">Browse</button><button role="tab" data-tab="installed">Installed</button><button role="tab" data-tab="updates">Updates</button></div>
     <p class="ml-error" role="alert" hidden></p><p class="ml-status" role="status" aria-live="polite"></p>
     <div class="ml-controls"><form data-search><label>Find a mod<input name="query" type="search" maxlength="100" placeholder="Search names and descriptions"></label><button type="submit">Search</button></form><label>When applying changes<select data-mode><option value="stopped">Keep server stopped · start it myself</option><option value="restart">Save, stop, apply, and start automatically</option></select></label></div>
+    <div class="ml-controls" data-installed-controls hidden><label>Find installed items<input type="search" maxlength="100" placeholder="Search displayed name or ID" data-installed-query></label><label>Show installed items<select data-installed-state><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="modified">Modified locally</option><option value="manual">Added manually</option></select></label><button type="button" data-installed-clear>Clear filters</button></div><p data-installed-count role="status" hidden></p>
+    <div data-inventory hidden><button type="button" data-download-inventory disabled>Download installed inventory</button><p>Loaded file observations only. Factorio built-ins are excluded; Rust scope version is not its Steam build. Enabled files do not prove runtime loading. This is not an importable modpack or backup.</p></div>
     <p class="ml-impact"></p><button data-recover type="button" hidden>Recover mod change</button>
-    <div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
+    <div data-local-mod-pages></div><div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
     <details class="ml-account" hidden><summary>Factorio download account</summary><p>Use your Factorio username and service token. The token stays on this controller and is never sent back to your browser.</p><form data-account><label>Factorio username<input name="username" autocomplete="username" maxlength="100" required></label><label>Service token<input name="token" type="password" autocomplete="off" maxlength="256" required></label><button type="submit">Connect account</button><button type="button" data-disconnect hidden>Disconnect</button></form><p data-account-state></p></details>
     <dialog class="ml-review" aria-labelledby="ml-review-title"><h2 id="ml-review-title">Review mod change</h2><p data-review-error class="ml-error" role="alert" hidden></p><div data-review-content></div><div class="ml-review-actions"><button type="button" data-cancel>Cancel</button><button type="button" data-apply>Apply reviewed change</button></div></dialog>`;
+  const inventoryContainer = root.querySelector('[data-inventory]'),
+    inventoryButton = root.querySelector('[data-download-inventory]'),
+    installedControls = root.querySelector('[data-installed-controls]'),
+    installedQuery = root.querySelector('[data-installed-query]'),
+    installedState = root.querySelector('[data-installed-state]'),
+    installedClear = root.querySelector('[data-installed-clear]'),
+    installedCount = root.querySelector('[data-installed-count]'),
+    results = root.querySelector('.ml-results'),
+    localPages = root.querySelector('[data-local-mod-pages]');
+  installedQuery.value = state.installedQuery;
+  installedState.value = state.installedState;
+  let composing = false;
+  const canFindInstalled = () =>
+    !disposed &&
+    root.isConnected &&
+    mounts.get(root) === dispose &&
+    !loading &&
+    inventory &&
+    state.tab === 'installed';
   const $ = (selector) => root.querySelector(selector),
     all = (selector) => [...root.querySelectorAll(selector)],
     error = (text) => {
@@ -52,6 +127,18 @@ export function mountModLibrary(
         element.hidden = !text;
       }
     };
+  function inventoryControl() {
+    inventoryContainer.hidden = state.tab !== 'installed';
+    installedControls.hidden = installedCount.hidden =
+      state.tab !== 'installed';
+    const unavailable = !canFindInstalled();
+    installedQuery.disabled =
+      installedState.disabled =
+      installedClear.disabled =
+        unavailable;
+    inventoryButton.disabled = unavailable;
+    if (state.tab === 'installed') paintInstalled();
+  }
   function impact() {
     const mode = $('[data-mode]').value;
     $('.ml-impact').textContent =
@@ -68,6 +155,44 @@ export function mountModLibrary(
       ? `<button data-mod="${esc(item.id)}" data-operation="${item.enabled ? 'disable' : 'enable'}">${item.enabled ? 'Disable' : 'Enable'}</button><button data-mod="${esc(item.id)}" data-operation="remove">Remove</button>`
       : `<button data-mod="${esc(item.id)}" data-operation="install" ${item.available === false || installedVersion === item.version ? 'disabled' : ''}>${installedVersion === item.version ? 'Installed' : installedVersion ? 'Review update' : 'Review install'}</button>`;
     return `<article class="ml-item"><div class="ml-item-main"><h3>${esc(item.title || item.name || item.id)}</h3><p>${esc(item.summary || '')}</p><div class="ml-meta">${item.author ? `<span>By ${esc(item.author)}</span>` : ''}<span>${installedVersion ? 'Installed ' + esc(installedVersion) : 'Version ' + esc(item.version || 'unknown')}${!installed && installedVersion ? ' → ' + esc(item.version) : ''}</span>${installed ? `<span>${item.enabled ? 'Enabled' : 'Disabled'}</span>${item.modified ? '<span>Modified locally · automatic matching paused</span>' : !item.source ? '<span>Added manually</span>' : ''}` : ''}</div>${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">View on ${esc(value.source)}</a>` : ''}</div><div class="ml-item-actions">${primary}</div></article>`;
+  }
+  function setModBusy() {
+    all('[data-mod]').forEach(
+      (button) =>
+        (button.disabled ||=
+          busy() ||
+          value.recoveryRequired ||
+          (state.mode === 'stopped' && value.running) ||
+          (state.mode === 'hot' && !value.running) ||
+          value.scope === 'none'),
+    );
+  }
+  function paintInstalled() {
+    if (disposed || !root.isConnected || state.tab !== 'installed') return;
+    if (loading || !inventory) {
+      installedCount.textContent = loading
+        ? 'Loading installed items…'
+        : 'Installed list unavailable. Refresh to try again.';
+      results.replaceChildren();
+      return;
+    }
+    const matches = selectInstalledItems(
+      value.items,
+      state.installedQuery,
+      state.installedState,
+    );
+    installedCount.textContent =
+      matches.length +
+      ' matching of ' +
+      value.items.length +
+      ' loaded installed items.';
+    const visible = slicePage(matches, localPage);
+    localPage = visible.page;
+    paintListPageControls(localPages, visible);
+    results.innerHTML = visible.items.length
+      ? visible.items.map(row).join('')
+      : `<div class="ml-empty"><h3>${value.items.length ? 'No matching installed items' : 'No mods installed yet'}</h3><p>${value.items.length ? 'Try another name or state.' : 'Open Browse to find a mod for this server.'}</p></div>`;
+    setModBusy();
   }
   function render() {
     if (disposed || !root.isConnected) return;
@@ -108,9 +233,20 @@ export function mountModLibrary(
           value.errors.join(', ') +
           '. Refresh to try again.',
       );
-    $('.ml-results').innerHTML = value.items.length
-      ? value.items.map(row).join('')
-      : `<div class="ml-empty"><h3>${state.tab === 'updates' ? 'No updates found' : state.tab === 'installed' ? 'No mods installed yet' : 'No matching mods'}</h3><p>${state.tab === 'updates' ? 'Installed versions stay unchanged until you approve an update. Locally modified or unmatched plugins are skipped.' : state.tab === 'installed' ? 'Open Browse to find a mod for this server.' : 'Try a different search.'}</p></div>`;
+    if (state.tab === 'installed') paintInstalled();
+    else {
+      const updates = state.tab === 'updates';
+      let items = value.items;
+      if (updates) {
+        const visible = slicePage(items, localPage);
+        localPage = visible.page;
+        paintListPageControls(localPages, visible);
+        items = visible.items;
+      } else localPages.replaceChildren();
+      results.innerHTML = items.length
+        ? items.map(row).join('')
+        : `<div class="ml-empty"><h3>${updates ? 'No updates found' : 'No matching mods'}</h3><p>${updates ? 'Installed versions stay unchanged until you approve an update. Locally modified or unmatched plugins are skipped.' : 'Try a different search.'}</p></div>`;
+    }
     $('.ml-results').setAttribute('aria-busy', 'false');
     $('.ml-pagination').innerHTML =
       value.pages > 1
@@ -122,19 +258,16 @@ export function mountModLibrary(
       ? 'Account connected.'
       : 'Connect an account to download mods. Browsing does not require an account.';
     $('[data-disconnect]').hidden = !value.account?.connected;
-    all('[data-mod]').forEach(
-      (button) =>
-        (button.disabled ||=
-          busy() ||
-          value.recoveryRequired ||
-          (state.mode === 'stopped' && value.running) ||
-          (state.mode === 'hot' && !value.running) ||
-          value.scope === 'none'),
-    );
+    setModBusy();
   }
   async function load(refresh = false) {
     const current = ++request;
+    const tab = state.tab;
+    inventory = null;
     loading = true;
+    localPages.replaceChildren();
+    inventoryControl();
+    if (value?.tab === 'installed') results.replaceChildren();
     error('');
     $('.ml-results').setAttribute('aria-busy', 'true');
     $('.ml-status').textContent = 'Checking the mod library…';
@@ -150,6 +283,8 @@ export function mountModLibrary(
       );
       if (disposed || current !== request || !root.isConnected) return;
       value = result;
+      if (tab === 'installed' && result.tab === 'installed')
+        inventory = installedInventoryReport(result);
       render();
     } catch (problem) {
       if (current === request) {
@@ -158,7 +293,10 @@ export function mountModLibrary(
         $('.ml-results').setAttribute('aria-busy', 'false');
       }
     } finally {
-      if (current === request) loading = false;
+      if (current === request) {
+        loading = false;
+        inventoryControl();
+      }
     }
   }
   async function guarded(work) {
@@ -174,15 +312,30 @@ export function mountModLibrary(
     (event) => {
       const button = event.target.closest('button');
       if (!button || button.disabled) return;
+      if (button.hasAttribute('data-download-inventory')) {
+        if (
+          !disposed &&
+          root.isConnected &&
+          !loading &&
+          inventory &&
+          state.tab === 'installed'
+        )
+          downloadJSON(inventory, 'lobby-goblin-installed-mod-inventory.json');
+      }
       if (button.dataset.tab) {
         state.tab = button.dataset.tab;
-        state.page = 1;
+        state.page = localPage = 1;
         void load();
       }
       if (button.hasAttribute('data-refresh')) void load(true);
       if (button.dataset.page) {
         state.page = Number(button.dataset.page);
         void load();
+      }
+      if (button.dataset.listPage && !loading) {
+        localPage = Number(button.dataset.listPage);
+        if (state.tab === 'installed') paintInstalled();
+        else render();
       }
       if (button.dataset.mod)
         void guarded(async () => {
@@ -269,6 +422,57 @@ export function mountModLibrary(
     state.mode = event.target.value;
     if (value) render();
   });
+  installedQuery.addEventListener(
+    'input',
+    (event) => {
+      if (!canFindInstalled() || composing || event.isComposing) return;
+      state.installedQuery = installedQuery.value;
+      localPage = 1;
+      paintInstalled();
+    },
+    {signal: events.signal},
+  );
+  installedQuery.addEventListener(
+    'compositionstart',
+    () => {
+      composing = true;
+    },
+    {signal: events.signal},
+  );
+  installedQuery.addEventListener(
+    'compositionend',
+    () => {
+      composing = false;
+      if (!canFindInstalled()) return;
+      state.installedQuery = installedQuery.value;
+      localPage = 1;
+      paintInstalled();
+    },
+    {signal: events.signal},
+  );
+  installedState.addEventListener(
+    'change',
+    () => {
+      if (!canFindInstalled()) return;
+      state.installedState = installedState.value;
+      localPage = 1;
+      paintInstalled();
+    },
+    {signal: events.signal},
+  );
+  installedClear.addEventListener(
+    'click',
+    () => {
+      if (!canFindInstalled()) return;
+      composing = false;
+      state.installedQuery = installedQuery.value = '';
+      state.installedState = installedState.value = 'all';
+      localPage = 1;
+      paintInstalled();
+      installedQuery.focus();
+    },
+    {signal: events.signal},
+  );
   $('[data-account]').addEventListener('submit', (event) => {
     event.preventDefault();
     void guarded(async () => {

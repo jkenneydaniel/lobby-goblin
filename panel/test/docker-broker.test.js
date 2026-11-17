@@ -265,6 +265,7 @@ function engine(imageStore = 'classic') {
         value.State.Status = 'exited';
       }
       if (bits[2] === 'wait') return {StatusCode: 0};
+      if (bits[2] === 'update') Object.assign(value.HostConfig, data);
       if (bits[2] === 'exec') {
         const id = 'exec-' + ++serial;
         execs.set(id, {ContainerID: value.Id, ExitCode: 0});
@@ -404,6 +405,26 @@ async function fixture(t, {softwareWorker = false, imageStore = 'classic'} = {})
   };
 }
 const denied = (error) => [401, 403, 409].includes(error.status);
+test('only the broker host can resize a game within its bounds and engine memory budget', async t => {
+  const f=await fixture(t);
+  const item=f.seed(one), client=await f.instance(one), game=f.containers.get(item.container);
+  const giB=1024**3, request='/containers/'+item.container+'/update';
+  Object.assign(game.HostConfig,{Memory:2*giB,MemorySwap:4*giB,NanoCpus:1e9});
+  const limits={Memory:4*giB,NanoCpus:2.5e9};
+  await assert.rejects(client.docker('POST',request,limits),denied);
+  await assert.rejects(f.host.docker('POST',request,{...limits,RestartPolicy:{Name:'no'}}),denied);
+  await assert.rejects(f.host.docker('POST',request,{...limits,Memory:String(limits.Memory)}),denied);
+  await assert.rejects(f.host.docker('POST',request,{...limits,NanoCpus:2.2e9}),denied);
+  await assert.rejects(f.host.docker('POST','/containers/lobby-goblin-host-'+fleet+'/update',limits),denied);
+  await assert.rejects(f.host.docker('POST',request,{...limits,Memory:32*giB}),/headroom/);
+  await f.host.docker('POST',request,limits);
+  assert.deepEqual(f.calls.at(-1),{method:'POST',route:'/containers/'+game.Id+'/update',data:{...limits,MemorySwap:6*giB}});
+  await assert.rejects(f.host.docker('POST',request,{...limits,Memory:2*giB}),/Stop the server/);
+  game.State.Running=false;
+  await f.host.docker('POST',request,{...limits,Memory:2*giB});
+  assert.equal(game.HostConfig.Memory,2*giB);
+  assert.equal(game.HostConfig.MemorySwap,4*giB);
+});
 test('instance capabilities cannot invoke management coordination and the host RPC rejects arbitrary authority', async t => {
  const f = await fixture(t), client = await f.instance(one);
  await assert.rejects(client.managementUpdate({action: 'status'}), error => error.status === 403);

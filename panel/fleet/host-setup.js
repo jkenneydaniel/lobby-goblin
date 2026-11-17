@@ -1,5 +1,6 @@
 import {HostSetupRepository} from '../core/storage/state-repositories.js';
-import {recordSetupJobs} from './operation-sources.js';
+import {recordSetupJobs,setupDescriptor} from './operation-sources.js';
+import {needsOperationAttention} from '../public/shared/operation-progress.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
@@ -86,6 +87,14 @@ export class HostSetup{
  }
  async handle(req,res,url){
   if(url.pathname==='/host-setup-plan'){assert(req.method==='POST','Not found.',404);json(res,200,await this.plan(await requestJSON(req),req.headers['x-panel-user']||'administrator'));return true;}
-  if(url.pathname==='/host-setup'){if(req.method==='GET')json(res,200,{active:this.active,jobs:this.jobs});else{assert(req.method==='POST','Not found.',404);json(res,202,await this.install(await requestJSON(req),req.headers['x-panel-user']||'administrator'));}return true;}return false;
+  if(url.pathname==='/host-setup'){
+   if(req.method==='GET'){
+    const watched=url.searchParams.get('job');
+    const jobs=url.searchParams.get('progress')==='1'?this.jobs.filter(job=>job.id===watched||needsOperationAttention(setupDescriptor(job))):this.jobs;
+    json(res,200,{active:this.active,jobs});
+   }else{assert(req.method==='POST','Not found.',404);json(res,202,await this.install(await requestJSON(req),req.headers['x-panel-user']||'administrator'));}
+   return true;
+  }
+  return false;
  }
 }

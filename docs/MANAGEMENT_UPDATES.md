@@ -120,6 +120,12 @@ it does not change installed services. It enrolls the dedicated recovery volume
 and unstarted anchor when needed. Unknown/custom layouts, unavailable or
 active workflows and changed identities require review.
 
+If Docker recreates the anchor with a new container ID, the built-in updater
+can continue with the existing recovery volume and saved update. It verifies the
+anchor and volume against the enrolled fleet and Docker engine before updating.
+The updater stops for review if verification fails or if an existing anchor's
+recovery volume is missing.
+
 Inspect the retained update with `status`. Use `resume` with the same arguments
 as `apply` to reconcile an interrupted step. Before activation is committed,
 `rollback` with the same arguments restores the previous management metadata and
@@ -159,7 +165,10 @@ operator process dies requires offline identity-bound lock review using
    publication is retried without rerunning the update. A complete private receipt
    and Compose override keep later installation starts on the selected runtime.
 7. After confirmed success, exact stopped originals are removed so Compose selects
-   only current services. Snapshots and private original specifications remain.
+   only current services. The updater also removes its stopped metadata helpers
+   after success or rollback. A later review removes matching helpers left by
+   earlier coordinators when their private update records confirm a final outcome.
+   Snapshots and private original specifications remain.
    Failed cleanup retains the confirmed outcome and returns `cleanupRequired`;
    `resume` retries cleanup only. Startup refuses unfinished updates or cleanup.
 

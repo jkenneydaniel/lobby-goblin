@@ -1,3 +1,4 @@
+import {fleetPresentation} from '../applications/fleet-presentation.js';
 import {assert} from '../common.js';
 import {validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
@@ -205,9 +206,30 @@ export function gameCatalog(module) {
     id: module.id,
     name: module.name,
     kind: module.definition?.kind || 'game',
+    ...fleetPresentation(module),
     ...(module.managed.runtime?{softwareModes:[module.managed.software?.mode || 'image',module.managed.runtime.key || 'runtime'],runtimeImage:module.managed.runtime.imagePolicy.defaultImage,...(module.managed.runtime.key?{runtimeKey:module.managed.runtime.key,runtimeLabel:module.managed.runtime.label || 'Managed installation',defaultSoftwareMode:module.managed.software?.mode || 'image'}:{})}:{}),
     ...structuredClone(module.managed.catalog),
   };
+}
+
+export function validateResourceLimits({cpu, memoryGiB}, module, status = 400) {
+  const {minMemoryGiB, maxMemoryGiB} = module.managed.catalog.creation;
+  assert(
+    Number.isFinite(cpu) &&
+      cpu >= 0.5 &&
+      cpu <= 8 &&
+      cpu * 2 === Math.round(cpu * 2),
+    'CPU must be 0.5–8 in half-core steps.',
+    status,
+  );
+  assert(
+    Number.isInteger(memoryGiB) &&
+      memoryGiB >= minMemoryGiB &&
+      memoryGiB <= maxMemoryGiB,
+    `Choose ${minMemoryGiB}–${maxMemoryGiB} GiB for ${module.name}.`,
+    status,
+  );
+  return {cpu, memoryGiB};
 }
 
 export function validateManagedCreation(input, module) {
@@ -221,21 +243,10 @@ export function validateManagedCreation(input, module) {
       !/[\x00-\x1f\x7f";\\]/.test(input.name),
     'Use a server name of 1–80 characters without commands or control characters.',
   );
-  const cpu = Number(input.cpu ?? game.cpu),
-    memoryGiB = Number(input.memoryGiB ?? game.memoryGiB);
-  assert(
-    Number.isFinite(cpu) &&
-      cpu >= 0.5 &&
-      cpu <= 8 &&
-      cpu * 2 === Math.round(cpu * 2),
-    'CPU must be 0.5–8 in half-core steps.',
-  );
-  assert(
-    Number.isInteger(memoryGiB) &&
-      memoryGiB >= policy.minMemoryGiB &&
-      memoryGiB <= policy.maxMemoryGiB,
-    `Choose ${policy.minMemoryGiB}–${policy.maxMemoryGiB} GiB for ${module.name}.`,
-  );
+  const {cpu, memoryGiB} = validateResourceLimits({
+    cpu: Number(input.cpu ?? game.cpu),
+    memoryGiB: Number(input.memoryGiB ?? game.memoryGiB),
+  }, module);
   const seedRange=creationSeedRange(policy);
   const seed =
     input.seed === '' || input.seed == null ? null : Number(input.seed);

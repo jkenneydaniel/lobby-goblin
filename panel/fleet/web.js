@@ -1,3 +1,4 @@
+import {fleetPresentation} from '../applications/fleet-presentation.js';
 import {requireAdmin} from '../auth.js';
 import {AuditLog} from '../core/audit.js';
 import {fleetAssets} from './web-assets.js';
@@ -19,7 +20,7 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
   return resources;
  }
  const gateway=remoteGateway({env,controller,token});
- const web={accessResources,Accounts,sessionCookie:'fleet_session',accountRoutes:[],adminReadRoutes:['/host-pairing','/host-setup','/removed-servers','/application-releases'],assets:fleetAssets,diagnosticsReport:(version,data)=>({version,...data}),validateOnboarding:value=>assert(value.ready,'The host manager is unavailable.'),allowRoute:route=>/^(?:\/hosts\/[a-f0-9]{32})?\/(?:snapshots\/[a-f0-9]{32}(?:\/remove)?|removed-servers(?:\/[a-f0-9]{32}\/(?:inspect|recover|remove))?)$/.test(route)||/^\/servers(?:\/[a-f0-9]{32}(?:\/(?:snapshot|remove))?)?$/.test(route)||['/catalog','/application-releases','/snapshots','/host-settings','/hosts','/host-pairing','/host-setup','/removed-servers','/application-releases','/host-setup-plan','/creation-preflight'].includes(route)||/^\/hosts\/[a-f0-9]{32}\/(?:application-releases|catalog|creation-preflight|servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove))?|snapshots|jobs(?:\/recovery)?|operations(?:\/recovery)?|host-settings|disconnect|agent-status|agent-update|agent-update-plan)$/.test(route),
+ const web={accessResources,Accounts,sessionCookie:'fleet_session',accountRoutes:[],adminReadRoutes:['/host-pairing','/host-setup','/removed-servers','/application-releases'],assets:fleetAssets,diagnosticsReport:(version,data)=>({version,...data}),validateOnboarding:value=>assert(value.ready,'The host manager is unavailable.'),allowRoute:route=>/^(?:\/hosts\/[a-f0-9]{32})?\/(?:snapshots\/[a-f0-9]{32}(?:\/remove)?|removed-servers(?:\/[a-f0-9]{32}\/(?:inspect|recover|remove))?)$/.test(route)||/^\/servers(?:\/[a-f0-9]{32}(?:\/(?:snapshot|remove|limits))?)?$/.test(route)||['/catalog','/application-releases','/snapshots','/host-settings','/hosts','/host-pairing','/host-setup','/removed-servers','/application-releases','/host-setup-plan','/creation-preflight'].includes(route)||/^\/hosts\/[a-f0-9]{32}\/(?:application-releases|catalog|creation-preflight|servers(?:\/[a-f0-9]{32}\/(?:snapshot|remove|limits))?|snapshots|jobs(?:\/recovery)?|operations(?:\/recovery)?|host-settings|disconnect|agent-status|agent-update|agent-update-plan)$/.test(route),
   async dispatch(req,res,url,context){
    if(await gateway(req,res,url))return true;
    if(/^\/api\/hosts\/[a-f0-9]{32}\/operations(?:\/recovery)?$/.test(url.pathname)||/^\/api\/hosts\/[a-f0-9]{32}\/jobs$/.test(url.pathname)&&url.searchParams.has('workflows')){const user=await context.session(req);assert(user,'Please sign in.',401);requireAdmin(user);}
@@ -29,7 +30,7 @@ export async function startFleetWeb({env=process.env,port=Number(env.PORT||8080)
     const servers=[];
     for(const scope of Object.keys(user.grants||{}).slice(0,64)){
      if(scope==='standalone'||!validScope(scope)||!user.grants[scope].includes('server.view'))continue;
-     try{const item=await read(scope);if(item.state!=='removed')servers.push({id:item.id,name:item.name,game:item.game,state:item.state,address:item.address,manageUrl:scope+'/'});}catch{}
+     try{const item=await read(scope),application=registeredApplications().find(module=>module.id===item.game);if(item.state!=='removed')servers.push({id:item.id,name:item.name,game:item.game,applicationName:application?.name||item.applicationName||item.game,applicationKind:application?.definition?.kind||'game',...fleetPresentation(application),state:item.state,address:item.address,manageUrl:scope+'/'});}catch{}
     }
     json(res,200,{servers});return true;
    }

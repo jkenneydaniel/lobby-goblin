@@ -1,5 +1,227 @@
 # Changelog
 
+## 0.3.43-alpha — 2026-11-17
+
+- Backups puts saved archives up front, with compact filters and expandable health details. Settings uses a responsive grid and narrower desktop inputs. (#194)
+- Long lists show one page at a time. Search still covers all loaded records, active operations and recovery items stay visible, and audit history fetches each page on demand. (#194)
+- Management updates reuse the enrolled recovery volume when Docker recreates its anchor container. The updater checks the anchor and volume against the enrolled fleet and Docker engine before resuming a saved update. (#195)
+
+## 0.3.42-alpha — 2026-11-17
+
+- Operations keeps active jobs and recovery alerts current and loads completed history when the page opens or refreshes. (#191)
+- Administrators can edit CPU and memory limits for managed servers from the Servers page. Stop the server before lowering its memory limit. (#192)
+- Factorio's automatic map previews run in the background without holding up server operations. Enabled automatic refreshes run at least 15 minutes apart. (#192)
+
+## 0.3.41-alpha — 2026-11-16
+
+- Create Server submits directly to the selected host. Provisioning checks capacity and snapshot compatibility before allocating resources. (#188)
+- Interrupted automatic Factorio map refreshes stay in history while Stop and Backup remain available after restart. A failed SSH setup stays reviewable without blocking local server creation or management updates. (#188)
+- Delegated actions use each shipped application's explicit permission policy. The release retains the existing upgrade, recovery, JSON, and SQLite paths. (#189)
+
+## 0.3.40-alpha — 2026-11-13
+
+- Coordinated management updates remove their stopped storage helpers after completion or rollback. After installing this release, reviewing a future update also clears matching helpers left by earlier updates with confirmed outcomes. Recovery snapshots and volumes are preserved. (#187)
+
+## 0.3.39-alpha — 2026-11-09
+
+Milestone: **Understand loaded server availability**.
+
+- See a compact availability summary beside the loaded server result count and counts in the existing status options. Search, application and host narrow the summary; choosing a status keeps the alternatives visible.
+- Counts use the existing status classifier and authorized session records. Observations are the most recently received, and unavailable hosts may leave the loaded inventory incomplete, including hosts without cached records.
+- Assigned-server accounts retain their minimal inventory without availability counts or host-health disclosure. Filtering adds no requests, polling, mutations or persistence changes; existing result counts, permissions and keyboard behavior remain intact.
+
+This milestone includes LOB-58 (#184), with bundled release preparation and actual artifact, runtime and updater qualification tracked by LOB-59. Counts are loaded observations, not live verification. Acceptance uses synthetic fixtures; no separate security audit or deployment acceptance is claimed. Game images, provider pins and stored account, server and updater formats are unchanged. Publishing this alpha does not update installations or running servers.
+
+## 0.3.38-alpha — 2026-11-07
+
+Milestone: **Find installed mods before reviewing changes**.
+
+- In Installed, find a mod or plugin by its displayed name or ID with a trimmed, case-insensitive literal search. Combine it with All, Enabled, Disabled, Modified locally or Added manually to locate the intended item before reviewing a change.
+- See matching and loaded counts, distinct empty and no-match states, and Clear filters. Results keep their received order. Browse search, Updates and change modes stay separate.
+- Filtering makes no additional request or mod change. Download installed inventory still includes the complete successfully loaded list in received order, even when only some items match the filters. Existing permissions, account privacy, busy controls, reviews and confirmations remain intact.
+
+These are loaded file observations, not live verification or proof of runtime loading or plugin compatibility. Finding an item does not install, enable or update it. Acceptance uses synthetic fixtures; native compatibility and deployment acceptance are not claimed.
+
+This milestone includes LOB-56, with combined qualification and release preparation tracked by LOB-57. Publishing this alpha does not update installations or running servers.
+
+## 0.3.37-alpha — 2026-11-07
+
+Milestone: **Understand backup evidence before recovery**.
+
+- In Factorio and Rust backup lists, expand Integrity check details to see the recorded check time and a valid SHA-256 from an explicitly successful recorded check. Failed checks use a fixed failure message; missing, legacy or invalid details remain explicitly unknown or unavailable. Raw verifier errors and unrelated metadata are not added to the disclosure.
+- Read labelled backup-health observations from the existing response: loaded archive count and size, latest successful integrity check, last recorded backup-attempt state and finish time, reported next schedule and observed free backup storage. Valid zero values stay visible; missing or malformed values remain unknown. Existing alerts and verified/latest-backup observations are preserved.
+- These presentations add no request, job or automatic verification. Existing filters, keyboard disclosure, scoped actions, role/busy/confirmation controls and schedule/cleanup drafts remain in their established flows. Explicit Verify remains a separate existing action.
+
+These are recorded observations. Archive integrity does not prove game-load recovery, reported free storage is not a fresh capacity check, and a reported schedule does not guarantee execution. Existing escaped alerts can include historical backend job messages; this milestone does not broadly sanitize or change that alert policy.
+
+This bundle includes LOB-53 (#175) and LOB-54 (#176), with combined qualification and release preparation tracked by LOB-55. Game images, software-provider pins and world, storage, account and updater formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance uses synthetic fixtures; native recovery and deployment acceptance are not claimed.
+
+## 0.3.36-alpha — 2026-11-06
+
+Milestone: **Share the installed mod inventory**.
+
+- On Installed, choose Download installed inventory to save the complete loaded mod or plugin list as one local JSON report, including empty inventories and disabled, manual or modified entries in received order. Export makes no additional inventory request, job, provider download or automatic upload.
+- Share only game, inventory scope, reported scope version, item IDs/titles/reported versions, enabled/managed/modified flags and available valid received SHA-256 digests. Unknown versions and digests remain null; account, configuration, paths, URLs and server identity are excluded.
+- Export follows the accepted current Installed response and its request, tab, scope, mount and session ownership. Pending or failed loads cannot export retained stale data, and old disposed mounts cannot disable a replacement mount's valid report. Existing permissions, account privacy, mutation modes, review and busy/recovery restrictions remain intact.
+- Disposable management-update acceptance captures bounded private-safe Docker operation metadata from the original profile-selected host or broker, preserving original failure and no-retry behavior. Production error redaction is unchanged; this diagnostic improvement does not establish or fix the original hosted Docker failure cause.
+
+Reports describe loaded file observations, not live runtime loading/compilation or compatibility. Factorio built-ins are outside this mod-ZIP inventory; Rust's reported scope version is its inventory/framework scope, not its Steam build. This is not a modpack, import, backup or restore report.
+
+This bundle includes LOB-49 (#166) and fixture diagnostics LOB-51 (#168), with combined qualification and release preparation tracked by LOB-50. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Feature acceptance uses synthetic fixtures; native plugin and deployment acceptance are not claimed.
+
+## 0.3.35-alpha — 2026-11-06
+
+Milestone: **Find files inside saved snapshots**.
+
+- In View contents, expand Files and integrity hashes to find a file by a trimmed, case-insensitive literal relative-name fragment. Search covers the full received manifest before the existing 200-row display cap, so a matching file beyond the first 200 entries can be inspected in the panel.
+- Read distinct shown/matching/loaded counts, cap guidance and empty/no-match states. Clear file search and Escape clear only the file query, independently of library filters. Local edits make no requests, jobs, mutations or downloads; Download manifest still exports the complete unfiltered manifest.
+- Keep the native disclosure, query, focus/caret and composition usable through ordinary same-detail repaint. A different inspection, close, removal or disposal resets the file query. Existing scoped inspection, roles, stale/error/offline/busy fences and clone/delete contracts are preserved.
+
+The query matches loaded file names only, not hashes, sizes, file contents or a global filesystem. Finding a path does not verify its contents or establish restore suitability.
+
+This milestone includes LOB-47 (#162), with combined qualification and release preparation tracked by LOB-48. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native file/restore and deployment acceptance are not claimed.
+
+## 0.3.34-alpha — 2026-11-06
+
+Milestone: **Find the right saved backup archive**.
+
+- Find a loaded archive by a trimmed, case-insensitive literal name fragment, combined with the existing All, Integrity verified, Verification failed or Not verified state. Returned archive order and existing verification-label meanings are preserved.
+- See matching/loaded counts and distinct empty/no-match states while whole-list health warnings stay visible. Clear filters resets name and state and focuses search; Escape clears only name. Local filtering makes no requests, jobs, downloads or mutations.
+- Keep schedule and cleanup drafts, reviews and pending saves intact during local filtering. Filters, focused input and caret survive archive refresh within the same mounted workflow and reset on disposal. Exact scoped Verify/Download/optional Restore identities, permissions, busy guards and confirmations remain unchanged.
+
+Filtering covers only the loaded archive list and existing verification observations. Finding a match does not verify an archive or establish restore suitability.
+
+This milestone includes LOB-45 (#158), with combined qualification and release preparation tracked by LOB-46. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native archive/restore and deployment acceptance are not claimed.
+
+## 0.3.33-alpha — 2026-11-06
+
+Milestone: **Rank fleet servers by sampled usage**.
+
+- Choose **Sampled CPU, high to low** or **Sampled memory, high to low** in the existing Sort servers selector. Order uses raw received CPU percentages or container-memory bytes, rather than configured limits or formatted labels; CPU can exceed 100% because 100% represents one core.
+- Keep valid zero ahead of unavailable values, with deterministic name and scoped-identity ties. Ordering shares the display's host, server and running-state eligibility rules, so masked retained samples do not rank as available; CPU and memory validity remain independent.
+- Combine sampled order with existing search, application, host and status filters in Cards or Table. Existing scoped links, actions and restrictions remain intact; Clear filters keeps sort/view, and choices retain their existing session refresh/navigation behavior. Assigned accounts keep minimal cards and existing host/name ordering without resource choices or readouts.
+
+Sorting uses already loaded data without extra reads or mutations. Values remain the most recently received samples, without a freshness timestamp or simultaneous measurement guarantee. This adds no monitoring, sampling, capacity-pressure inference or refresh-timing guarantee.
+
+This milestone includes LOB-43 (#154), with combined qualification and release preparation tracked by LOB-44. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic fixtures; native game and deployment acceptance are not claimed.
+
+## 0.3.32-alpha — 2026-11-06
+
+Milestone: **Find retained operation outcomes**.
+
+- Find loaded operations across the shared game, application and fleet Operations view with trimmed, case-insensitive literal text over public actions, actors, source labels, messages, current phases and IDs.
+- Combine text with the existing Show operations selector: All operations, Needs review, In progress, Succeeded, Failed or Interrupted. Matching/loaded counts use the actual snapshot, including retained active/review records beyond 500; unavailable-source warnings stay visible even with no matches.
+- Clear filters resets text and Show while keeping the selected host and focusing search. Escape clears only text. Filtering uses the cached snapshot without extra reads or mutations; refresh preserves query, selection and same-host expansion, while host changes clear stale rows, counts and expansion.
+
+Search covers loaded retained records: the latest 500 plus retained in-progress and needs-review operations. It does not search all historical operations or private payloads. Existing role visibility, scoped recovery requests, confirmations and original outcomes are preserved.
+
+This milestone includes LOB-41 (#150), with combined qualification and release preparation tracked by LOB-42. Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic loopback fixtures; native game and deployment acceptance are not claimed.
+
+## 0.3.31-alpha — 2026-11-06
+
+Milestone: **Compare sampled resource usage across the fleet**.
+
+- Compare optional CPU and container-memory samples already received through existing status responses in Cards and Table. Keep sampled usage distinct from the labelled configured CPU and memory limits.
+- Read CPU on a per-core basis: 100% means one core, so multicore usage can exceed 100%. Valid zero CPU and memory samples remain visible; missing or invalid values show as unavailable independently.
+- Hide retained samples for offline, unavailable, removed or non-running servers. Administrators and viewers retain their existing scopes and action restrictions; assigned accounts retain minimal Cards without resource readouts.
+
+Resource presentation makes no additional queries or mutations. Values are the most recently received samples, without a freshness timestamp or simultaneous fleet sampling guarantee.
+
+This milestone includes LOB-39 (#146). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Acceptance evidence uses synthetic UI fixtures; native game/runtime sampling, OS clipboard and assistive-technology acceptance are not claimed.
+
+## 0.3.30-alpha — 2026-11-05
+
+Milestone: **Compare and organize the fleet inventory**.
+
+- Find loaded servers in name A–Z or Z–A order, or keep the familiar host order. Sorting combines with existing search and application, host and status filters.
+- Switch between Cards and a compact Table to compare application, host, status, connection address and configured CPU/memory limits. Game player counts remain distinct from application rows; configured limits are not live utilization.
+- Keep the chosen view and order through refresh and navigation. The table retains horizontal reading position and keyboard region focus during background updates; signing out resets the choices.
+
+Administrators and viewers retain the existing scoped links, address copying and action restrictions in either view. Assigned accounts retain their minimal cards. Presentation controls make no additional server requests or changes.
+
+This combined milestone includes sorting (LOB-36, #141) and Table view (LOB-37, #142). Game images, software-provider pins and world, storage, account and update formats are unchanged. Publishing this alpha does not update installations or running servers. Native assistive-technology and OS clipboard acceptance are not claimed.
+
+## 0.3.29-alpha — 2026-11-05
+
+Milestone: **Find and share relevant application logs**.
+
+- Search the recent log output already loaded for Factorio, Rust and managed applications. Use literal, case-insensitive line matching, matched/total counts and clear/no-match states without fetching additional history or submitting console commands.
+- Explicitly copy exactly the shown full or filtered excerpt. Announce success only after the clipboard write succeeds, keep visible selectable text with manual-copy guidance when access is unavailable, and never upload logs.
+- Preserve the search through refresh and same-server navigation. Clear output with screen/session disposal, suppress stale copy feedback, and retain existing log bounds, text rendering and account/server permissions.
+
+Game images, software-provider pins and storage/update formats are unchanged. Publishing this alpha does not update installations or running game servers. Minecraft remains fixture-only and unregistered. The intermittent fleet reload browser failure remains separately recorded; no speculative maintenance repair is included.
+
+## 0.3.28-alpha — 2026-11-05
+
+Milestone: **Compare and choose a Factorio seed**.
+
+- Keep one completed map preview beside the current candidate while trying other seeds or settings. Clearly label the current and kept previews, compare their seed/settings and explicitly replace or remove the reference.
+- Use the kept seed and complete terrain/gameplay settings in the creation draft after confirmation. Preserve the world name, leave switching unchecked, rebuild the controls and reuse draft autosave and Review/Create. Choosing a preview does not create or switch a world.
+- Retain the full configuration even when gameplay settings share the same terrain preview identity. Keep the reference in this editor session only, clear it on navigation/session disposal, and preserve the previous reference if capture fails.
+
+Existing preview authorization and resource bounds, management permissions, game images/provider pins and storage/update formats are unchanged. Publishing this alpha does not update installations or running game servers. Minecraft remains fixture-only and unregistered. Separate browser-interceptor maintenance is not presented as repaired.
+
+## 0.3.27-alpha — 2026-11-05
+
+Milestone: **Plan and adjust memory across hosts**.
+
+- Compare configured memory budgets, allocations and available-to-allocate memory across local and paired hosts. Deliberately refresh capacity and distinguish unknown or offline values from usable headroom; these figures are not live RAM usage.
+- Select a host in Host settings, review its allocation breakdown and adjust its budget through the existing administrator checks. Viewers stay read-only and assigned-server accounts gain no host-settings access.
+- Keep drafts and revisions separate for each host. Prevent late responses from replacing a different host's settings, and require inspection/reload after revision conflicts or uncertain saves. Existing servers retain their limits and stay running.
+
+Game images, software-provider pins, runtime definitions and storage/update formats are unchanged. Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered. Separate browser-interceptor maintenance is not presented as repaired.
+
+## 0.3.26-alpha — 2026-11-05
+
+Milestone: **Open and manage hosted applications from the fleet**.
+
+- Open an existing Status Page application's public HTTP endpoint directly from its authorized fleet card, with a separate management action and exact address copying.
+- Show registered application names and service-appropriate cards without game-only player counts. Preserve local, remote and assigned-server scope and existing game behavior.
+- Use explicit reviewed HTTP presentation metadata and validated host/port destinations, with no automatic request, proxy or embedded application. Open a separate tab without an opener or referrer.
+- Keep panel sign-in cookies separate: suppress the public-opening action when an application shares the panel hostname, explain the separate-hostname requirement, and retain management and copying. Public HTTP access is separate from panel sign-in and is not encrypted.
+- Preserve offline-host action restrictions and existing runtime definition fingerprints, image/provider pins and storage/update formats.
+
+Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered. The separate browser-interceptor maintenance investigation is not presented as a repaired product issue.
+
+## 0.3.25-alpha — 2026-11-05
+
+Milestone: **Find and confidently reuse saved snapshots**.
+
+- Find saved states by title, source server, application or host. Combine application and host filters, see matching counts, and order snapshots by newest, oldest or title.
+- Keep library choices and typing intact during refresh/navigation. Clearly identify last-known snapshots when a host is unavailable and retain existing action restrictions.
+- Distinguish starting-snapshot choices by source and saved date, then review the selected title, source, date and host before creating an independent server through the existing setup checks.
+- Preserve host-scoped selection when snapshot IDs repeat, and prevent cancelled catalog responses from refilling a later creation dialog.
+
+Game images, software-provider pins and storage/update formats are unchanged. Publishing this alpha does not update installed hosts or game servers. Minecraft remains fixture-only and unregistered.
+
+## 0.3.24-alpha — 2026-11-04
+
+Milestone: **Find and share fleet servers**.
+
+- Find fleet servers by their displayed status, combined with name, application
+  and host filters. Follow status changes during refresh while retaining the
+  selected filter, including when it has no current matches.
+- Copy the exact connection address and port from local, remote and assigned
+  server cards, with keyboard and narrow-screen support. Keep the address
+  selectable with manual-copy guidance when browser clipboard access fails.
+- Preserve assigned-server scope and the existing minimal view without extra
+  host/status reads. Keep game images, software-provider pins and storage/update
+  formats unchanged. Publication does not update installed hosts or game servers.
+
+## 0.3.23-alpha — 2026-11-04
+
+- Find fleet servers by name, application, host or connection address, with
+  combined application/host filters, matching counts and clear controls.
+- Keep search choices across navigation, and preserve typing composition, caret
+  and scrolling during background refreshes. Assigned accounts search only their
+  existing server list.
+- Keep the Factorio software version picker available during routine status
+  refreshes without replacing a selection that is already ready.
+- Add a checked workload support matrix and offline Java qualification fixtures.
+  Minecraft hosting, Bedrock and mod/Add-On installation remain planned.
+- Keep game images, software-provider pins and storage/update formats unchanged.
+  Publishing this release does not update installed hosts or game servers.
+
 ## 0.3.22-alpha — 2026-11-03
 
 - Disable Overview actions until controller status is available, including after a disconnection.

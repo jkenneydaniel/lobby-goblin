@@ -1,7 +1,7 @@
 import {publicTransportMessage} from '../core/operation-errors.js';
 import {ApplicationReleases} from '../core/application-releases.js';
 import {managementMaintenance,assertManagementIdle} from '../core/management-maintenance.js';
-import {OperationFeed,jobOperationSource,operationProgressSnapshot} from '../core/operation-feed.js';
+import {OperationFeed,jobOperationSource,readJobsSnapshot} from '../core/operation-feed.js';
 import {setupOperationSource,agentOperationSource} from './operation-sources.js';
 import {managementUpdateSource} from './management-outcome.js';
 import {dockerTransport} from '../core/broker-client.js';
@@ -54,7 +54,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
    if(url.pathname==='/remote/v1/pair')actor='pairing-request';
    const route=url.pathname.replace(/^\/remote\/v1/,'');
    const known=['/host-settings','/hosts','/host-pairing','/host-setup','/host-setup-plan','/agent-update','/agent-update-plan','/pair','/disconnect','/servers','/jobs/recovery'];
-   return auditedResponse(manager.audit,req,res,{actor,scope:'host:'+manager.fleet,action:known.includes(route)?'host.'+route.slice(1).replaceAll('/','.'):route.match(/^\/servers\/[a-f0-9]{32}\/(?:snapshot|remove)$/)?'host.'+route.split('/').at(-1):'server.request'},buffered=>handle(req,buffered));
+   return auditedResponse(manager.audit,req,res,{actor,scope:'host:'+manager.fleet,action:known.includes(route)?'host.'+route.slice(1).replaceAll('/','.'):route.match(/^\/servers\/[a-f0-9]{32}\/(?:snapshot|remove|limits)$/)?'host.'+route.split('/').at(-1):'server.request'},buffered=>handle(req,buffered));
   }
   if(url.pathname.startsWith('/remote/v1/')){
    if(url.pathname==='/remote/v1/pair'){assert(req.method==='POST','Not found.',404);return json(res,200,await hosts.accept(await requestJSON(req)));}
@@ -74,6 +74,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
    return json(res,req.method==='GET'?200:202,await coordinatedUpdate(input));
   }
   if(req.method==='POST'&&url.pathname==='/operations/recovery')return json(res,200,await operationFeed.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
+  if(req.method==='GET'&&url.pathname==='/jobs'&&url.searchParams.get('progress')==='1')return json(res,200,await readJobsSnapshot(manager.operations,operationFeed,url.searchParams));
   const agentState=await agent.status();manager.agentUpdating=!!agentState.update&&['running','attention'].includes(agentState.update.state);
   if(await agent.handle(req,res,url))return;
   assert(req.method==='GET'||!manager.agentUpdating,'Wait for the agent update or recovery before changing this host.',409);
@@ -83,7 +84,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
   if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:true,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await manager.audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
-  if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(manager.operations,operationFeed):manager.operations.status());
+  if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,await readJobsSnapshot(manager.operations,operationFeed,url.searchParams));
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
   if(req.method==='GET'&&url.pathname==='/removed-servers')return json(res,200,{servers:manager.removedServers()});
   const retainedRoute=url.pathname.match(/^\/removed-servers\/([a-f0-9]{32})\/(inspect|recover|remove)$/);
@@ -97,7 +98,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater(version).refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
-  if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
+  if(req.method==='POST'&&['snapshot','remove','limits'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit({snapshot:'publish',remove:'remove',limits:'resize'}[tail],{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
   assert(tail.startsWith('controller/')&&item.state!=='removed','This server is unavailable. Its stored data has been preserved.',409);const route='/'+tail.slice(11),module=selectedApplication(item.game);
   assert(controllerAccess(module,req.method,route),'Not found.',404);
   assert(['GET','POST'].includes(req.method),'Not found.',404);assert(req.method==='GET'||!item.maintenance&&manager.active?.action!=='image-migration','A host operation is using this server. Wait for it to finish.',409);

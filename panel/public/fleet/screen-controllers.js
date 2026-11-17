@@ -2,7 +2,7 @@ import {createStorageScreen} from './storage-screen.js';
 import {createUpdatesScreen} from './updates-screen.js';
 import {createSnapshotScreen} from './snapshot-screen.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
-import {serverCards} from './cards.js';
+import {serverCollection} from './server-filters.js';
 import {serverKey} from './host-paths.js';
 import {mountAccounts} from '../shared/accounts.js';
 import {createHostSettings} from './host-settings.js';
@@ -20,24 +20,58 @@ export function createFleetScreens({
 }) {
   const $ = (selector) => document.querySelector(selector),
     admin = () => getSession()?.role === 'admin';
+  let limitsDraft = null;
   const apiFor = (ctx) => (route, body) =>
     ctx.request(route, body === undefined ? {} : {method: 'POST', body});
   const showError = (ctx) => (message) => {
     if (ctx.isCurrent()) error(message);
   };
   function bindDialogs(ctx) {
+    const limits = $('#limits-dialog'),
+      form = $('#edit-limits');
+    ctx.on($('#cancel-limits'), 'click', () => limits.close());
+    ctx.on(form, 'submit', async (event) => {
+      event.preventDefault();
+      const draft = limitsDraft,
+        save = form.querySelector('[type=submit]');
+      if (!draft || save.disabled) return;
+      save.disabled = true;
+      error('', '#limits-error');
+      try {
+        const job = await ctx.request(
+          model.route(draft.hostId, '/servers/' + draft.id + '/limits'),
+          {
+            method: 'POST',
+            body: {
+              cpu: form.elements.cpu.valueAsNumber,
+              memoryGiB: form.elements.memoryGiB.valueAsNumber,
+              current: draft.current,
+            },
+          },
+        );
+        model.trackJob(draft.hostId, job.id);
+        if (limitsDraft === draft) limits.close();
+        await model.refresh();
+      } catch (problem) {
+        if (ctx.isCurrent() && limitsDraft === draft && limits.open)
+          error(problem.message, '#limits-error');
+      } finally {
+        if (limitsDraft === draft) save.disabled = false;
+      }
+    });
     for (const id of ['publish', 'remove'])
       ctx.on($('#' + id), 'submit', async (event) => {
         event.preventDefault();
         const form = event.currentTarget;
+        const hostId = form.elements.hostId.value;
         const route = model.route(
-          form.elements.hostId.value,
+          hostId,
           '/servers/' +
             form.elements.serverId.value +
             (id === 'publish' ? '/snapshot' : '/remove'),
         );
         try {
-          await ctx.request(route, {
+          const job = await ctx.request(route, {
             method: 'POST',
             body:
               id === 'publish'
@@ -51,6 +85,7 @@ export function createFleetScreens({
                     publishSnapshot: form.elements.publishSnapshot.checked,
                   },
           });
+          model.trackJob(hostId, job.id);
           $(
             '#' + (id === 'publish' ? 'snapshot' : 'remove') + '-dialog',
           ).close();
@@ -71,18 +106,134 @@ export function createFleetScreens({
     ctx.on($('#cancel-publish'), 'click', () => $('#snapshot-dialog').close());
     ctx.on($('#cancel-remove'), 'click', () => $('#remove-dialog').close());
   }
-  function paintServers(ctx) {
-    if (!ctx.isCurrent()) return;
-    ctx.render(serverCards(model.snapshot, admin()));
-    ctx.on(ctx.root, 'click', (event) => {
-      const button = event.target.closest('[data-snapshot],[data-remove]');
+  function paintServers(ctx, filters, focusSearch = false) {
+    if (!ctx.isCurrent() || filters.composing) return;
+    const active = document.activeElement,
+      previousTable = ctx.root.querySelector('.server-table-scroll'),
+      tableScrollLeft = previousTable?.scrollLeft ?? 0,
+      pageFocused = ctx.root.contains(active) && active.closest('.list-pages'),
+      focused = ctx.root.contains(active)
+        ? active?.dataset?.serverFilter
+        : null,
+      range =
+        focused === 'search' && active.selectionStart != null
+          ? [active.selectionStart, active.selectionEnd]
+          : null;
+    ctx.render(serverCollection(model.snapshot, admin(), filters));
+    const table = ctx.root.querySelector('.server-table-scroll'),
+      input = ctx.root.querySelector(
+        `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
+      );
+    if (previousTable && table) {
+      if (active === previousTable && !focusSearch)
+        table.focus({preventScroll: true});
+      table.scrollLeft = tableScrollLeft;
+    }
+    if (pageFocused && !focusSearch)
+      ctx.root.querySelector('[data-list-range]')?.focus();
+    if (input) {
+      input.focus({preventScroll: !focusSearch});
+      if (range && !focusSearch) input.setSelectionRange(...range);
+    }
+    ctx.on(ctx.root, 'input', (event) => {
+      if (event.target.dataset.serverFilter !== 'search') return;
+      filters.search = event.target.value;
+      if (event.isComposing || filters.composing) return;
+      filters.page = 1;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'compositionstart', (event) => {
+      if (event.target.dataset.serverFilter === 'search')
+        filters.composing = true;
+    });
+    ctx.on(ctx.root, 'compositionend', (event) => {
+      if (event.target.dataset.serverFilter !== 'search') return;
+      filters.composing = false;
+      filters.search = event.target.value;
+      filters.page = 1;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'change', (event) => {
+      const key = event.target.dataset.serverFilter;
+      if (!['application', 'host', 'status', 'sort', 'view'].includes(key))
+        return;
+      filters[key] = event.target.value;
+      filters.page = 1;
+      paintServers(ctx, filters);
+    });
+    ctx.on(ctx.root, 'click', async (event) => {
+      const pageButton = event.target.closest(
+        '[data-list-page]:not(:disabled)',
+      );
+      if (pageButton) {
+        filters.page = Number(pageButton.dataset.listPage);
+        paintServers(ctx, filters);
+        return;
+      }
+      const copy = event.target.closest('[data-copy-address]');
+      if (copy && ctx.root.contains(copy)) {
+        // Assigned records omit hostId but retain their scoped management URL.
+        const item = model.snapshot.servers.find(
+          (server) => server.manageUrl === copy.dataset.copyAddress,
+        );
+        if (!item?.address) return;
+        notice('');
+        error('');
+        try {
+          await navigator.clipboard.writeText(item.address);
+          if (ctx.isCurrent()) notice('Server address copied.');
+        } catch {
+          if (ctx.isCurrent())
+            error(
+              'Clipboard unavailable. Select and copy the address shown ' +
+                (filters.view === 'table'
+                  ? 'in the server table.'
+                  : 'on the server card.'),
+            );
+        }
+        return;
+      }
+      if (event.target.closest('[data-clear-server-filters]')) {
+        filters.search =
+          filters.application =
+          filters.host =
+          filters.status =
+            '';
+        filters.page = 1;
+        paintServers(ctx, filters, true);
+        return;
+      }
+      const button = event.target.closest(
+        '[data-edit-limits],[data-snapshot],[data-remove]',
+      );
       if (!button || !ctx.root.contains(button)) return;
       const item = model.snapshot.servers.find(
         (server) =>
           serverKey(server) ===
-          (button.dataset.snapshot || button.dataset.remove),
+          (button.dataset.editLimits ||
+            button.dataset.snapshot ||
+            button.dataset.remove),
       );
       if (!item) return;
+      if (button.dataset.editLimits) {
+        if (!item.resourceLimits) return;
+        const form = $('#edit-limits');
+        limitsDraft = {
+          id: item.id,
+          hostId: item.hostId,
+          current: {cpu: item.cpu, memoryGiB: item.memoryGiB},
+        };
+        $('#limits-server').textContent = item.name + ' · ' + item.hostName;
+        form.elements.cpu.value = item.cpu;
+        const memory = form.elements.memoryGiB;
+        memory.min = item.resourceLimits.minMemoryGiB;
+        memory.max = item.resourceLimits.maxMemoryGiB;
+        memory.value = item.memoryGiB;
+        form.querySelector('[type=submit]').disabled = false;
+        error('', '#limits-error');
+        $('#limits-dialog').showModal();
+        return;
+      }
       const publish = !!button.dataset.snapshot,
         form = $('#' + (publish ? 'publish' : 'remove'));
       form.reset();
@@ -107,6 +258,8 @@ export function createFleetScreens({
       let history;
       return {
         async mount(ctx) {
+          await model.refresh();
+          if (!ctx.isCurrent()) return;
           history = await mountOperationHistory(ctx, {
             locations: model.snapshot.hosts.map((host) => ({
               label: host.name,
@@ -120,21 +273,37 @@ export function createFleetScreens({
         },
       };
     },
-    servers: () => ({
-      async mount(ctx) {
-        await model.refresh();
-        paintServers(ctx);
-        ctx.onDispose(() => {
-          $('#snapshot-dialog').close();
-          $('#remove-dialog').close();
-          creation.cancel();
-        });
-      },
-      async refresh(ctx, options) {
-        if (options.reason !== 'model') await model.refresh();
-        paintServers(ctx);
-      },
-    }),
+    servers: () => {
+      const filters = {
+        search: '',
+        application: '',
+        host: '',
+        status: '',
+        sort: 'host',
+        view: 'cards',
+        composing: false,
+        page: 1,
+      };
+      return {
+        async mount(ctx) {
+          await model.refresh();
+          paintServers(ctx, filters);
+          ctx.onDispose(() => {
+            filters.composing = false;
+            $('#snapshot-dialog').close();
+            $('#remove-dialog').close();
+            $('#limits-dialog').close();
+            limitsDraft = null;
+            creation.cancel();
+          });
+        },
+        async refresh(ctx, options) {
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
+          paintServers(ctx, filters);
+        },
+      };
+    },
     storage: () => createStorageScreen({model, notice}),
     library: () => createSnapshotScreen({model, getSession, creation, notice}),
     access: () => {
@@ -168,10 +337,10 @@ export function createFleetScreens({
         async mount(ctx) {
           context = ctx;
           component ||= createHostSettings({
-            api: (...args) => {
+            request: (...args) => {
               if (!context?.isCurrent())
                 throw new DOMException('Screen closed', 'AbortError');
-              return apiFor(context)(...args);
+              return context.request(...args);
             },
             getSession,
             error: (message) => {
@@ -179,10 +348,17 @@ export function createFleetScreens({
             },
           });
           component.bind();
+          await model.refresh();
+          if (!ctx.isCurrent()) return;
+          component.setHosts(model.snapshot.hosts);
           await component.load();
         },
-        async refresh(_ctx, options) {
-          if (options.reason !== 'model') await component.load();
+        async refresh(ctx, options) {
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
+          if (!ctx.isCurrent()) return;
+          const changed = component.setHosts(model.snapshot.hosts);
+          if (options.reason !== 'model' || changed) await component.load();
         },
         dispose() {
           context = null;
@@ -196,6 +372,7 @@ export function createFleetScreens({
         async mount(ctx) {
           component = mountHosts({
             api: apiFor(ctx),
+            readCapacity: (route, options) => ctx.request(route, options),
             getSession,
             error: (message, target) => {
               if (ctx.isCurrent()) error(message, target);
@@ -213,7 +390,8 @@ export function createFleetScreens({
           await component.progress();
         },
         async refresh(ctx, options) {
-          if (options.reason !== 'model') await model.refresh();
+          if (!['model', 'poll'].includes(options.reason))
+            await model.refresh();
           if (!ctx.isCurrent()) return;
           component.setHosts(model.snapshot.hosts);
           if (options.reason !== 'model') await component.progress();

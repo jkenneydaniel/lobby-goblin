@@ -5,11 +5,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {docker} from '../core/docker.js';
+import {docker, demultiplex} from '../core/docker.js';
+import {withApplyFailureDiagnostics, maxLogBytes} from './management-acceptance-diagnostics.mjs';
 import {ManagementEngine} from '../fleet/management-engine.js';
 import {ManagementUpdate} from '../fleet/management-update.js';
 import {main as updateCLI} from '../management-update.js';
 import {portableStartupRuntime} from '../core/management-startup.js';
+import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 import {
   installationFiles,
   optionsFor,
@@ -247,6 +249,8 @@ const options = panelUpdate ? ['--fleet', fleet, '--engine', engineId] : [
 ];
 if (panelUpdate) {
   const originalHost = (await inspect(host)).Id;
+  const diagnosticRole = legacy ? 'host-controller' : 'docker-broker';
+  const originalDiagnosticContainer = legacy ? originalHost : (await inspect('lobby-goblin-docker-broker-' + fleet)).Id;
   const reviewed = await request('/management-update', {action: 'plan', version: '0.3.7-alpha', requestId: crypto.randomBytes(16).toString('hex')});
   const id = reviewed.update.id;
   const review = await wait(async () => {
@@ -256,7 +260,27 @@ if (panelUpdate) {
   });
   assert.equal(review.services.applications, 1);
   assert.ok(review.actions.includes('apply'));
-  await request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')});
+  // Lose the disposable anchor between review and apply. The updater creates
+  // a new container and must use the already reviewed plan in the same ledger.
+  const anchor = await inspect(managementAnchor(fleet));
+  assertAnchor(anchor, fleet, engineId);
+  await docker('DELETE', '/containers/' + anchor.Id);
+  await withApplyFailureDiagnostics(
+    () => request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')}),
+    async () => {
+      // The broker emits brokered updates; the host emits legacy updates.
+      // Only this run's original, owned emitting container may supply logs.
+      // Read-only, fixed tail; never print/store the raw response or errors.
+      const owned = await inspect(originalDiagnosticContainer);
+      assert.equal(owned.Id, originalDiagnosticContainer);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.fleet'], fleet);
+      assert.equal(owned.Config.Labels['io.lobby-goblin.role'], diagnosticRole);
+      assert.equal(owned.Config.Labels['com.docker.compose.project'], project);
+      const logs = await docker('GET', '/containers/' + originalDiagnosticContainer + '/logs?stdout=1&stderr=0&tail=128', undefined, {raw: true});
+      return Buffer.isBuffer(logs) && logs.length <= maxLogBytes ? demultiplex(logs) : '';
+    },
+  );
+  assert.notEqual((await inspect(managementAnchor(fleet))).Id, anchor.Id);
   const complete = await wait(async () => {
     try {
       const value = await request('/management-update');
@@ -270,6 +294,14 @@ if (panelUpdate) {
   const operatorRecord = await updateCLI(['status', ...options, '--id', id], {log: () => {}});
   assert.equal(operatorRecord.operation.phase, 'complete');
   assert.equal(operatorRecord.pending, null);
+  const storageWorkers = () => docker('GET', '/containers/json?' + new URLSearchParams({
+    all: '1',
+    filters: JSON.stringify({label: ['io.lobby-goblin.fleet=' + fleet, 'io.lobby-goblin.role=management-storage']}),
+  }));
+  assert.deepEqual(await storageWorkers(), [], 'Terminal cleanup removes storage helpers.');
+  const snapshotVolume = 'lobby-goblin-management-' + fleet + '-' + id;
+  const volumeRoute = '/volumes/' + snapshotVolume;
+  assert.equal((await docker('GET', volumeRoute)).Name, snapshotVolume);
   assert.equal(await fs.stat(path.join(directory, '.management-updates')).catch(() => null), null, 'Private records never cross into a host folder.');
   assert.equal((await inspect(item.container)).State.Running, true);
   assert.notEqual((await inspect(host)).Id, originalHost);
@@ -283,7 +315,26 @@ if (panelUpdate) {
   assert.equal((await request('/management-update')).update.state, 'complete');
   // The portable operator fallback uses the same retained records and engine claim.
   // A pre-enrollment directory planner must refuse this enrolled fleet.
+  const leftover = await docker('POST', '/containers/create?' + new URLSearchParams({
+    name: 'lobby-goblin-management-storage-' + id + '-backup',
+  }), {
+    Image: next,
+    Entrypoint: ['node', '/app/fleet/management-storage-worker.js'],
+    Labels: {
+      'io.lobby-goblin.fleet': fleet,
+      'io.lobby-goblin.role': 'management-storage',
+      'io.lobby-goblin.management-update': id,
+    },
+    HostConfig: {
+      NetworkMode: 'none',
+      ReadonlyRootfs: true,
+      Mounts: [{Type: 'volume', Source: snapshotVolume, Target: '/artifact'}],
+    },
+  });
+  assert.equal((await inspect(leftover.Id)).State.Status, 'created');
   const operatorReview = await updateCLI(['plan', ...options, '--image', next], {log: () => {}});
+  assert.deepEqual(await storageWorkers(), [], 'A new review removes an older completed update’s leftover helper.');
+  assert.equal((await docker('GET', volumeRoute)).Name, snapshotVolume);
   await updateCLI(['rollback', ...options, '--id', operatorReview.id, '--confirm'], {log: () => {}});
   await preserved();
   await fs.writeFile('/acceptance-output/result.json', JSON.stringify({panel: true, profile: legacy ? 'legacy' : 'brokered', portableRecords: true, operatorRecovery: true, complete: true, fleet, engineId, id, protectedHash, game: before.Id, worldHash: crypto.createHash('sha256').update(world).digest('hex')}, null, 2), {flag: 'wx', mode: 0o600});

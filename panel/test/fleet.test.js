@@ -16,6 +16,11 @@ test('creation rejects commands, unsupported games, resource overcommit inputs a
  for(const input of [{game:'other',name:'x'},{game:'factorio',name:'name\nquit'},{game:'rust',name:'x',memoryGiB:2},{game:'factorio',name:'x',cpu:.7},{game:'rust',name:'x',worldSize:1337},{game:'factorio',name:'x',seed:0}])assert.throws(()=>validateCreation(input));
  const value=validateCreation({game:'factorio',name:'Friday',image:'evil/image',hostPath:'/production'});assert.equal(value.image,undefined);assert.equal(value.hostPath,undefined);
 });
+test('public server labels come from the registered application without exposing secrets or changing stored data',async t=>{
+ const f=await fakeManager(t),item={id:one,game:'status-page',name:'Service dashboard',gamePort:35000,controllerToken:'never-public',rconPassword:'never-public'},before=structuredClone(item);
+ const shown=f.manager.publicServer(item);assert.equal(shown.applicationName,'Status Page');assert.equal(shown.applicationKind,'application');assert.equal(shown.webProtocol,'http');assert.equal(f.manager.publicServer({...item,game:'factorio',webProtocol:'javascript',applicationKind:'application'}).webProtocol,undefined);assert.equal(f.manager.publicServer({...item,game:'factorio'}).applicationKind,'game');assert.equal(shown.manageUrl,`/servers/${one}/`);assert.ok(!JSON.stringify(shown).includes('never-public'));assert.deepEqual(item,before);
+ assert.equal(f.manager.publicServer({...item,game:'legacy-application'}).applicationName,'legacy-application');
+});
 test('Factorio snapshots strip credentials and clone into independent initialized storage',async t=>{
  const f=await fixture(t),a=await directory(f.root,'a'),b=await directory(f.root,'b');await runWorker(provision(one),{instance:a,library:f.library});
  const backup=await factorioBackup(a),result=await publishSnapshot({library:f.library,backup,record:{id:snap,sourceId:one,title:'Shared world',sourceName:'Source',game:'factorio',image:catalog.factorio.image}});
@@ -68,7 +73,7 @@ async function fakeManager(t,{gameModules,broker}={}){
  if(method==='POST'&&u.pathname==='/volumes/create'){volumes.set(data.Name,data);return data;}if(bits[0]==='volumes')return volumes.get(bits[1])||missing();
  if(method==='POST'&&u.pathname==='/networks/create'){networks.set(data.Name,{...data,Labels:data.Labels,Containers:{}});return {Id:data.Name};}if(bits[0]==='networks'){const n=networks.get(bits[1])||missing();if(method==='GET')return n;if(bits[2]==='connect')n.Containers['host-id']={};if(bits[2]==='disconnect')delete n.Containers['host-id'];if(method==='DELETE')networks.delete(bits[1]);return null;}
  if(method==='POST'&&u.pathname==='/containers/create'){const name=u.searchParams.get('name');containers.set(name,{...data,Name:'/'+name,Id:name,Config:{Image:data.Image,Labels:data.Labels,Env:data.Env},State:{Running:false,ExitCode:0,OOMKilled:false}});return {Id:name};}
- if(bits[0]==='containers'){const c=containers.get(bits[1])||missing();if(method==='GET')return c;if(bits[2]==='start')c.State.Running=true;if(bits[2]==='stop')c.State.Running=false;if(method==='DELETE')containers.delete(bits[1]);return null;}throw Error('Unexpected fake API '+route);};
+ if(bits[0]==='containers'){const c=containers.get(bits[1])||[...containers.values()].find(item=>item.Id===bits[1])||missing();if(method==='GET')return c;if(bits[2]==='start')c.State.Running=true;if(bits[2]==='stop')c.State.Running=false;if(bits[2]==='update')Object.assign(c.HostConfig,data);if(method==='DELETE')containers.delete(bits[1]);return null;}throw Error('Unexpected fake API '+route);};
  const manager=new FleetManager({docker,broker,brokerVolume:broker?`lobby-goblin-fleet-${fleet}-broker-transport`:undefined,root,library:f.library,fleet,stateVolume:`lobby-goblin-fleet-${fleet}-state`,libraryVolume:`lobby-goblin-fleet-${fleet}-library`,image:'manager:test',hostContainer:host,memoryBudgetGiB:16,gameModules});await manager.init();const instanceRoots=new Map();
  manager.helper=async(item,config)=>{let instance=instanceRoots.get(item.id);if(!instance){instance=await directory(f.root,item.id);instanceRoots.set(item.id,instance);}return runWorker({...config,fleet,id:item.id,game:item.game},{instance,library:f.library,resolveGame:id=>manager.module(id)});};
  // Exercise the real manager.request transport and ownership checks. The child
@@ -111,6 +116,68 @@ test('host creation returns the original reservation for duplicate requests',asy
  await f.settled(first);assert.equal(f.manager.state.servers.length,1);
  assert.equal((await f.manager.submit('create',input)).id,first.id);
  await assert.rejects(f.manager.submit('create',{...input,name:'Different'}),/different request/);
+});
+
+test('server limits use the same container and budget and persist verified Docker outcomes', async t => {
+ const f=await fakeManager(t), item=await f.submit({game:'factorio',name:'Factory'}), game=f.containers.get(item.container);
+ const controller=structuredClone(f.containers.get(item.controller)), giB=1024**3;
+ game.Id='f'.repeat(64);
+ game.HostConfig.MemorySwap=4*giB;
+ const before=structuredClone(game), own=(cpu,memoryGiB)=>({serverId:item.id,current:{cpu:item.cpu,memoryGiB:item.memoryGiB},cpu,memoryGiB});
+ const submit=input=>f.manager.submit('resize',input,'Admin');
+ const resize=async(cpu,memoryGiB)=>f.settled(await submit(own(cpu,memoryGiB)));
+ await assert.rejects(submit(own(1.25,4)),/half-core/);
+ await assert.rejects(submit(own(1,33)),/Choose/);
+ const first=own(1.5,4);
+ const pos=f.calls.length;
+ assert.equal((await f.settled(await submit(first))).state,'succeeded');
+ assert.deepEqual(f.calls.slice(pos).filter(call=>call.method==='POST'),[
+  {method:'POST',route:'/containers/'+game.Id+'/update',data:{NanoCpus:1.5e9,Memory:4*giB,MemorySwap:6*giB}},
+ ]);
+ assert.equal(game.State.Running,true);
+ assert.equal(item.cpu,1.5);
+ assert.equal(item.memoryGiB,4);
+ assert.equal(f.manager.allocations()[0].totalGiB,5);
+ assert.deepEqual(game.HostConfig.Mounts,before.HostConfig.Mounts);
+ assert.deepEqual(game.HostConfig.PortBindings,before.HostConfig.PortBindings);
+ assert.deepEqual(f.containers.get(item.controller),controller);
+ await assert.rejects(submit(first),/another session/);
+ assert.match((await resize(1.5,2)).message,/Stop the server/);
+ assert.match((await resize(1.5,16)).message,/At most 15 GiB/);
+ assert.equal((await resize(3,4)).state,'succeeded');
+ assert.deepEqual(f.calls.filter(call=>call.route.endsWith('/update')).at(-1).data,{NanoCpus:3e9});
+ game.State.Running=false;
+ const docker=f.manager.docker;
+ let unobservable=false;
+ f.manager.docker=async (method,route,data)=>{
+  if(unobservable&&route==='/containers/'+item.container+'/json')throw Error('Synthetic inspect outage');
+  const result=await docker(method,route,data);
+  if(route.endsWith('/update')){
+   unobservable=true;
+   throw Error('Synthetic lost update response');
+  }
+  return result;
+ };
+ const uncertain=await resize(2,2);
+ assert.equal(uncertain.state,'interrupted');
+ assert.equal(item.memoryGiB,4);
+ unobservable=false;
+ const callCount=f.calls.length;
+ const reviewed=await f.manager.operations.recover({id:uncertain.id,operation:'inspect'},'Admin');
+ assert.equal(reviewed.state,'succeeded');
+ assert.ok(f.calls.slice(callCount).every(call=>call.method==='GET'));
+ f.manager.docker=async(method,route,data)=>{
+  if(route.endsWith('/update'))throw Error('Synthetic missing update response');
+  return docker(method,route,data);
+ };
+ const unchanged=await resize(3,2);
+ assert.equal(unchanged.state,'interrupted');
+ assert.equal((await f.manager.operations.recover({id:unchanged.id,operation:'inspect'},'Admin')).state,'failed');
+ const restarted=new FleetManager({...f.manager,gameModules:[...f.manager.modules.values()]});await restarted.init();
+ assert.equal(restarted.server(item.id).memoryGiB,2);
+ assert.equal(restarted.server(item.id).cpu,2);
+ assert.equal(game.State.Running,false);
+ assert.equal(game.HostConfig.MemorySwap,4*giB);
 });
 
 test('host restart reconciles recorded creation with owned resources using reads only',async t=>{
@@ -190,6 +257,16 @@ test('saved world presets are scoped by account and server and are removed with 
  assert.equal((await accounts.worldSetups('Owner',undefined,one)).presets.length,1);assert.equal((await accounts.worldSetups('Owner',undefined,two)).presets.length,0);assert.equal((await accounts.worldSetups('Other',undefined,one)).presets.length,0);assert.equal((await accounts.worldSetups('Owner')).presets.length,0);
  await accounts.worldSetups('Owner',{operation:'save-preset',revision:0,name:'Only in second server',configuration,image:catalog.factorio.image},two);assert.equal((await accounts.worldSetups('Owner',undefined,one)).presets[0].name,'Only in first server');
  await accounts.update({username:'Owner',operation:'delete',confirm:true});assert.deepEqual(await fs.readdir(path.join(root,'world-setups')),[]);
+});
+
+test('creation checks current capacity before allocating any game resources',async t=>{
+ const f=await fakeManager(t);
+ await f.manager.updateHostSettings({memoryBudgetGiB:4,revision:0},'Owner');
+ const before=f.calls.length;
+ const job=await f.settled(await f.manager.submit('create',{game:'factorio',name:'Over budget',memoryGiB:4}));
+ assert.equal(job.state,'failed');assert.match(job.message,/5 GiB including its controller/);
+ assert.equal(f.manager.state.servers.length,0);
+ assert.ok(f.calls.slice(before).every(call=>call.method==='GET'));
 });
 
 test('a higher host budget admits default Rust while existing Factorio limits and runtime are unchanged',async t=>{

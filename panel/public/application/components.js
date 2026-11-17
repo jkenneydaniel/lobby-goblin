@@ -1,3 +1,4 @@
+import {slicePage, paintListPageControls} from '../shared/list-pages.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
 import {formatBytes} from '../shared/view.js';
 import {mountBackups} from '../shared/backups.js';
@@ -161,7 +162,8 @@ export function createApplicationComponents({
             row.querySelector('[data-state]').textContent = job.state;
             list.append(row);
           }
-          if (!operations.jobs.length) list.textContent = 'No operations yet.';
+          if (!operations.jobs.length)
+            list.textContent = 'No operations in progress or needing review.';
         },
       });
     else if (screen.component === 'resource')
@@ -188,12 +190,17 @@ export function createApplicationComponents({
       factories[screen.id] = () => {
         const drafts = new Map(),
           rowActions = new WeakMap();
-        let controls;
+        let controls,
+          records = [],
+          page = 1,
+          loading = 0;
         async function load(ctx) {
+          const generation = ++loading;
           const note = ctx.root.querySelector('[data-note]');
           note.textContent = 'Loading…';
           const response = await ctx.request(options.source),
             rows = read(response, options.collection);
+          if (!ctx.isCurrent() || generation !== loading) return;
           if (!Array.isArray(rows))
             throw Error('The application returned an invalid table response.');
           const available =
@@ -204,9 +211,19 @@ export function createApplicationComponents({
               ? ''
               : options.empty || 'No records.'
             : read(response, options.messageKey || 'message') || 'Unavailable';
+          records = rows;
+          paintRows(ctx);
+        }
+        function paintRows(ctx) {
+          const visible = slicePage(records, page);
+          page = visible.page;
+          paintListPageControls(
+            ctx.root.querySelector('[data-table-pages]'),
+            visible,
+          );
           const body = ctx.root.querySelector('[data-rows]');
           body.replaceChildren();
-          for (const value of rows) {
+          for (const value of visible.items) {
             const row = document.createElement('tr');
             for (const field of options.fields) {
               const cell = document.createElement('td');
@@ -247,6 +264,18 @@ export function createApplicationComponents({
               ctx.root.querySelector('[data-columns]').append(cell);
             }
             ctx.on(refresh, 'click', () => load(ctx));
+            ctx.on(
+              ctx.root.querySelector('[data-table-pages]'),
+              'click',
+              (event) => {
+                const button = event.target.closest(
+                  '[data-list-page]:not(:disabled)',
+                );
+                if (!button) return;
+                page = Number(button.dataset.listPage);
+                paintRows(ctx);
+              },
+            );
             ctx.on(
               ctx.root.querySelector('[data-rows]'),
               'click',
@@ -292,27 +321,144 @@ export function createApplicationComponents({
     else if (screen.component === 'logs')
       factories[screen.id] = () => {
         const drafts = new Map();
-        let controls;
+        let controls,
+          query = '',
+          content = '',
+          shown = '',
+          copyMessage = '',
+          copying = false,
+          copyVersion = 0,
+          copyOperation = 0,
+          loaded = false,
+          failed = false,
+          sequence = 0;
+        function show(ctx) {
+          if (!ctx.isCurrent()) return;
+          const lines = content ? content.split('\n') : [];
+          if (lines.at(-1) === '') lines.pop();
+          const term = query.trim().toLowerCase(),
+            matches = term
+              ? lines.filter((line) => line.toLowerCase().includes(term))
+              : lines;
+          const excerpt =
+            loaded && matches.length
+              ? term
+                ? matches.join('\n')
+                : content
+              : '';
+          if (shown !== excerpt) {
+            shown = excerpt;
+            copyVersion++;
+            copyMessage = '';
+          }
+          ctx.root.querySelector('#logs').textContent = !loaded
+            ? failed
+              ? 'Log output could not be loaded.'
+              : 'Loading log output…'
+            : !lines.length
+              ? 'No log output yet.'
+              : !matches.length
+                ? 'No lines match your search.'
+                : term
+                  ? matches.join('\n')
+                  : content;
+          ctx.root.querySelector('[data-log-line-count]').textContent = !loaded
+            ? failed
+              ? 'Log output unavailable. Refresh to retry.'
+              : 'Loading log output…'
+            : `Showing ${matches.length} of ${lines.length} loaded ${lines.length === 1 ? 'line' : 'lines'}.` +
+              (failed
+                ? ' Refresh failed; showing previously loaded output.'
+                : '');
+          ctx.root.querySelector('[data-clear-log-search]').disabled = !query;
+          const copy = ctx.root.querySelector('[data-copy-log-lines]');
+          copy.disabled = !shown || copying;
+          copy.setAttribute('aria-busy', String(copying));
+          ctx.root.querySelector('[data-log-copy-result]').textContent =
+            copyMessage;
+        }
         async function load(ctx) {
-          ctx.root.querySelector('#logs').textContent =
-            read(await ctx.request(options.source), options.key) ||
-            'No log output yet.';
+          const current = ++sequence;
+          try {
+            const value = read(await ctx.request(options.source), options.key);
+            if (!ctx.isCurrent() || current !== sequence) return;
+            content = typeof value === 'string' ? value : '';
+            loaded = true;
+            failed = false;
+            show(ctx);
+          } catch (error) {
+            if (!ctx.isCurrent() || current !== sequence) return;
+            failed = true;
+            show(ctx);
+            throw error;
+          }
         }
         return {
           async mount(ctx) {
             paint(ctx, 'logs');
             ctx.root.querySelector('[data-description]').textContent =
               options.description;
+            const input = ctx.root.querySelector('[data-log-search]');
+            input.value = query;
+            ctx.on(input, 'input', () => {
+              query = input.value;
+              show(ctx);
+            });
+            ctx.on(
+              ctx.root.querySelector('[data-clear-log-search]'),
+              'click',
+              () => {
+                query = '';
+                input.value = '';
+                show(ctx);
+                input.focus();
+              },
+            );
             ctx.on(ctx.root.querySelector('#refresh-logs'), 'click', () =>
               load(ctx),
             );
+            const copy = ctx.root.querySelector('[data-copy-log-lines]');
+            ctx.on(copy, 'click', async () => {
+              if (!shown || copying || !copy.isConnected) return;
+              const excerpt = shown,
+                version = copyVersion,
+                operation = ++copyOperation;
+              copying = true;
+              copyMessage = 'Copying shown log lines…';
+              show(ctx);
+              const current = () =>
+                ctx.isCurrent() &&
+                operation === copyOperation &&
+                version === copyVersion;
+              try {
+                await navigator.clipboard.writeText(excerpt);
+                if (current()) copyMessage = 'Shown log lines copied.';
+              } catch {
+                if (current())
+                  copyMessage =
+                    'Clipboard unavailable. Select and copy the shown log lines manually.';
+              } finally {
+                if (operation === copyOperation) {
+                  copying = false;
+                  show(ctx);
+                }
+              }
+            });
             controls = forms(ctx, options, drafts);
             controls.setBusy();
+            show(ctx);
             await load(ctx);
           },
           async refresh(ctx, reason) {
             if (reason.reason !== 'status') await load(ctx);
             else controls.setBusy();
+          },
+          dispose() {
+            sequence++;
+            copyOperation++;
+            copyVersion++;
+            content = shown = copyMessage = '';
+            loaded = failed = copying = false;
           },
         };
       };
@@ -354,6 +500,7 @@ export function createApplicationComponents({
             if (field.visibleWhen && read(settings, field.visibleWhen) !== true)
               continue;
             const row = clone('field');
+            row.querySelector('label').dataset.fieldType = field.type;
             row.querySelector('[data-label]').textContent = field.label;
             const value =
               draft?.values[field.key] ??
@@ -366,7 +513,9 @@ export function createApplicationComponents({
               field.type === 'password' && !draft ? '' : value,
             );
             row.querySelector('[data-control]').replaceWith(input);
-            row.querySelector('[data-help]').textContent = field.help || '';
+            const help = row.querySelector('[data-help]');
+            if (field.help) help.textContent = field.help;
+            else help.remove();
             container.append(row);
           }
         }
@@ -466,7 +615,6 @@ export function createApplicationComponents({
                   })
                 : mountBackups(ctx.root, {
                     request: ctx.request,
-                    showHeading: false,
                     startJob,
                     isAdmin: () => getSession()?.role === 'admin',
                     allow: can,
@@ -476,9 +624,6 @@ export function createApplicationComponents({
                     interruption: contract.backup.interruption,
                     description: options.description,
                     restore: options.restore === true,
-                    ...(options.showHeading !== undefined
-                      ? {showHeading: options.showHeading}
-                      : {}),
                   });
             await workflow.load();
           },

@@ -17,6 +17,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     liveAt = 0,
     cooldownUntil = 0,
     playersKey = null,
+    automaticRunning = false,
     manualPending = false,
     loading = null;
   const $ = (selector) => context?.root.querySelector(selector);
@@ -93,7 +94,8 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       polling = false;
     }
   }
-  function updateCooldown(value) {
+  function updateCooldown(value, automatic) {
+    if (automatic) automaticRunning = !!automatic.running;
     if (value)
       cooldownUntil =
         performance.now() + Math.max(0, value.availableAt - value.serverNow);
@@ -107,6 +109,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       state = getState();
     button.disabled = !!(
       seconds ||
+      automaticRunning ||
       manualPending ||
       state.busyJob ||
       state.recoveryRequired ||
@@ -116,7 +119,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
     const text = button.querySelector('[data-part=label]');
     const buttonLabel = seconds
       ? `Refresh map in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-      : state.busyJob?.action === 'refresh-map'
+      : automaticRunning || state.busyJob?.action === 'refresh-map'
         ? 'Refreshing map…'
         : 'Refresh map';
     if (text && text.textContent !== buttonLabel)
@@ -264,7 +267,7 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
         : data.snapshot.created === cached.snapshot.created);
     cached = data;
     checkedAt = Date.now();
-    updateCooldown(data.manual);
+    updateCooldown(data.manual, data.automatic);
     if (same && renderedContext === ctx && $('#world-map')) {
       const label = $('#map-refresh-state');
       if (label) label.textContent = mapRefreshLabel(data.automatic);
@@ -321,14 +324,16 @@ export function createMapScreen({getState, ui, startJob, bindCommon, notify}) {
       if (
         document.hidden ||
         Date.now() - checkedAt <
-          (getState().busyJob?.action === 'refresh-map' ? 5000 : 30000)
+          (automaticRunning || getState().busyJob?.action === 'refresh-map'
+            ? 5000
+            : 30000)
       )
         return;
       checkedAt = Date.now();
       const latest = await ctx.request('/map-status'),
         label = $('#map-refresh-state'),
         banner = $('.job-banner');
-      updateCooldown(latest.manual);
+      updateCooldown(latest.manual, latest.automatic);
       if (label)
         label.textContent = mapRefreshLabel(latest.automatic, latest.active);
       if (banner && !getState().busyJob) {

@@ -12,6 +12,16 @@ SSH. The panel holds a pairing-secured connection to each agent on a configurabl
 dedicated port (24443 by default); public, private and VPN addresses are supported.
 See [remote host setup, networking and recovery](REMOTE_HOSTS.md).
 
+On **Servers**, combine search and application/host filters with **Filter by
+status** to find ready, stopped or unavailable servers. Status follows the label
+on each card and updates with ordinary refreshes. Assigned-server lists keep their
+minimal view without live status reads. **Clear filters** restores the full list.
+
+On **Servers**, use **Copy address** on a server card to copy its displayed
+connection address, including the port. It is also available to viewers and
+assigned-server accounts. If the browser blocks clipboard access, the address
+stays visible and selectable for manual copying.
+
 v0.3.4 automatically migrates this manager's registered older images after a
 verified backup and clean stop. It preserves each server's storage and previous
 running/stopped state. Unrelated standalone installations remain outside its
@@ -53,14 +63,49 @@ Keep the invitation private; it expires after 24 hours. It is stored at
 
 ## Create and manage
 
+The Servers view can search by server name, application, host name or connection
+address, with application and host filters that combine with the search. The
+matching count and Clear filters help return to the full list. Choices stay while
+you navigate the panel and through background refreshes; signing out clears them.
+Assigned-server accounts search only their assigned list and have no host filter.
+**Sort servers** keeps the current host order by default, or orders the loaded
+list by name A–Z or Z–A. Sorting combines with the filters and survives
+refresh/navigation within the session. Clear filters keeps the selected order;
+signing out resets it. Sorting makes no additional requests or server changes.
+Administrators and viewers can also order by **Sampled CPU, high to low** or
+**Sampled memory, high to low**. These use eligible raw samples already received,
+with valid zero ahead of unavailable values and name/scoped identity breaking ties.
+CPU may exceed 100% (one core); memory order uses container bytes, not configured
+limits. Samples remain the most recently received values, without synchronized
+measurement or freshness guarantees. Assigned lists retain host/name ordering and
+have no sampled-resource choices or readouts.
+
+Administrators and viewers can select **View servers → Table** for a compact
+inventory with the same filtering, ordering, counts, addresses and scoped actions
+as **Cards**. Cards is the default. The table labels CPU and memory as configured
+limits and scrolls horizontally within its own keyboard-focusable region on narrow
+screens. The view choice survives refreshes and navigation for the current session;
+Clear filters keeps both view and sort, and signing out restores Cards. Assigned
+accounts retain their minimal cards without a view selector, host details or
+resource columns. Switching views makes no requests and saves no preference.
+
 Choose Create server, host, game, name, CPU, memory, player limit and an optional seed.
-Rust also offers map size. Port allocation starts at UDP 35000 and checks Docker
+Rust also offers map size. Submit once to start provisioning. The host checks
+current capacity and compatibility before allocating game resources and reports
+any failure under Host operations. Port allocation starts at UDP 35000 and checks Docker
 port use; Rust gets a separate query port. Port clashes outside Docker fail
 creation safely. RCON is never published. Each server has its own volume,
 private network, game container, controller, generated secrets and operation
 lock. Resource limits are applied to games and controllers; the memory budget
 includes 1 GiB per controller and must leave at least 2 GiB for the host manager.
 Existing host workloads need their own headroom when choosing this budget.
+
+Administrators can use **Edit limits** on a server card or table row to change
+that server's CPU and memory. CPU changes and memory increases can apply while
+the server runs. Stop the server before lowering memory. The host checks the
+memory budget, including the separate controller allowance, and reports the
+result under Host operations. The changes apply to the existing game container
+and persist across restarts.
 
 Open server uses the existing game-specific controls under an explicit server
 URL. Multiple tabs remain independent. Factorio keeps worlds, previews/maps,
@@ -103,6 +148,17 @@ backup. Factorio confirms a save; Rust saves, stops, archives and resumes. The
 library then copies only immutable backup content into a separate library volume.
 The combined library labels each snapshot's host. Cloning stays on that host;
 cross-host transfer is not implemented.
+When choosing starting data for a new server, each compatible snapshot choice
+shows its source server and saved date. Selecting one displays its title, source,
+saved date and host before the existing setup checks. Only compatible snapshots
+on the selected host are offered; closing the dialog or choosing new data clears
+the selected snapshot context.
+Search the loaded library by title, source server, application or host, combine
+application and host filters, and order snapshots by newest, oldest or title.
+The matching count and Clear filters help recover from an empty search; clearing
+filters keeps the chosen ordering. Choices persist while navigating the fleet
+and reset at sign-out. Cached snapshots from an unavailable host are labelled
+as last known information and keep their existing disabled actions.
 Factorio snapshots contain its active world ZIP and mod files. Rust snapshots
 contain the identity's world and player databases, maps and related files, but
 exclude the entire `cfg` directory. Neither format copies server configuration,
@@ -111,6 +167,15 @@ RCON passwords, panel accounts, controller tokens, or access lists.
 Rust backups that contain mod/framework state are refused by this world-only
 library, preserving them for complete recovery rather than silently omitting mods.
 See [Rust recovery](RUST.md#complete-modded-recovery).
+
+Inside View contents, expand **Files and integrity hashes** to **Find files** by
+trimmed, case-insensitive literal relative name. The query searches the full loaded
+manifest before the 200-row display cap; counts distinguish shown, matching and
+loaded files. Clear file search and Escape clear only this query, independently of
+library filters. The query and native disclosure survive same-detail repaints and
+reset on a different inspection, close/removal or disposal. Download manifest
+always exports the complete unfiltered inventory. Finding a path does not read its
+contents or establish restore suitability.
 
 Every snapshot has a manifest containing the source, reviewed image, file sizes
 and SHA-256 hashes. Publication uses a temporary directory and atomic rename.
@@ -214,3 +279,40 @@ server as part of the normal save/stop sequence.
 
 
 Rust uses procedural seeds up to 2147483647 ([Facepunch reference](https://wiki.facepunch.com/rust/creating-a-server)). New Rust registrations and random seeds use the package's supported range of 1–2147483647; Factorio retains its uint32 range. Older panels could register larger uint32 seeds which Rust clamped to 2147483647. Snapshot publication accepts that specific legacy overflow only when the verified backup contains a save matching the clamped seed and the registered world size, and records the effective seed in the snapshot. Independent copies therefore use the seed of the backed-up world. Unrelated seed/size mismatches still fail. This does not rewrite existing registrations, backups, game settings or worlds, and does not retry a failed removal.
+
+## Open a hosted HTTP application
+
+Status Page cards distinguish **Manage application** (the scoped Lobby Goblin panel)
+from **Open application** (the application's public HTTP listener in a separate tab).
+Panel sign-in does not protect that public listener, and HTTP is not encrypted.
+The action uses the displayed host and allocated application port; it does not
+probe reachability, configure TLS or publish additional ports. Address copying
+remains available. Unavailable hosts do not offer the public application action.
+
+Browsers share cookies between ports on the same hostname. The one-click public
+application action is therefore offered only when its hostname differs from the
+panel hostname. Cards using the panel hostname explain the separate-hostname
+requirement and retain management and address copying. This does not change
+listener configuration or provision a hostname.
+
+## Compare memory across hosts
+
+The Hosts cards show each connected host's configured memory budget, allocated
+memory including instance controllers, and remaining budget for new allocations.
+These snapshots come from that host's settings; they are not live RAM usage or a
+guarantee that creation will succeed. Creation still checks current capacity.
+Use **Refresh capacity** to read a fresh snapshot. Offline or unavailable hosts
+show an explicit unavailable state. Administrators and viewers retain their
+existing host access; assigned-server accounts do not load host capacity.
+
+## Review the selected host’s budget
+
+Host settings can select this host or a paired host. Its heading, allocation
+breakdown and save destination follow that selection. Each host retains its own
+unsaved draft and revision while switching or navigating. Only administrators
+can save; viewers can review, and assigned-server accounts have no host view.
+
+The selector is locked during a save. Disconnected hosts and unknown Docker
+capacity prevent editing. A conflicting or uncertain save requires **Reload
+current settings** before another submission; reload discards only the selected
+host’s draft. Existing servers retain their limits and keep running.

@@ -3,6 +3,8 @@ import {assert} from '../common.js';
 import {labels, resources, validId} from './instance.js';
 import {imageMatch} from './image-policy.js';
 import {brokerSocket, brokerToken} from './broker-client.js';
+import {configuredLimits} from './container-limits.js';
+import {validateResourceLimits} from './managed-game.js';
 import {
   softwareWorkerKind,
   softwareWorkerScope,
@@ -705,6 +707,18 @@ export function hostDockerPolicy(
         'The manager cannot replace host management through this broker.',
         403,
       );
+      if (method === 'POST' && bits.length === 3 && bits[2] === 'update') {
+        query(url, []);
+        only(data, ['Memory', 'NanoCpus']);
+        assert(Number.isSafeInteger(data.Memory) && Number.isSafeInteger(data.NanoCpus),
+          'Docker resource limits must be integers.', 403);
+        assert(target.info.Name === '/' + target.item.container &&
+          !target.info.Config.Labels['io.lobby-goblin.role'] &&
+          !target.info.Config.Labels['io.lobby-goblin.worker'],
+        'Only a fleet game container can change resource limits.', 403);
+        validateResourceLimits(configuredLimits(data), target.item.module, 403);
+        return request(method, '/containers/' + encodeURIComponent(target.info.Id) + '/update', data, options);
+      }
       if (
         method === 'POST' &&
         bits.length === 3 &&
