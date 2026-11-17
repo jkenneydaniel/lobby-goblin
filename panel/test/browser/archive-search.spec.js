@@ -40,6 +40,7 @@ async function fixture(
   role = 'admin',
   validations = null,
   health = undefined,
+  extra = [],
 ) {
   await page.clock.install();
   const state = {
@@ -85,6 +86,7 @@ async function fixture(
                 modified: '2026-01-01T12:00:00Z',
                 size: 0,
               },
+              ...extra,
             ].map((item, index) => ({
               ...item,
               ...(state.validations
@@ -190,7 +192,8 @@ async function fixture(
     }
     await nav(page).getByRole('link', {name: 'Backups', exact: true}).click();
   }
-  await expect(count(page)).toHaveText('4 matching of 4 loaded archives.');
+  const total = 4 + extra.length;
+  await expect(count(page)).toHaveText(`${total} matching of ${total} loaded archives.`);
   await page.clock.pauseAt(new Date(Date.now() + 1000));
   return state;
 }
@@ -763,4 +766,34 @@ test('local archive filtering preserves pending saves, cleanup review and confir
     state.releaseSchedule?.();
     state.releasePolicy?.();
   }
+});
+
+test('archive pages stay bounded and local search includes archives on later pages', async ({page}, info) => {
+  const extra = Array.from({length: 40}, (_, index) => ({
+    relative: `fixture-${String(index + 1).padStart(2, '0')}.zip`,
+    modified: '2026-01-01T12:00:00Z',
+    size: 8192,
+  }));
+  const state = await fixture(page, 'factorio', 'admin', null, undefined, extra);
+  const pages = page.getByRole('navigation', {name: 'List pages'}),
+    health = page.getByText('Backup health details', {exact: true});
+  await expect(page.getByRole('heading', {name: 'Backups', exact: true})).toHaveCount(1);
+  await expect(rows(page)).toHaveCount(20);
+  await page.screenshot({path: info.outputPath('compact-backups.png')});
+  await health.click();
+  await expect(page.locator('.backup-health-details')).toHaveAttribute('open', '');
+  await health.click();
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 21–40 of 44');
+  await expect(rows(page).first()).toContainText('fixture-17.zip');
+  await pages.getByRole('button', {name: 'Next'}).click();
+  await expect(rows(page)).toHaveCount(4);
+  await expect(pages.getByRole('button', {name: 'Next'})).toBeDisabled();
+  await query(page).fill('fixture-01.zip');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toContainText('fixture-01.zip');
+  await clear(page).click();
+  await expect(pages.getByRole('status')).toHaveText('Showing 1–20 of 44');
+  expect(state.reads).toBe(1);
+  expect(state.submitted).toEqual([]);
 });

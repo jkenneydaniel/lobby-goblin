@@ -1,3 +1,5 @@
+import {slicePage, paintListPageControls} from './shared/list-pages.js';
+
 import {downloadJSON} from './diagnostics.js';
 
 export function selectInstalledItems(items, query, state) {
@@ -71,7 +73,8 @@ export function mountModLibrary(
     inventory = null,
     loading = false,
     request = 0,
-    review = null;
+    review = null,
+    localPage = 1;
   const dispose = () => {
     disposed = true;
     inventory = null;
@@ -93,7 +96,7 @@ export function mountModLibrary(
     <div class="ml-controls" data-installed-controls hidden><label>Find installed items<input type="search" maxlength="100" placeholder="Search displayed name or ID" data-installed-query></label><label>Show installed items<select data-installed-state><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="modified">Modified locally</option><option value="manual">Added manually</option></select></label><button type="button" data-installed-clear>Clear filters</button></div><p data-installed-count role="status" hidden></p>
     <div data-inventory hidden><button type="button" data-download-inventory disabled>Download installed inventory</button><p>Loaded file observations only. Factorio built-ins are excluded; Rust scope version is not its Steam build. Enabled files do not prove runtime loading. This is not an importable modpack or backup.</p></div>
     <p class="ml-impact"></p><button data-recover type="button" hidden>Recover mod change</button>
-    <div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
+    <div data-local-mod-pages></div><div class="ml-results" role="tabpanel" aria-label="Mods" aria-busy="true"></div><div class="ml-pagination"></div>
     <details class="ml-account" hidden><summary>Factorio download account</summary><p>Use your Factorio username and service token. The token stays on this controller and is never sent back to your browser.</p><form data-account><label>Factorio username<input name="username" autocomplete="username" maxlength="100" required></label><label>Service token<input name="token" type="password" autocomplete="off" maxlength="256" required></label><button type="submit">Connect account</button><button type="button" data-disconnect hidden>Disconnect</button></form><p data-account-state></p></details>
     <dialog class="ml-review" aria-labelledby="ml-review-title"><h2 id="ml-review-title">Review mod change</h2><p data-review-error class="ml-error" role="alert" hidden></p><div data-review-content></div><div class="ml-review-actions"><button type="button" data-cancel>Cancel</button><button type="button" data-apply>Apply reviewed change</button></div></dialog>`;
   const inventoryContainer = root.querySelector('[data-inventory]'),
@@ -103,7 +106,8 @@ export function mountModLibrary(
     installedState = root.querySelector('[data-installed-state]'),
     installedClear = root.querySelector('[data-installed-clear]'),
     installedCount = root.querySelector('[data-installed-count]'),
-    results = root.querySelector('.ml-results');
+    results = root.querySelector('.ml-results'),
+    localPages = root.querySelector('[data-local-mod-pages]');
   installedQuery.value = state.installedQuery;
   installedState.value = state.installedState;
   let composing = false;
@@ -182,8 +186,11 @@ export function mountModLibrary(
       ' matching of ' +
       value.items.length +
       ' loaded installed items.';
-    results.innerHTML = matches.length
-      ? matches.map(row).join('')
+    const visible = slicePage(matches, localPage);
+    localPage = visible.page;
+    paintListPageControls(localPages, visible);
+    results.innerHTML = visible.items.length
+      ? visible.items.map(row).join('')
       : `<div class="ml-empty"><h3>${value.items.length ? 'No matching installed items' : 'No mods installed yet'}</h3><p>${value.items.length ? 'Try another name or state.' : 'Open Browse to find a mod for this server.'}</p></div>`;
     setModBusy();
   }
@@ -227,10 +234,19 @@ export function mountModLibrary(
           '. Refresh to try again.',
       );
     if (state.tab === 'installed') paintInstalled();
-    else
-      $('.ml-results').innerHTML = value.items.length
-        ? value.items.map(row).join('')
-        : `<div class="ml-empty"><h3>${state.tab === 'updates' ? 'No updates found' : state.tab === 'installed' ? 'No mods installed yet' : 'No matching mods'}</h3><p>${state.tab === 'updates' ? 'Installed versions stay unchanged until you approve an update. Locally modified or unmatched plugins are skipped.' : state.tab === 'installed' ? 'Open Browse to find a mod for this server.' : 'Try a different search.'}</p></div>`;
+    else {
+      const updates = state.tab === 'updates';
+      let items = value.items;
+      if (updates) {
+        const visible = slicePage(items, localPage);
+        localPage = visible.page;
+        paintListPageControls(localPages, visible);
+        items = visible.items;
+      } else localPages.replaceChildren();
+      results.innerHTML = items.length
+        ? items.map(row).join('')
+        : `<div class="ml-empty"><h3>${updates ? 'No updates found' : 'No matching mods'}</h3><p>${updates ? 'Installed versions stay unchanged until you approve an update. Locally modified or unmatched plugins are skipped.' : 'Try a different search.'}</p></div>`;
+    }
     $('.ml-results').setAttribute('aria-busy', 'false');
     $('.ml-pagination').innerHTML =
       value.pages > 1
@@ -249,6 +265,7 @@ export function mountModLibrary(
     const tab = state.tab;
     inventory = null;
     loading = true;
+    localPages.replaceChildren();
     inventoryControl();
     if (value?.tab === 'installed') results.replaceChildren();
     error('');
@@ -307,13 +324,18 @@ export function mountModLibrary(
       }
       if (button.dataset.tab) {
         state.tab = button.dataset.tab;
-        state.page = 1;
+        state.page = localPage = 1;
         void load();
       }
       if (button.hasAttribute('data-refresh')) void load(true);
       if (button.dataset.page) {
         state.page = Number(button.dataset.page);
         void load();
+      }
+      if (button.dataset.listPage && !loading) {
+        localPage = Number(button.dataset.listPage);
+        if (state.tab === 'installed') paintInstalled();
+        else render();
       }
       if (button.dataset.mod)
         void guarded(async () => {
@@ -405,6 +427,7 @@ export function mountModLibrary(
     (event) => {
       if (!canFindInstalled() || composing || event.isComposing) return;
       state.installedQuery = installedQuery.value;
+      localPage = 1;
       paintInstalled();
     },
     {signal: events.signal},
@@ -422,6 +445,7 @@ export function mountModLibrary(
       composing = false;
       if (!canFindInstalled()) return;
       state.installedQuery = installedQuery.value;
+      localPage = 1;
       paintInstalled();
     },
     {signal: events.signal},
@@ -431,6 +455,7 @@ export function mountModLibrary(
     () => {
       if (!canFindInstalled()) return;
       state.installedState = installedState.value;
+      localPage = 1;
       paintInstalled();
     },
     {signal: events.signal},
@@ -442,6 +467,7 @@ export function mountModLibrary(
       composing = false;
       state.installedQuery = installedQuery.value = '';
       state.installedState = installedState.value = 'all';
+      localPage = 1;
       paintInstalled();
       installedQuery.focus();
     },

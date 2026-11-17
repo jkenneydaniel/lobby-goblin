@@ -13,7 +13,8 @@ test('audit history serializes concurrent writes, survives restart, paginates an
  await Promise.all(Array.from({length:12},(_,i)=>log.append({actor:'User',scope:'standalone',action:'operation.save',outcome:'accepted',requestId:String(i),body:{password:'must-not-appear'},error:'secret'})));
  const reloaded=new AuditLog(root,{limit:5}),page=await reloaded.list({limit:3});
  assert.deepEqual(page.events.map(event=>event.sequence),[12,11,10]);assert.equal(page.prunedThrough,7);
- assert.deepEqual((await reloaded.list({before:page.nextBefore})).events.map(event=>event.sequence),[9,8]);
+ const last=await reloaded.list({before:page.nextBefore,limit:2});
+ assert.deepEqual(last.events.map(event=>event.sequence),[9,8]);assert.equal(last.nextBefore,null);
  assert.ok(!(await fs.readFile(log.file,'utf8')).includes('must-not-appear'));assert.ok(!(await fs.readFile(log.file,'utf8')).includes('secret'));
  assert.equal((await fs.stat(log.file)).mode&0o777,0o600);
  await assert.rejects(log.list({limit:1000}));

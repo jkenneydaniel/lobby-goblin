@@ -1,3 +1,4 @@
+import {slicePage, listPageControls} from '../shared/list-pages.js';
 import {escapeHTML as esc} from '../shared/view.js';
 import {snapshotCards} from './cards.js';
 import {serverKey} from './host-paths.js';
@@ -60,6 +61,7 @@ export function selectManifestFiles(files, query) {
 
 export function snapshotCollection(snapshot, admin, filters) {
   const snapshots = selectSnapshots(snapshot, filters),
+    visible = slicePage(snapshots, filters.page),
     applications = new Map(
       snapshot.snapshots.map((item) => [
         item.game,
@@ -91,6 +93,7 @@ export function snapshotCollection(snapshot, admin, filters) {
     filters.sort,
     filters.sort,
   )}</select></label><button type="button" data-clear-snapshot-filters ${active ? '' : 'disabled'}>Clear filters</button></div>
-    <p class="snapshot-count" role="status" aria-live="polite" aria-atomic="true">Showing ${snapshots.length} of ${snapshot.snapshots.length} ${snapshot.snapshots.length === 1 ? 'snapshot' : 'snapshots'}</p>
-    ${!snapshots.length && snapshot.snapshots.length ? '<div class="empty snapshot-no-matches"><h2>No matching snapshots</h2><p>Try another search or clear the filters to see all your snapshots.</p></div>' : snapshotCards({...snapshot, snapshots}, admin)}`;
+    <p class="snapshot-count" role="status" aria-live="polite" aria-atomic="true">${visible.pages > 1 ? '' : 'Showing '}${snapshots.length}${visible.pages > 1 ? ' matching' : ''} of ${snapshot.snapshots.length} ${snapshot.snapshots.length === 1 ? 'snapshot' : 'snapshots'}</p>
+    ${listPageControls(visible)}
+    ${!snapshots.length && snapshot.snapshots.length ? '<div class="empty snapshot-no-matches"><h2>No matching snapshots</h2><p>Try another search or clear the filters to see all your snapshots.</p></div>' : snapshotCards({...snapshot, snapshots: visible.items}, admin)}`;
 }

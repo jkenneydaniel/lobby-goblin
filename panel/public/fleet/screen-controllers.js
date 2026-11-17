@@ -111,6 +111,7 @@ export function createFleetScreens({
     const active = document.activeElement,
       previousTable = ctx.root.querySelector('.server-table-scroll'),
       tableScrollLeft = previousTable?.scrollLeft ?? 0,
+      pageFocused = ctx.root.contains(active) && active.closest('.list-pages'),
       focused = ctx.root.contains(active)
         ? active?.dataset?.serverFilter
         : null,
@@ -128,6 +129,8 @@ export function createFleetScreens({
         table.focus({preventScroll: true});
       table.scrollLeft = tableScrollLeft;
     }
+    if (pageFocused && !focusSearch)
+      ctx.root.querySelector('[data-list-range]')?.focus();
     if (input) {
       input.focus({preventScroll: !focusSearch});
       if (range && !focusSearch) input.setSelectionRange(...range);
@@ -136,6 +139,7 @@ export function createFleetScreens({
       if (event.target.dataset.serverFilter !== 'search') return;
       filters.search = event.target.value;
       if (event.isComposing || filters.composing) return;
+      filters.page = 1;
       paintServers(ctx, filters);
     });
     ctx.on(ctx.root, 'compositionstart', (event) => {
@@ -146,6 +150,7 @@ export function createFleetScreens({
       if (event.target.dataset.serverFilter !== 'search') return;
       filters.composing = false;
       filters.search = event.target.value;
+      filters.page = 1;
       paintServers(ctx, filters);
     });
     ctx.on(ctx.root, 'change', (event) => {
@@ -153,9 +158,18 @@ export function createFleetScreens({
       if (!['application', 'host', 'status', 'sort', 'view'].includes(key))
         return;
       filters[key] = event.target.value;
+      filters.page = 1;
       paintServers(ctx, filters);
     });
     ctx.on(ctx.root, 'click', async (event) => {
+      const pageButton = event.target.closest(
+        '[data-list-page]:not(:disabled)',
+      );
+      if (pageButton) {
+        filters.page = Number(pageButton.dataset.listPage);
+        paintServers(ctx, filters);
+        return;
+      }
       const copy = event.target.closest('[data-copy-address]');
       if (copy && ctx.root.contains(copy)) {
         // Assigned records omit hostId but retain their scoped management URL.
@@ -185,6 +199,7 @@ export function createFleetScreens({
           filters.host =
           filters.status =
             '';
+        filters.page = 1;
         paintServers(ctx, filters, true);
         return;
       }
@@ -267,6 +282,7 @@ export function createFleetScreens({
         sort: 'host',
         view: 'cards',
         composing: false,
+        page: 1,
       };
       return {
         async mount(ctx) {

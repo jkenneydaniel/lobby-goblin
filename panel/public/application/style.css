@@ -195,3 +195,60 @@ textarea {
   width: 100%;
   min-width: 0;
 }
+
+.settings-form {
+  justify-items: start;
+}
+.settings-form label {
+  min-width: 0;
+  margin: 0;
+}
+.settings-form [data-settings-fields] {
+  width: 100%;
+  align-items: start;
+  gap: 0.85rem 1rem;
+}
+.settings-form [data-field-type='boolean'] {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  min-height: 44px;
+}
+.settings-form [data-field-type='boolean'] input {
+  grid-area: 1 / 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--product-accent);
+}
+.settings-form [data-field-type='boolean'] small {
+  grid-column: 2;
+}
+.settings-form small {
+  color: var(--product-muted);
+}
+.application-main .settings-form textarea {
+  min-height: 4.5rem;
+}
+@media (min-width: 650px) {
+  .settings-form [data-settings-fields] {
+    max-width: 68rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .application-main .settings-form input[type='number'] {
+    width: min(100%, 10rem);
+  }
+}
+@media (min-width: 900px) {
+  .settings-form [data-settings-fields] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .settings-form [data-field-type='textarea'] {
+    grid-column: span 2;
+  }
+}
+.application-main .settings-form .primary {
+  background: var(--product-accent);
+  border-color: var(--product-accent);
+  color: var(--product-bg);
+  font-weight: 600;
+}

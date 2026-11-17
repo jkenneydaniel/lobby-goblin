@@ -220,3 +220,200 @@
   color: var(--product-error);
   background: #ffb4a71a;
 }
+
+.product-workflow .compact-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.6rem 0.8rem;
+}
+.compact-toolbar label {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.compact-toolbar label:has(input[type='search']) {
+  flex: 0 1 20rem;
+}
+.product-workflow .compact-toolbar button {
+  margin: 0;
+}
+.list-pages {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem 0.75rem;
+  margin-block: 0.35rem 0.65rem;
+}
+.list-pages [role='status'] {
+  color: var(--product-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.backup-archives .product-card-header {
+  align-items: center;
+  margin-bottom: 0.65rem;
+}
+.backup-archives .product-card-header p,
+.product-backup-health p,
+.backup-archives [data-archive-count],
+.audit-history [data-audit-retention] {
+  margin: 0.3rem 0;
+}
+.product-backup-health {
+  display: grid;
+  gap: 0.35rem;
+  border-block: 1px solid var(--product-line);
+  padding-block: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+.product-backup-health summary,
+.backup-archives td summary {
+  cursor: pointer;
+  color: var(--product-muted);
+  font-size: 0.85rem;
+}
+.backup-health-details dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: 0.65rem 1rem;
+  margin: 0.7rem 0;
+}
+.backup-health-details dt {
+  color: var(--product-muted);
+  font-size: 0.85rem;
+}
+.backup-health-details dd {
+  margin: 0;
+}
+.backup-archives [data-archive-label],
+.backup-archives code,
+.audit-history td {
+  overflow-wrap: anywhere;
+}
+.backup-archives th,
+.backup-archives td,
+.audit-history th,
+.audit-history td {
+  padding: 0.55rem 0.7rem;
+}
+.backup-archives td:nth-child(3),
+.backup-archives .backup-archive-actions {
+  white-space: nowrap;
+}
+.backup-archives details p {
+  margin: 0.35rem 0;
+}
+.audit-history caption {
+  text-align: left;
+  color: var(--product-muted);
+  font-size: 0.85rem;
+  padding-block: 0.4rem;
+}
+@media (min-width: 760px) {
+  .product-workflow form > button {
+    justify-self: start;
+  }
+  .product-workflow input[type='number'] {
+    width: min(100%, 9rem);
+  }
+  .application-main
+    :is(.settings-form, .compact-toolbar)
+    :is(input, select):not([type='checkbox']),
+  .application-main :is(.settings-form, .compact-toolbar) button,
+  .application-main .backup-archives :is(button, a.button),
+  .application-main .list-pages button {
+    min-height: 36px;
+    padding-block: 0.4rem;
+  }
+}
+@media (max-width: 600px) {
+  .compact-toolbar label {
+    flex-basis: 100%;
+  }
+  .compact-toolbar label:has(input[type='search']) {
+    flex-basis: 100%;
+  }
+}
+
+.archive-list-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 0.75rem;
+}
+.backup-archive-info {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  column-gap: 0.75rem;
+}
+.backup-archive-info [data-archive-label] {
+  display: contents;
+}
+.backup-archive-name,
+.backup-archive-info details[open] {
+  grid-column: 1 / -1;
+}
+.backup-archive-actions :is(button, .button):last-child {
+  margin-inline-end: 0;
+}
+@media (min-width: 761px) {
+  .backup-archives th:not(:first-child) {
+    width: 1%;
+  }
+  .backup-archives td:nth-child(2) {
+    white-space: nowrap;
+  }
+}
+@media (max-width: 760px) {
+  .backup-archives .table-wrap table,
+  .backup-archives tbody {
+    display: block;
+    min-width: 0;
+  }
+  .backup-archives thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .backup-archives tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.2rem 0.5rem;
+    padding-block: 0.65rem;
+    border-block-start: 1px solid var(--product-line);
+  }
+  .backup-archives tbody td {
+    padding: 0;
+    border: 0;
+  }
+  .backup-archives td:first-child,
+  .backup-archives td:last-child {
+    grid-column: 1 / -1;
+  }
+  .backup-archives .backup-archive-actions {
+    white-space: normal;
+  }
+  .backup-archives td:nth-child(2),
+  .backup-archives td:nth-child(3) {
+    color: var(--product-muted);
+    font-size: 0.85rem;
+  }
+}
+@media (max-width: 600px) {
+  .backup-archives .compact-toolbar label:has(select) {
+    flex: 1 1 10rem;
+  }
+  .audit-history .list-pages {
+    justify-content: space-between;
+  }
+  .audit-history .list-pages [role='status'] {
+    flex-basis: 100%;
+    order: -1;
+    text-align: center;
+  }
+}

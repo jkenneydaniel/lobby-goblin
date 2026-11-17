@@ -1,3 +1,4 @@
+import {slicePage, paintListPageControls} from '../shared/list-pages.js';
 import {mountOperationHistory} from '../shared/operation-history.js';
 import {formatBytes} from '../shared/view.js';
 import {mountBackups} from '../shared/backups.js';
@@ -189,12 +190,17 @@ export function createApplicationComponents({
       factories[screen.id] = () => {
         const drafts = new Map(),
           rowActions = new WeakMap();
-        let controls;
+        let controls,
+          records = [],
+          page = 1,
+          loading = 0;
         async function load(ctx) {
+          const generation = ++loading;
           const note = ctx.root.querySelector('[data-note]');
           note.textContent = 'Loading…';
           const response = await ctx.request(options.source),
             rows = read(response, options.collection);
+          if (!ctx.isCurrent() || generation !== loading) return;
           if (!Array.isArray(rows))
             throw Error('The application returned an invalid table response.');
           const available =
@@ -205,9 +211,19 @@ export function createApplicationComponents({
               ? ''
               : options.empty || 'No records.'
             : read(response, options.messageKey || 'message') || 'Unavailable';
+          records = rows;
+          paintRows(ctx);
+        }
+        function paintRows(ctx) {
+          const visible = slicePage(records, page);
+          page = visible.page;
+          paintListPageControls(
+            ctx.root.querySelector('[data-table-pages]'),
+            visible,
+          );
           const body = ctx.root.querySelector('[data-rows]');
           body.replaceChildren();
-          for (const value of rows) {
+          for (const value of visible.items) {
             const row = document.createElement('tr');
             for (const field of options.fields) {
               const cell = document.createElement('td');
@@ -248,6 +264,18 @@ export function createApplicationComponents({
               ctx.root.querySelector('[data-columns]').append(cell);
             }
             ctx.on(refresh, 'click', () => load(ctx));
+            ctx.on(
+              ctx.root.querySelector('[data-table-pages]'),
+              'click',
+              (event) => {
+                const button = event.target.closest(
+                  '[data-list-page]:not(:disabled)',
+                );
+                if (!button) return;
+                page = Number(button.dataset.listPage);
+                paintRows(ctx);
+              },
+            );
             ctx.on(
               ctx.root.querySelector('[data-rows]'),
               'click',
@@ -472,6 +500,7 @@ export function createApplicationComponents({
             if (field.visibleWhen && read(settings, field.visibleWhen) !== true)
               continue;
             const row = clone('field');
+            row.querySelector('label').dataset.fieldType = field.type;
             row.querySelector('[data-label]').textContent = field.label;
             const value =
               draft?.values[field.key] ??
@@ -484,7 +513,9 @@ export function createApplicationComponents({
               field.type === 'password' && !draft ? '' : value,
             );
             row.querySelector('[data-control]').replaceWith(input);
-            row.querySelector('[data-help]').textContent = field.help || '';
+            const help = row.querySelector('[data-help]');
+            if (field.help) help.textContent = field.help;
+            else help.remove();
             container.append(row);
           }
         }

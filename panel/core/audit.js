@@ -47,8 +47,9 @@ export class AuditLog {
   assert(before===undefined||Number.isSafeInteger(before)&&before>0,'Invalid audit cursor.');
   assert(typeof search==='string'&&search.length<=80,'Use at most 80 characters to filter audit history.');
   const query=search.toLowerCase();
-  await this.queue;const state=await this.stateForRead(),events=state.events.filter(event=>(before===undefined||event.sequence<before)&&(!query||[event.actor,event.action,event.scope,event.target].some(value=>value?.toLowerCase().includes(query)))).slice(-limit).reverse();
-  return {events,nextBefore:events.length===limit?events.at(-1).sequence:null,retainedFrom:state.events[0]?.sequence||null,prunedThrough:state.anchor.sequence,limit:this.limit};
+  await this.queue;const state=await this.stateForRead(),events=state.events.filter(event=>(before===undefined||event.sequence<before)&&(!query||[event.actor,event.action,event.scope,event.target].some(value=>value?.toLowerCase().includes(query)))).slice(-limit-1).reverse();
+  const hasMore=events.length>limit;if(hasMore)events.pop();
+  return {events,nextBefore:hasMore?events.at(-1).sequence:null,retainedFrom:state.events[0]?.sequence||null,prunedThrough:state.anchor.sequence,limit:this.limit};
  }
 }
 

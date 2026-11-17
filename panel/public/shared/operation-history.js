@@ -1,3 +1,4 @@
+import {slicePage, paintListPageControls} from './list-pages.js';
 import {loadTemplates, part, text} from './templates.js';
 
 // Search only the checked public summary fields, never native payloads or events.
@@ -56,10 +57,12 @@ export async function mountOperationHistory(
   let generation = 0;
   const prefix = () => (locations.length ? locationControl.value : '');
   let snapshot = null,
-    reading = null;
+    reading = null,
+    page = 1;
   const opened = new Set();
   const search = part(ctx.root, '[data-operation-search]'),
-    filterControl = part(ctx.root, '[data-operation-filter]');
+    filterControl = part(ctx.root, '[data-operation-filter]'),
+    pagination = part(ctx.root, '[data-operation-pages]');
   function paint() {
     if (!ctx.isCurrent() || !snapshot) return;
     const list = part(ctx.root, '[data-operation-list]'),
@@ -90,7 +93,17 @@ export async function mountOperationHistory(
         snapshot.operations.length +
         ' loaded operations.',
     );
-    for (const record of records) {
+    const priority = [],
+      history = [];
+    for (const record of records)
+      (record.recovery?.required || ['queued', 'running'].includes(record.state)
+        ? priority
+        : history
+      ).push(record);
+    const visible = slicePage(history, page);
+    page = visible.page;
+    paintListPageControls(pagination, visible);
+    for (const record of [...priority, ...visible.items]) {
       const view = template('operation-record'),
         details = part(view, 'details');
       details.dataset.id = record.id;
@@ -184,24 +197,36 @@ export async function mountOperationHistory(
     reading = null;
     snapshot = null;
     opened.clear();
+    page = 1;
+    pagination.replaceChildren();
     part(ctx.root, '[data-operation-list]').replaceChildren();
     part(ctx.root, '[data-operation-sources]').replaceChildren();
     text(ctx.root, '[data-operation-count]', 'Loading operations…');
     await refresh();
   });
   ctx.on(part(ctx.root, '[data-operation-refresh]'), 'click', refresh);
-  ctx.on(filterControl, 'change', paint);
-  ctx.on(search, 'input', paint);
+  function resetPage() {
+    page = 1;
+    paint();
+  }
+  ctx.on(pagination, 'click', (event) => {
+    const button = event.target.closest('[data-list-page]:not(:disabled)');
+    if (!button) return;
+    page = Number(button.dataset.listPage);
+    paint();
+  });
+  ctx.on(filterControl, 'change', resetPage);
+  ctx.on(search, 'input', resetPage);
   ctx.on(search, 'keydown', (event) => {
     if (event.key !== 'Escape') return;
     event.preventDefault();
     search.value = '';
-    paint();
+    resetPage();
   });
   ctx.on(part(ctx.root, '[data-operation-clear]'), 'click', () => {
     search.value = '';
     filterControl.value = 'all';
-    paint();
+    resetPage();
     search.focus();
   });
   ctx.on(ctx.root, 'click', async (event) => {
