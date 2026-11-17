@@ -3,6 +3,8 @@ import path from 'node:path';
 import {assert} from '../common.js';
 import {AuditLog} from '../core/audit.js';
 import {recordOperation, describeOperation} from '../core/operation-record.js';
+import {operationFileCache} from '../core/operation-file-cache.js';
+import {needsOperationAttention} from '../public/shared/operation-progress.js';
 import {regularFile, parseStorageJSON} from '../core/storage/files.js';
 import {
   saveManagementJSON,
@@ -80,42 +82,53 @@ export async function publishManagementOutcome(
 }
 
 export function managementUpdateSource(root) {
+  const cachedProgress = operationFileCache();
+  async function readRecord(file) {
+    const record = parseStorageJSON(await regularFile(file, {max: 128 * 1024}));
+    assert(
+      record.id + '.json' === path.basename(file),
+      'Management update history identity changed.',
+    );
+    return describeOperation(record, descriptor(record));
+  }
+  async function read(readFile) {
+    const directory = path.join(root, 'management-updates');
+    const stat = await fs.lstat(directory).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!stat) return [];
+    await privateManagementDirectory(directory);
+    const names = await fs.readdir(directory);
+    const published = names.filter((name) =>
+      /^[a-f0-9]{32}\.json$/.test(name),
+    );
+    assert(
+      names.length <= 2000 &&
+        names.every(
+          (name) =>
+            published.includes(name) ||
+            (/^([a-f0-9]{32})\.json\.[a-f0-9-]{36}\.tmp$/.test(name) &&
+              published.includes(name.slice(0, 32) + '.json')),
+        ),
+      'Management update history needs review.',
+    );
+    return (
+      await Promise.all(published.map((name) => readFile(path.join(directory, name))))
+    ).filter(Boolean);
+  }
   const source = {
     id: 'management-updates',
     label: 'Management updates',
-    async read() {
-      const directory = path.join(root, 'management-updates');
-      const stat = await fs.lstat(directory).catch((error) => {
-        if (error.code === 'ENOENT') return null;
-        throw error;
-      });
-      if (!stat) return [];
-      await privateManagementDirectory(directory);
-      const names = await fs.readdir(directory);
-      const published = names.filter((name) =>
-        /^[a-f0-9]{32}\.json$/.test(name),
-      );
-      assert(
-        names.length <= 2000 &&
-          names.every(
-            (name) =>
-              published.includes(name) ||
-              (/^([a-f0-9]{32})\.json\.[a-f0-9-]{36}\.tmp$/.test(name) &&
-                published.includes(name.slice(0, 32) + '.json')),
-          ),
-        'Management update history needs review.',
-      );
-      return Promise.all(
-        published.map(async (name) => {
-          const record = parseStorageJSON(
-            await regularFile(path.join(directory, name), {max: 128 * 1024}),
-          );
-          assert(
-            record.id + '.json' === name,
-            'Management update history identity changed.',
-          );
-          return describeOperation(record, descriptor(record));
-        }),
+    read: () => read(readRecord),
+    readProgress() {
+      return cachedProgress((cached) =>
+        read((file) =>
+          cached(file, async () => {
+            const record = await readRecord(file);
+            return needsOperationAttention(record) ? record : null;
+          }),
+        ),
       );
     },
     async recover({id, operation}) {

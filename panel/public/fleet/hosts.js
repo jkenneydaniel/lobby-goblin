@@ -26,6 +26,8 @@ export function mountHosts({
     hosts = [],
     expires = null,
     setupPlan = null,
+    watchedSetup = null,
+    setupResult = null,
     updatePlan = null,
     setupReviewing = false;
   const capacity = createHostCapacity({
@@ -383,11 +385,13 @@ export function mountHosts({
               passphrase: f.elements.passphrase.value,
             }
           : {password: f.elements.password.value};
-      await api('/host-setup', {
+      const accepted = await api('/host-setup', {
         planId: setupPlan.id,
         confirm: event.currentTarget.elements.confirm.checked,
         auth,
       });
+      watchedSetup = accepted.id;
+      setupResult = null;
       f.reset();
       $('#ssh-key-file').value = '';
       $('#host-setup-review').close();
@@ -403,8 +407,25 @@ export function mountHosts({
   async function progress() {
     if (getSession()?.role !== 'admin') return;
     try {
-      const value = await api('/host-setup');
-      $('#host-setup-progress').innerHTML = value.jobs
+      const watched = watchedSetup;
+      const query = new URLSearchParams({progress: '1'});
+      if (watched) query.set('job', watched);
+      const value = await api('/host-setup?' + query);
+      if (watched !== watchedSetup) return;
+      const finished = value.jobs.find(
+        (job) => job.id === watched && value.active?.id !== watched,
+      );
+      if (finished?.state === 'succeeded') setupResult = finished;
+      watchedSetup = value.active?.id || null;
+      const jobs = value.jobs.filter(
+        (job) =>
+          ['queued', 'running'].includes(job.state) ||
+          (['interrupted', 'failed'].includes(job.state) &&
+            !job.recoveryReview?.acknowledged),
+      );
+      if (setupResult && !jobs.some((job) => job.id === setupResult.id))
+        jobs.push(setupResult);
+      $('#host-setup-progress').innerHTML = jobs
         .slice(0, 5)
         .map(
           (job) =>

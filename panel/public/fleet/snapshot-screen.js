@@ -203,11 +203,12 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
           'Delete snapshot',
         ))
       ) {
-        await ctx.request(
+        const job = await ctx.request(
           model.route(item.hostId, '/snapshots/' + item.id + '/remove'),
           {method: 'POST', body: {confirm: true, title: item.title}},
         );
         if (!ctx.isCurrent()) return;
+        model.trackJob(item.hostId, job.id);
         if (selected === key) {
           details = null;
           selected = null;
@@ -234,7 +235,7 @@ export function createSnapshotScreen({model, getSession, creation, notice}) {
       });
     },
     async refresh(ctx, options) {
-      if (options.reason !== 'model') await model.refresh();
+      if (!['model', 'poll'].includes(options.reason)) await model.refresh();
       if (
         details &&
         !model.snapshot.snapshots.some((item) => serverKey(item) === selected)

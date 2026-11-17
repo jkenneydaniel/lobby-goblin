@@ -1,6 +1,7 @@
 import {ManagementFailure, managementFailure} from './management-errors.js';
 import {assert} from '../common.js';
 import {jobOperation, validateOperationView} from './operation-record.js';
+import {needsOperationAttention} from '../public/shared/operation-progress.js';
 
 // Providers read authoritative native records, rather than maintaining a second
 // success/failure cache. A missing provider is explicit; it cannot become an empty
@@ -32,12 +33,15 @@ export class OperationFeed {
     this.scope = scope;
     this.sources = sources;
   }
-  async snapshot() {
+  async snapshot({progress = false} = {}) {
+    const providers = progress ? this.sources.filter((source) => source.id !== 'jobs') : this.sources;
     const operations = [],
       sources = await Promise.all(
-        this.sources.map(async (source) => {
+        providers.map(async (source) => {
           try {
-            const records = await source.read();
+            const records = await (progress && source.readProgress
+              ? source.readProgress()
+              : source.read());
             assert(
               Array.isArray(records) && records.length <= 2000,
               'Invalid operation source records.',
@@ -55,6 +59,7 @@ export class OperationFeed {
                 'Invalid operation source identity.',
               );
               ids.add(record.id);
+              if (progress && !needsOperationAttention(record)) continue;
               checked.push({
                 ...record,
                 scope: this.scope,
@@ -87,8 +92,7 @@ export class OperationFeed {
       operations: operations.filter(
         (record, index) =>
           index < 500 ||
-          record.recovery?.required ||
-          ['queued', 'running'].includes(record.state),
+          needsOperationAttention(record),
       ),
       sources,
     };
@@ -132,9 +136,18 @@ export function jobOperationSource(operations) {
   };
 }
 
-// Opt-in enrichment preserves the historical /jobs response for older clients.
-// The web gateway admits this projection only for administrators.
-export async function operationProgressSnapshot(operations,feed) {
-  const workflow=await feed.snapshot();
-  return {...operations.status(),workflow:{...workflow,operations:workflow.operations.filter(record=>record.source!=='jobs')}};
+export async function readJobsSnapshot(operations, feed, query) {
+  const progress = query.get('progress') === '1';
+  const workflow = query.get('workflows') === '1' ? await feed.snapshot({progress}) : null;
+  const status = operations.status();
+  if (progress) {
+    const watched = new Set(query.getAll('job'));
+    status.jobs = status.jobs.filter(
+      (job) => needsOperationAttention(job) || job.id === status.active?.id || watched.has(job.id),
+    );
+  }
+  if (workflow) {
+    status.workflow = {...workflow, operations: workflow.operations.filter((record) => record.source !== 'jobs')};
+  }
+  return status;
 }

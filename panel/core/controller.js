@@ -21,7 +21,7 @@ import {validateApplicationModule} from './application-module.js';
 import {AuditLog,auditedResponse}  from './audit.js';
 import {Operations} from './operations.js';
 import {JobsRepository,ConfigurationRepository} from './storage/state-repositories.js';
-import {OperationFeed,jobOperationSource,operationProgressSnapshot} from './operation-feed.js';
+import {OperationFeed,jobOperationSource,readJobsSnapshot} from './operation-feed.js';
 import {validateConfiguration,validateController,validateUpdater,validateActionRequest,normalizeStatus,publicContract} from './game-contract.js';
 import {controllerAccess} from './routes.js';
 import {SoftwareWorkers} from './software-workers.js';
@@ -144,7 +144,7 @@ export async function startController(module,{env=process.env,docker=dockerAPI,p
     if(req.method==='GET'&&url.pathname==='/diagnostics')return json(res,200,await module.diagnostics({docker,container:config.container,version:updater.current,recentStatus:game.recentStatus(),locations:[...game.locations,{id:'backups',title:'Backup storage',path:backupDir},{id:'state',title:'Controller storage',path:state}]}));
     if(req.method==='GET'&&url.pathname==='/backups'){const items=await backups.list();return json(res,200,{backups:items,schedule,retention:retention.status(),health:await backups.health(items)});}
     if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
-    if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,url.searchParams.get('workflows')==='1'?await operationProgressSnapshot(operations,operationFeed):operations.status());
+    if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,await readJobsSnapshot(operations,operationFeed,url.searchParams));
     if(req.method==='GET'&&url.pathname==='/download'&&url.searchParams.get('kind')==='backup'){
       const name=url.searchParams.get('name'),file=await existingFile(backupDir,name),stat=await fs.stat(file);
       assert(name.endsWith(game.backupExtension||'.zip'),'Unsupported backup format.');

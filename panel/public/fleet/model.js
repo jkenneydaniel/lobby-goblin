@@ -1,4 +1,9 @@
 import {hostRoute, serverKey} from './host-paths.js';
+import {
+  needsOperationAttention,
+  operationProgressRoute,
+} from '../shared/operation-progress.js';
+import {operationFinished} from '../shared/view.js';
 
 // One shared, session-scoped resource model; no DOM, dialogs or form state.
 // Screens decide when to load/render it. A reset cancels every outstanding read.
@@ -8,6 +13,7 @@ export function createFleetModel({
   getSession,
   includeWorkflows = false,
   onChange = () => {},
+  onSettled = () => {},
   fetchStatus = async (url, signal) => {
     const response = await fetch(url, {signal, credentials: 'same-origin'});
     return response.ok ? response.json() : null;
@@ -31,6 +37,8 @@ export function createFleetModel({
     abort = new AbortController();
   /** @type {Promise<import('./contracts.js').FleetSnapshot>|null} */
   let reading = null;
+  /** @type {Map<string,Map<string,(job:import('./contracts.js').FleetJob)=>void>>} */
+  const tracked = new Map();
   /** @param {number} version @param {import('./contracts.js').Session} user */
   const current = (version, user) =>
     generation === version && getSession() === user && !abort.signal.aborted;
@@ -56,6 +64,7 @@ export function createFleetModel({
     /** @type {import('./contracts.js').FleetSnapshotRecord[]} */ const snapshots =
       [];
     /** @type {import('./contracts.js').FleetJob[]} */ const jobs = [];
+    /** @type {Array<()=>void>} */ const settled = [];
     /** @type {Map<string,import('./contracts.js').OperationJob|undefined>} */ const hostJobs =
       new Map();
     const live = new Map(snapshot.live);
@@ -78,9 +87,10 @@ export function createFleetModel({
         await api(
           hostRoute(
             host,
-            includeWorkflows && user.role === 'admin'
-              ? '/jobs?workflows=1'
-              : '/jobs',
+            operationProgressRoute(
+              includeWorkflows && user.role === 'admin',
+              tracked.get(host.id)?.keys(),
+            ),
           ),
         )
       );
@@ -102,16 +112,26 @@ export function createFleetModel({
               operations.workflow?.sources.some((source) => !source.available)
             )
               workflowUnavailable = true;
-            const allJobs = [...operations.jobs, ...native];
+            const allJobs = [...operations.jobs, ...native].filter(
+              needsOperationAttention,
+            );
+            const watched = tracked.get(host.id);
+            for (const job of operations.jobs) {
+              const complete = watched?.get(job.id);
+              if (
+                complete &&
+                operations.active?.id !== job.id &&
+                operationFinished(job, null)
+              )
+                settled.push(() => {
+                  watched?.delete(job.id);
+                  complete({...job, hostId: host.id, hostName: host.name});
+                });
+            }
             hostJobs.set(
               host.id,
               operations.active ||
-                allJobs.find(
-                  (job) =>
-                    job.source !== 'host-setup' &&
-                    (['queued', 'running'].includes(job.state) ||
-                      job.recovery?.required),
-                ),
+                allJobs.find((job) => job.source !== 'host-setup'),
             );
             servers.push(
               ...result.servers
@@ -183,6 +203,7 @@ export function createFleetModel({
       assigned: false,
     };
     snapshot = next;
+    for (const complete of settled) complete();
     onChange(snapshot);
     for (let index = 0; index < servers.length; index += 4)
       await Promise.all(
@@ -227,6 +248,12 @@ export function createFleetModel({
     busy(hostId) {
       return !!snapshot.hostJobs.get(hostId);
     },
+    /** @param {string} hostId @param {string} jobId @param {(job:import('./contracts.js').FleetJob)=>void} [complete] */
+    trackJob(hostId, jobId, complete = onSettled) {
+      let watched = tracked.get(hostId);
+      if (!watched) tracked.set(hostId, (watched = new Map()));
+      watched.set(jobId, complete);
+    },
     /** @param {import('./contracts.js').FleetGame[]} games */
     setGames(games) {
       snapshot = {...snapshot, games};
@@ -251,6 +278,7 @@ export function createFleetModel({
       abort.abort();
       abort = new AbortController();
       reading = null;
+      tracked.clear();
       snapshot = empty();
     },
   };

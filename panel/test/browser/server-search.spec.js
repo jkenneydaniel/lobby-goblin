@@ -327,7 +327,7 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   await login(page);
   const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
   await expect(status.locator('option')).toHaveText(['All statuses', 'Ready (2)', 'Stopped (1)']);
-  await status.focus(); await status.press('End'); await status.press('Enter');
+  await status.selectOption('Stopped');
   await expect(status).toHaveValue('Stopped');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Island crew');
   await search(page).fill('Island');
@@ -344,7 +344,10 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   await expect(status).toHaveValue('');
   await status.selectOption('Stopped');
   await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  state.local[1].name = 'Island crew renamed';
   await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  // Wait for the Servers refresh to finish before advancing the poll timer.
+  await expect(cards(page)).toContainText('Island crew renamed');
   await expect(status).toHaveValue('Stopped');
   state.status[rustStatus] = {ready: false, running: true, players: []};
   const before = state.reads; await page.clock.fastForward(6000);
@@ -385,6 +388,45 @@ test('viewer status filtering distinguishes unavailable status data, attention a
   await expect(cards(page).locator('.status')).toHaveText('Checking');
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   expect(requests).toEqual([]);
+});
+
+test('a failed snapshot stays visible when polling clears a connection error', async ({page}) => {
+  await page.clock.install();
+  const state = await fleet(page);
+  const job = {id: 'fixture-snapshot', action: 'publish', state: 'running', message: 'Publishing the fixture snapshot.'};
+  let outage = false, submitted = false;
+  await page.route('**/api/hosts', route => outage
+    ? route.fulfill({status: 503, json: {error: 'Fixture connection unavailable.'}})
+    : route.fallback());
+  await page.route('**/api/servers/' + state.local[0].id + '/snapshot', route => {
+    submitted = true;
+    return route.fulfill({status: 202, json: job});
+  });
+  await page.route(/\/api\/jobs\?/, route => {
+    const watching = new URL(route.request().url()).searchParams.getAll('job').includes(job.id);
+    const active = submitted && job.state === 'running' ? job : null;
+    return route.fulfill({json: {active, jobs: active || watching ? [job] : []}});
+  });
+  await login(page);
+  await cards(page).first().getByRole('button', {name: 'Publish snapshot', exact: true}).click();
+  const dialog = page.locator('#snapshot-dialog');
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', {name: 'Publish snapshot', exact: true}).click();
+  await expect(page.locator('.product-operation')).toContainText(job.message);
+
+  outage = true;
+  await page.clock.fastForward(6000);
+  const connectionError = page.locator('#error'), feedback = page.locator('.product-feedback');
+  await expect(connectionError).toHaveText('Fixture connection unavailable.');
+  await expect(feedback).toHaveText('Fixture connection unavailable.');
+
+  outage = false;
+  job.state = 'failed';
+  job.message = 'The snapshot could not be verified.';
+  await page.clock.fastForward(6000);
+  await expect(connectionError).toBeEmpty();
+  await expect(feedback).toBeVisible();
+  await expect(feedback).toHaveText(job.message);
 });
 
 test('table view uses the loaded filtered order, supports keyboard and contains wide rows', async ({page}, info) => {

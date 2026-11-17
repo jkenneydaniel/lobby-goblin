@@ -35,6 +35,7 @@ export const sharedAssets = Object.freeze({
   '/shared/accounts.js': ['shared/accounts.js','text/javascript; charset=utf-8'],
   '/shared/backups.js': ['shared/backups.js','text/javascript; charset=utf-8'],
   '/shared/operations.js': ['shared/operations.js','text/javascript; charset=utf-8'],
+  '/shared/operation-progress.js': ['shared/operation-progress.js','text/javascript; charset=utf-8'],
   '/backup-retention.js': ['backup-retention.js','text/javascript; charset=utf-8'],
   '/workflows.css': ['workflows.css','text/css; charset=utf-8'],
 });

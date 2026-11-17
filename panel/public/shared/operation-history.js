@@ -56,8 +56,7 @@ export async function mountOperationHistory(
   let generation = 0;
   const prefix = () => (locations.length ? locationControl.value : '');
   let snapshot = null,
-    reading = null,
-    checked = 0;
+    reading = null;
   const opened = new Set();
   const search = part(ctx.root, '[data-operation-search]'),
     filterControl = part(ctx.root, '[data-operation-filter]');
@@ -171,7 +170,6 @@ export async function mountOperationHistory(
       )
         throw Error('Unsupported operation history response.');
       snapshot = value;
-      checked = Date.now();
       paint();
     })();
     reading = pending;
@@ -241,13 +239,7 @@ export async function mountOperationHistory(
   await refresh();
   return {
     async refresh(_ctx, reason = {}) {
-      if (
-        (reason.reason !== 'status' &&
-          reason.reason !== 'poll' &&
-          reason.reason !== 'model') ||
-        Date.now() - checked > 5000
-      )
-        await refresh();
+      if (reason.reason === 'reload') await refresh();
     },
   };
 }

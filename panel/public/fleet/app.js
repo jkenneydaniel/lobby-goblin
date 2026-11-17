@@ -66,7 +66,7 @@ function error(message, target = '#error') {
   const node = $(target);
   node.textContent = message;
   node.hidden = !message;
-  if (target === '#error') shell.notify(message, {error: true});
+  if (target === '#error') shell.notify(message, {error: true, source: target});
 }
 function notice(message) {
   $('#notice').textContent = message;
@@ -77,6 +77,8 @@ const model = createFleetModel({
   includeWorkflows: true,
   request,
   getSession: () => session,
+  onSettled: (job) =>
+    shell.notify(job.message, {error: job.state !== 'succeeded'}),
   onChange(value) {
     $('#new-server').disabled = !value.hosts.some(
       (host) =>
@@ -139,7 +141,10 @@ const creation = createServerDialog({
   error,
   notice,
   selectView,
-  onCreated: refresh,
+  onCreated(hostId, job) {
+    model.trackJob(hostId, job.id);
+    return refresh();
+  },
   onCatalog: (games) => model.setGames(games),
 });
 const screenRouter = createScreenRouter({
@@ -218,6 +223,7 @@ function selectView(next) {
 async function refresh() {
   if (!session || needsWelcome()) return;
   try {
+    await model.refresh();
     await screenRouter.refresh({reason: 'poll'});
     if (session) error('');
   } catch (problem) {

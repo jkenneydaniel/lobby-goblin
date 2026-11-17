@@ -286,6 +286,9 @@ export function createStorageScreen({model, notice}) {
       );
       operation.id = job.id;
       if (!ctx.isCurrent()) return;
+      model.trackJob(item.hostId, job.id, (result) => {
+        operation.job = result;
+      });
       if (action !== 'inspect')
         notice(
           action === 'recover'
@@ -360,18 +363,7 @@ export function createStorageScreen({model, notice}) {
     failures.sort();
     for (const [key, operation] of pending) {
       const item = next.find((value) => serverKey(value) === key),
-        job = model.snapshot.jobs.find(
-          (value) =>
-            operation.id &&
-            value.hostId === item?.hostId &&
-            value.id === operation.id &&
-            value.action ===
-              {
-                inspect: 'inspectStorage',
-                recover: 'recoverStorage',
-                remove: 'deleteStorage',
-              }[operation.action],
-        ),
+        job = operation.job,
         inspected =
           operation.action === 'inspect' &&
           item?.storageReview?.token &&
@@ -445,7 +437,7 @@ export function createStorageScreen({model, notice}) {
       await load(ctx);
     },
     async refresh(ctx, options) {
-      if (options.reason !== 'model') await model.refresh();
+      if (!['model', 'poll'].includes(options.reason)) await model.refresh();
       await load(ctx);
     },
   };

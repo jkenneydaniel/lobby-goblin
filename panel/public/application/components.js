@@ -161,7 +161,8 @@ export function createApplicationComponents({
             row.querySelector('[data-state]').textContent = job.state;
             list.append(row);
           }
-          if (!operations.jobs.length) list.textContent = 'No operations yet.';
+          if (!operations.jobs.length)
+            list.textContent = 'No operations in progress or needing review.';
         },
       });
     else if (screen.component === 'resource')

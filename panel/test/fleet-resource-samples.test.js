@@ -85,7 +85,7 @@ test('two-stage model refresh keeps samples fenced on host failure and deletes f
       if (route === '/hosts') return {hosts: [{id: 'local', name: 'Local', local: true, connected: hostOnline}]};
       if (route === '/servers') return {servers: [server()]};
       if (route === '/snapshots') return {snapshots: []};
-      if (route === '/jobs') return {jobs: [], active: null};
+      if (route === '/jobs?progress=1') return {jobs: [], active: null};
       throw Error('Unexpected request: ' + route);
     },
     fetchStatus: async () => statusAvailable ? {running: true, ready: true, cpu: 240, memory: 1.5 * 1024 ** 3} : null,
