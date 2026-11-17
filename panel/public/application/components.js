@@ -615,6 +615,7 @@ export function createApplicationComponents({
                   })
                 : mountBackups(ctx.root, {
                     request: ctx.request,
+                    // The shell already renders the screen heading.
                     showHeading: false,
                     startJob,
                     isAdmin: () => getSession()?.role === 'admin',
@@ -625,9 +626,6 @@ export function createApplicationComponents({
                     interruption: contract.backup.interruption,
                     description: options.description,
                     restore: options.restore === true,
-                    ...(options.showHeading !== undefined
-                      ? {showHeading: options.showHeading}
-                      : {}),
                   });
             await workflow.load();
           },

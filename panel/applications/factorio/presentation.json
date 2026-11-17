@@ -230,7 +230,8 @@
       "component": "backups",
       "options": {
         "description": "Complete snapshots of your saves, server settings and mods.",
-        "restore": true
+        "restore": true,
+        "showHeading": true
       }
     },
     {
