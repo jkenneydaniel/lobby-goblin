@@ -104,6 +104,14 @@ test('foreign recovery storage and altered anchors are retained, never adopted',
   f.containers.get(managementAnchor(fleet)).HostConfig.Privileged = true;
   await assert.rejects(operatorManagement('status', {fleet, id: 'c'.repeat(32)}, f), /anchor changed/);
 });
+test('an existing anchor with a missing ledger cannot bootstrap empty recovery storage', async () => {
+  const f = fixture();
+  await operatorManagement('plan', {fleet, image}, f);
+  f.volumes.delete(managementVolume(fleet));
+  const before = f.calls.length;
+  await assert.rejects(operatorManagement('plan', {fleet, image}, f), /recovery volume is missing/);
+  assert.ok(f.calls.slice(before).every(call => call.method === 'GET'));
+});
 test('fleet CLI retains original directory mode and rejects mixed recovery scopes', async () => {
   const calls = [], operator = async (...args) => {calls.push(args); return {id: 'c'.repeat(32)};}, log = () => {};
   await cli(['plan', '--fleet', fleet, '--image', image], {operator, log});
@@ -124,6 +132,31 @@ test('enrollment excludes queued old operator plans while portable claims preser
   await driver.release(plan);
   assert.equal(f.containers.has('lobby-goblin-management-active-' + fleet), false);
   assert.equal(f.containers.get(managementAnchor(fleet)).Id, anchor.Id);
+});
+test('a portable review can acquire and recover its claim after a verified anchor replacement', async () => {
+  const f = fixture();
+  await operatorManagement('plan', {fleet, image}, f);
+  const anchor = f.containers.get(managementAnchor(fleet)), authority = anchor.Id;
+  const driver = new ManagementEngine({socket: '/unused-test.sock', engine, request: f.docker});
+  const plan = {fleet, id: 'f'.repeat(32), engine, imageId: image, authority};
+  f.containers.delete(authority);
+  anchor.Id = 'e'.repeat(64);
+  f.containers.set(anchor.Id, anchor);
+
+  await driver.acquire(plan);
+  const claimName = 'lobby-goblin-management-active-' + fleet;
+  const claim = f.containers.get(claimName);
+  await driver.acquire(plan);
+  assert.equal(f.containers.get(claimName).Id, claim.Id);
+  await assert.rejects(driver.acquire({...plan, id: 'c'.repeat(32)}), /Another operator owns/);
+
+  const before = f.calls.length;
+  anchor.Config.Labels['io.lobby-goblin.engine'] = 'foreign-engine';
+  await assert.rejects(driver.acquire(plan), /anchor changed/);
+  anchor.Config.Labels['io.lobby-goblin.engine'] = engine;
+  f.volumes.get(managementVolume(fleet)).Labels['io.lobby-goblin.fleet'] = 'd'.repeat(32);
+  await assert.rejects(driver.acquire(plan), /recovery storage belongs to another/);
+  assert.ok(f.calls.slice(before).every(call => call.method === 'GET'));
 });
 test('an unfinished original-directory claim blocks enrollment before any storage creation', async () => {
   const f = fixture();

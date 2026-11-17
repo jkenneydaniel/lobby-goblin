@@ -120,6 +120,12 @@ it does not change installed services. It enrolls the dedicated recovery volume
 and unstarted anchor when needed. Unknown/custom layouts, unavailable or
 active workflows and changed identities require review.
 
+If Docker recreates the anchor with a new container ID, the built-in updater
+can continue with the existing recovery volume and saved update. It verifies the
+anchor and volume against the enrolled fleet and Docker engine before updating.
+The updater stops for review if verification fails or if an existing anchor's
+recovery volume is missing.
+
 Inspect the retained update with `status`. Use `resume` with the same arguments
 as `apply` to reconcile an interrupted step. Before activation is committed,
 `rollback` with the same arguments restores the previous management metadata and

@@ -11,6 +11,7 @@ import {ManagementEngine} from '../fleet/management-engine.js';
 import {ManagementUpdate} from '../fleet/management-update.js';
 import {main as updateCLI} from '../management-update.js';
 import {portableStartupRuntime} from '../core/management-startup.js';
+import {managementAnchor, assertAnchor} from '../core/management-volume.js';
 import {
   installationFiles,
   optionsFor,
@@ -259,6 +260,11 @@ if (panelUpdate) {
   });
   assert.equal(review.services.applications, 1);
   assert.ok(review.actions.includes('apply'));
+  // Lose the disposable anchor between review and apply. The updater creates
+  // a new container and must use the already reviewed plan in the same ledger.
+  const anchor = await inspect(managementAnchor(fleet));
+  assertAnchor(anchor, fleet, engineId);
+  await docker('DELETE', '/containers/' + anchor.Id);
   await withApplyFailureDiagnostics(
     () => request('/management-update', {action: 'apply', id, confirm: true, requestId: crypto.randomBytes(16).toString('hex')}),
     async () => {
@@ -274,6 +280,7 @@ if (panelUpdate) {
       return Buffer.isBuffer(logs) && logs.length <= maxLogBytes ? demultiplex(logs) : '';
     },
   );
+  assert.notEqual((await inspect(managementAnchor(fleet))).Id, anchor.Id);
   const complete = await wait(async () => {
     try {
       const value = await request('/management-update');

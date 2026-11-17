@@ -10,7 +10,7 @@ import {
 import {resources, validId} from '../core/instance.js';
 import {managementStorageSlots} from './management-storage.js';
 import {assertPanelWorker} from '../core/management-panel-contract.js';
-import {managementAnchor, assertAnchor} from '../core/management-volume.js';
+import {managementAnchor, managementVolume, assertAnchor, assertVolume} from '../core/management-volume.js';
 
 const roleKey = 'io.lobby-goblin.role',
   fleetKey = 'io.lobby-goblin.fleet',
@@ -200,6 +200,10 @@ export class ManagementEngine {
       'Management verification timed out. Inspect the retained update before recovery.',
     );
   }
+  async verifyPortableEnrollment(anchor, fleet, engine) {
+    assertAnchor(anchor, fleet, engine);
+    assertVolume(await this.request('GET', '/volumes/' + managementVolume(fleet)), fleet, engine);
+  }
   async plan({fleet, image, id, installation, retained = []}) {
     assert(
       validId(fleet) && validId(id) && managementImage(image),
@@ -208,8 +212,9 @@ export class ManagementEngine {
     const engine = await this.identity();
     const anchor = await this.inspect(managementAnchor(fleet), {optional: true});
     if (installation.management) {
-      assert(anchor?.Id === installation.management.anchor, 'Portable management enrollment changed.', 409);
-      assertAnchor(anchor, fleet, engine);
+      assert(installation.management.engine === engine && installation.management.volume === managementVolume(fleet),
+        'Portable management enrollment changed.', 409);
+      await this.verifyPortableEnrollment(anchor, fleet, engine);
     } else assert(!anchor, 'Another management update or portable enrollment retains this fleet. Use its original records or --fleet.', 409);
     assert(
       !(await this.inspect((installation.management ? 'lobby-goblin-management-active-' : 'lobby-goblin-management-lock-') + fleet, {
@@ -485,8 +490,10 @@ export class ManagementEngine {
     // starts and has no mounts or credentials; it is only an ownership record.
     const anchor = await this.inspect(managementAnchor(plan.fleet), {optional: true});
     if (plan.authority) {
-      assert(anchor?.Id === plan.authority, 'Portable management enrollment changed.', 409);
-      assertAnchor(anchor, plan.fleet, plan.engine);
+      // Saved plans keep the anchor ID seen at review. The current anchor and
+      // ledger must still belong to the same fleet and engine.
+      assert(/^[a-f0-9]{64}$/.test(plan.authority), 'Invalid portable management review.', 409);
+      await this.verifyPortableEnrollment(anchor, plan.fleet, plan.engine);
     } else assert(!anchor || anchor.Config.Labels?.[roleKey] === 'management-lock', 'Use the enrolled portable updater with --fleet. Original directory records were preserved.', 409);
     const name = (plan.authority ? 'lobby-goblin-management-active-' : 'lobby-goblin-management-lock-') + plan.fleet;
     let claim = await this.inspect(name, {optional: true});

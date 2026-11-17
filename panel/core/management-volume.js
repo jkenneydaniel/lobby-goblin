@@ -33,6 +33,7 @@ export async function ensureManagementVolume({docker, inspect, fleet, engine, im
   let volume;
   try { volume = await docker('GET', '/volumes/' + managementVolume(fleet)); }
   catch (error) { if (error.status !== 404) throw error; }
+  assert(volume || !anchor, 'The enrolled management recovery volume is missing. Preserve the anchor for review.', 409);
   if (!volume) volume = await docker('POST', '/volumes/create', {Name: managementVolume(fleet), Driver: 'local', Labels: {
     'io.lobby-goblin.fleet': fleet, 'io.lobby-goblin.role': 'management-update-ledger', 'io.lobby-goblin.engine': engine,
   }});
@@ -76,8 +77,12 @@ export async function volumeInstallation(directory, context) {
   }
   await privateManagementDirectory(directory);
   const installation = await readManagementJSON(path.join(directory, 'installation.json'));
+  const enrollment = installation.management;
+  // The anchor ID records initial enrollment. Keep it in the manifest so
+  // existing plan and runtime receipt hashes survive Docker recreating it.
   assert(installation.id === context.fleet && installation.project === 'lobby-goblin-fleet-' + context.fleet && installation.kind === context.kind &&
-    managementHash(installation.management) === managementHash({version: 1, volume: context.volume, anchor: context.anchor, engine: context.engine, profile: context.profile}),
+    /^[a-f0-9]{64}$/.test(enrollment?.anchor || '') &&
+    managementHash(enrollment) === managementHash({version: 1, volume: context.volume, anchor: enrollment.anchor, engine: context.engine, profile: context.profile}),
   'The enrolled management installation changed.', 409);
   return installation;
 }
