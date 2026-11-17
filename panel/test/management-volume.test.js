@@ -18,7 +18,8 @@ test('enrollment is private, immutable and independent of native source folder o
   assert.equal((await fs.stat(path.join(directory, 'installation.json'))).mode & 0o777, 0o600);
   assert.deepEqual(await volumeInstallation(directory, {...context, image: 'sha256:' + 'd'.repeat(64)}), descriptor, 'The initial image remains provenance after later releases.');
   const before = await fs.readFile(path.join(directory, 'installation.json'));
-  for (const changed of [{engine: 'other'}, {anchor: 'e'.repeat(64)}, {profile: 'brokered'}, {kind: 'host-agent'}])
+  assert.deepEqual(await volumeInstallation(directory, {...context, anchor: 'e'.repeat(64)}), descriptor);
+  for (const changed of [{engine: 'other'}, {profile: 'brokered'}, {kind: 'host-agent'}])
     await assert.rejects(volumeInstallation(directory, {...context, ...changed}), /changed/);
   assert.deepEqual(await fs.readFile(path.join(directory, 'installation.json')), before);
   assert.equal((await volumeRuntime(directory, {fleet, engine})).image, image);
