@@ -390,6 +390,45 @@ test('viewer status filtering distinguishes unavailable status data, attention a
   expect(requests).toEqual([]);
 });
 
+test('a failed snapshot stays visible when polling clears a connection error', async ({page}) => {
+  await page.clock.install();
+  const state = await fleet(page);
+  const job = {id: 'fixture-snapshot', action: 'publish', state: 'running', message: 'Publishing the fixture snapshot.'};
+  let outage = false, submitted = false;
+  await page.route('**/api/hosts', route => outage
+    ? route.fulfill({status: 503, json: {error: 'Fixture connection unavailable.'}})
+    : route.fallback());
+  await page.route('**/api/servers/' + state.local[0].id + '/snapshot', route => {
+    submitted = true;
+    return route.fulfill({status: 202, json: job});
+  });
+  await page.route(/\/api\/jobs\?/, route => {
+    const watching = new URL(route.request().url()).searchParams.getAll('job').includes(job.id);
+    const active = submitted && job.state === 'running' ? job : null;
+    return route.fulfill({json: {active, jobs: active || watching ? [job] : []}});
+  });
+  await login(page);
+  await cards(page).first().getByRole('button', {name: 'Publish snapshot', exact: true}).click();
+  const dialog = page.locator('#snapshot-dialog');
+  await dialog.getByRole('checkbox').check();
+  await dialog.getByRole('button', {name: 'Publish snapshot', exact: true}).click();
+  await expect(page.locator('.product-operation')).toContainText(job.message);
+
+  outage = true;
+  await page.clock.fastForward(6000);
+  const connectionError = page.locator('#error'), feedback = page.locator('.product-feedback');
+  await expect(connectionError).toHaveText('Fixture connection unavailable.');
+  await expect(feedback).toHaveText('Fixture connection unavailable.');
+
+  outage = false;
+  job.state = 'failed';
+  job.message = 'The snapshot could not be verified.';
+  await page.clock.fastForward(6000);
+  await expect(connectionError).toBeEmpty();
+  await expect(feedback).toBeVisible();
+  await expect(feedback).toHaveText(job.message);
+});
+
 test('table view uses the loaded filtered order, supports keyboard and contains wide rows', async ({page}, info) => {
   await page.clock.install();
   await page.addInitScript(() => {

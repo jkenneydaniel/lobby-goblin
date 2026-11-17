@@ -66,7 +66,7 @@ function error(message, target = '#error') {
   const node = $(target);
   node.textContent = message;
   node.hidden = !message;
-  if (target === '#error') shell.notify(message, {error: true});
+  if (target === '#error') shell.notify(message, {error: true, source: target});
 }
 function notice(message) {
   $('#notice').textContent = message;
