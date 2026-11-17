@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.42-alpha — 2026-11-17
+
+- Operations keeps active jobs and recovery alerts current and loads completed history when the page opens or refreshes. (#191)
+- Administrators can edit CPU and memory limits for managed servers from the Servers page. Stop the server before lowering its memory limit. (#192)
+- Factorio's automatic map previews run in the background without holding up server operations. Enabled automatic refreshes run at least 15 minutes apart. (#192)
+
 ## 0.3.41-alpha — 2026-11-16
 
 - Create Server submits directly to the selected host. Provisioning checks capacity and snapshot compatibility before allocating resources. (#188)
