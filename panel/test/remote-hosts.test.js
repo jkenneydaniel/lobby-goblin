@@ -74,6 +74,13 @@ test('central login keeps remote reads, administrator changes and CSRF checks sc
  const call=(route,user=admin,body,csrf=true)=>fetch(origin+route,{method:body===undefined?'GET':'POST',headers:{origin,cookie:user.cookie,'content-type':'application/json',...(csrf?{'x-csrf-token':user.csrf}:{})},body:body===undefined?undefined:JSON.stringify(body)});
  assert.equal((await call('/api/hosts',viewer)).status,200);assert.equal((await call('/api/host-pairing',viewer)).status,403);assert.equal((await call('/api/host-setup',viewer)).status,403);assert.equal((await call('/api/host-setup-plan',viewer,{})).status,403);assert.equal((await call('/api/hosts',admin,{},false)).status,403);
  const prefix='/hosts/'+two+'/servers/'+serverId;const html=await call(prefix+'/');assert.equal(html.status,200);const markup=await html.text(),entry=new URL(markup.match(/<script[^>]+src="([^"]+)"/)[1],origin+prefix+'/');assert.equal(entry.pathname,prefix+'/app.js');assert.equal((await call(entry.pathname)).status,200);assert.equal((await(await call(prefix+'/application-definition.json')).json()).id,'factorio');assert.equal((await call(prefix+'/api/session',viewer)).status,200);assert.equal((await call(prefix+'/api/jobs',viewer,{action:'start'})).status,403);assert.equal((await call(prefix+'/api/mod-library',viewer)).status,403);assert.equal((await call(prefix+'/api/jobs',admin,{action:'start'},false)).status,403);
+ const limitRoute='/api'+prefix+'/limits', limits={cpu:1.5,memoryGiB:3,current:{cpu:1,memoryGiB:2}}, changes=[];
+ f.remote.manager.submit=async(action,input,actor)=>{changes.push({action,input,actor});return {id:'resize-job'};};
+ assert.equal((await call(limitRoute,viewer,limits)).status,403);
+ assert.equal((await call(limitRoute,admin,limits,false)).status,403);
+ assert.equal((await call(limitRoute,admin,limits)).status,202);
+ assert.equal(changes.length,1);assert.equal(changes[0].action,'resize');
+ assert.deepEqual(changes[0].input,{...limits,serverId});assert.match(changes[0].actor,/remote:.*Admin/);
  const body=JSON.stringify(await(await call('/api/hosts')).json());assert.ok(!body.includes(f.central.hosts.host(two).token));
  const removed=await call('/api/hosts/'+two+'/disconnect',admin,{name:'Remote game host',confirm:true});assert.equal(removed.status,200);assert.equal((await call(prefix+'/')).status,404);assert.equal(f.remote.manager.state.servers[0].state,'installed');
 });

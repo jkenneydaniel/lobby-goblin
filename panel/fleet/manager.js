@@ -17,7 +17,8 @@ import {AuditLog} from '../core/audit.js';
 import {Operations} from '../core/operations.js';
 import {repairMigrationHistory} from '../core/migration-history.js';
 import {RegistryRepository} from '../core/storage/state-repositories.js';
-const giB=1024**3;
+import {dockerLimits,giB} from '../core/container-limits.js';
+import {validateServerLimits,resizeServer,inspectServerLimits,settleServerLimits} from './server-limits.js';
 export class FleetManager{
  constructor({docker,broker=null,brokerVolume,root='/fleet',library='/library',fleet,stateVolume,libraryVolume,image,hostContainer,address='localhost',bind='0.0.0.0',memoryBudgetGiB=16,portBase=35000,gameModules=registeredApplications()}){
   assert(validId(fleet),'FLEET_ID must be a fresh 32-character lowercase hex ID.');assert(stateVolume===`lobby-goblin-fleet-${fleet}-state`&&libraryVolume===`lobby-goblin-fleet-${fleet}-library`,'Unexpected host-manager storage names.');
@@ -45,7 +46,7 @@ export class FleetManager{
  persist(state=this.state){const data=structuredClone(state);const next=this.queue.then(()=>this.repository.save(this.storageSnapshot,data));this.queue=next.catch(()=>{});return next;}
  server(id){assert(validId(id),'Invalid server.');const item=this.state.servers.find(s=>s.id===id);assert(item,'Server not found.',404);return item;}
  snapshot(id){assert(validId(id),'Invalid snapshot.');const item=this.state.snapshots.find(s=>s.id===id);assert(item,'Snapshot not found.',404);return item;}
- publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),applicationName:this.catalog[item.game]?.name||item.game,applicationKind:this.catalog[item.game]?.kind||'game',webProtocol:this.catalog[item.game]?.webProtocol,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
+ publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item,game=this.catalog[item.game];const bounds=game?.creation;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),...(bounds&&item.state==='installed'&&(!item.migration||item.migration.state==='complete')&&{resourceLimits:{minMemoryGiB:bounds.minMemoryGiB,maxMemoryGiB:bounds.maxMemoryGiB}}),applicationName:game?.name||item.game,applicationKind:game?.kind||'game',webProtocol:game?.webProtocol,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
  list(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>this.publicServer(s));}
  removedServers(){return this.state.servers.filter(s=>s.state==='removed').map(({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,storageReview})=>({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,...(storageReview?{storageReview:((({identity:_identity,...review})=>review)(storageReview))}:{})}));}
  allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:1,totalGiB:s.memoryGiB+1}));}
@@ -86,6 +87,7 @@ export class FleetManager{
   const previous=this.operations.existing({action,actor,input:originalInput,requestId});if(previous)return this.operations.accepted(previous);
   assert(!this.active&&!this.settingsUpdating&&!this.agentUpdating,'Wait for the current host operation to finish.',409);
   if(action==='create')input=validateCreation(input,[...this.modules.values()]);
+  else if(action==='resize')input=validateServerLimits(this,this.server(input.serverId),input);
   else if(action==='publish'){const s=this.server(input.serverId);assert(!s.migration||s.migration.state==='complete','Complete the game image migration before publishing snapshots.',409);assert(s.state!=='removed'&&input.confirm===true,'Confirm the save and possible server interruption.');assert(typeof input.title==='string'&&input.title.trim().length>=1&&input.title.length<=80&&!/[\x00-\x1f]/.test(input.title),'Use a snapshot title of 1–80 characters.');input={serverId:s.id,title:input.title.trim(),confirm:true};}
   else if(action==='removeSnapshot'){const snapshot=this.snapshot(input.snapshotId);assert(input.confirm===true&&input.title===snapshot.title,'Confirm the snapshot title before deleting it.');input={snapshotId:snapshot.id};}
   else if(action==='remove'){const s=this.server(input.serverId);assert(s.state!=='removed'&&input.confirm===true&&input.name===s.name,'Type the server name to remove its containers.');assert(input.publishSnapshot===undefined||typeof input.publishSnapshot==='boolean','Choose whether to publish a snapshot.');input={serverId:s.id,confirm:true,publishSnapshot:input.publishSnapshot===true};}
@@ -93,11 +95,16 @@ export class FleetManager{
   else assert(false,'Unsupported host operation.');
   const {job,duplicate}=await this.operations.reserve({action,actor,input:originalInput,requestId});
   if(!duplicate)void this.operations.execute(job,{before:async()=>{await this.assertHost();if(input.serverId)await this.stage(job,'Checking selected server…','checking',{serverId:input.serverId});},
-   run:()=>this[action](input,job),after:async()=>{if(input.serverId)delete this.server(input.serverId).maintenance;}});
+   run:()=>action==='resize'?resizeServer(this,input,job):this[action](input,job),after:async()=>{
+    try{
+     if(action==='resize')await settleServerLimits(this,job);
+    }finally{if(input.serverId)delete this.server(input.serverId).maintenance;}
+   }});
   return job;
  }
  async stage(job,message,phase='working',target){await this.operations.checkpoint(job,phase,message,target);}
  async inspectOperation(job){
+  if(job.action==='resize')return inspectServerLimits(this,job);
   if(['inspectStorage','deleteStorage','recoverStorage'].includes(job.action)&&(!job.target?.sourceId)){const item=this.state.servers.find(s=>s.id===job.target?.serverId);if(job.action==='deleteStorage'&&item){try{await this.ownedVolume(item.volume,item.id);}catch(error){if(error.status!==404)throw error;item.storageDeletedAt=new Date().toISOString();item.storageStatus={state:'deleted',checkedAt:item.storageDeletedAt};delete item.storageReview;return {outcome:'succeeded',message:'The reviewed volume is absent. Shared snapshots were kept.',result:{serverId:item.id}};}}return {message:'Storage operation was interrupted. Original storage was not replayed or adopted. Inspect Storage and any partial replacement before retrying.'};}
   if(job.action==='removeSnapshot'){const id=job.target?.snapshotId||job.result?.snapshotId;if(validId(id)){const exists=await fs.lstat(path.join(this.library,id)).catch(error=>{if(error.code==='ENOENT')return null;throw error;});if(!exists){this.state.snapshots=this.state.snapshots.filter(snapshot=>snapshot.id!==id);return {outcome:'succeeded',message:'Snapshot files are absent and its library entry was removed.',result:{snapshotId:id}};}}return {message:'Snapshot deletion needs review. Existing servers and source backups were preserved.'};}
   const item=this.state.servers.find(server=>server.id===(job.target?.serverId||job.result?.serverId));
@@ -169,7 +176,7 @@ export class FleetManager{
    const commonLabels=labels(this.fleet,id,input.game),target=managed.dataTarget;
    const environment=managed.gameEnvironment(item);
    const bindings=Object.fromEntries(managed.ports.map(port=>[port.containerPort+'/'+port.protocol,[{HostIp:this.bind,HostPort:String(item[port.key])}]]));
-   await this.docker('POST','/containers/create?'+new URLSearchParams({name:item.container,platform:'linux/amd64'}),{Image:item.image,Env:Object.entries(environment).map(([k,v])=>k+'='+v),Labels:commonLabels,ExposedPorts:Object.fromEntries(Object.keys(bindings).map(k=>[k,{}])),HostConfig:{RestartPolicy:{Name:item.autoStart?'unless-stopped':'no'},Memory:item.memoryGiB*giB,NanoCpus:item.cpu*1e9,Mounts:[{Type:'volume',Source:item.volume,Target:target,VolumeOptions:{Subpath:'data',NoCopy:true}}],NetworkMode:item.network,PortBindings:bindings,LogConfig:{Type:'json-file',Config:{'max-size':'10m','max-file':'3'}}},NetworkingConfig:{EndpointsConfig:{[item.network]:{Aliases:[item.container]}}}});
+   await this.docker('POST','/containers/create?'+new URLSearchParams({name:item.container,platform:'linux/amd64'}),{Image:item.image,Env:Object.entries(environment).map(([k,v])=>k+'='+v),Labels:commonLabels,ExposedPorts:Object.fromEntries(Object.keys(bindings).map(k=>[k,{}])),HostConfig:{RestartPolicy:{Name:item.autoStart?'unless-stopped':'no'},...dockerLimits(item),Mounts:[{Type:'volume',Source:item.volume,Target:target,VolumeOptions:{Subpath:'data',NoCopy:true}}],NetworkMode:item.network,PortBindings:bindings,LogConfig:{Type:'json-file',Config:{'max-size':'10m','max-file':'3'}}},NetworkingConfig:{EndpointsConfig:{[item.network]:{Aliases:[item.container]}}}});
    const env={MODE:'controller',GAME_MODULE:item.game,PORT:'8081',FLEET_ID:this.fleet,FLEET_INSTANCE:id,FLEET_VOLUME:item.volume,FLEET_RESTART_POLICY:item.autoStart?'unless-stopped':'no',CONTROLLER_TOKEN_FILE:'/instance/control/controller-token',STATE_DIR:'/instance/state',UPDATE_STATE_DIR:'/instance/updates',RELEASE_CHECKS:'false',...managed.controllerEnvironment(item,{address:this.address})};
    if(this.broker)Object.assign(env,{DOCKER_BROKER_SOCKET:brokerSocket,DOCKER_BROKER_TOKEN_FILE:brokerToken});
    await this.docker('POST','/containers/create?'+new URLSearchParams({name:item.controller}),{Image:this.runtimeImage||this.image,User:'0:0',Env:Object.entries(env).map(([k,v])=>k+'='+v),Labels:{...commonLabels,'io.lobby-goblin.role':'instance-controller'},HostConfig:{RestartPolicy:{Name:'unless-stopped'},Memory:1024**3,NanoCpus:1e9,CapDrop:['ALL'],CapAdd:['DAC_OVERRIDE'],SecurityOpt:['no-new-privileges:true'],Mounts:[{Type:'volume',Source:item.volume,Target:'/instance'},...(this.broker?[{Type:'volume',Source:this.brokerVolume,Target:'/broker/socket',ReadOnly:true,VolumeOptions:{Subpath:'socket',NoCopy:true}},{Type:'volume',Source:this.brokerVolume,Target:'/broker/credential',ReadOnly:true,VolumeOptions:{Subpath:'instances/'+id,NoCopy:true}}]:[{Type:'bind',Source:'/var/run/docker.sock',Target:'/var/run/docker.sock'}])],NetworkMode:item.network,LogConfig:{Type:'json-file',Config:{'max-size':'5m','max-file':'2'}}},NetworkingConfig:{EndpointsConfig:{[item.network]:{Aliases:[item.controller]}}}});

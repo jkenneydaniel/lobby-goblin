@@ -54,7 +54,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
    if(url.pathname==='/remote/v1/pair')actor='pairing-request';
    const route=url.pathname.replace(/^\/remote\/v1/,'');
    const known=['/host-settings','/hosts','/host-pairing','/host-setup','/host-setup-plan','/agent-update','/agent-update-plan','/pair','/disconnect','/servers','/jobs/recovery'];
-   return auditedResponse(manager.audit,req,res,{actor,scope:'host:'+manager.fleet,action:known.includes(route)?'host.'+route.slice(1).replaceAll('/','.'):route.match(/^\/servers\/[a-f0-9]{32}\/(?:snapshot|remove)$/)?'host.'+route.split('/').at(-1):'server.request'},buffered=>handle(req,buffered));
+   return auditedResponse(manager.audit,req,res,{actor,scope:'host:'+manager.fleet,action:known.includes(route)?'host.'+route.slice(1).replaceAll('/','.'):route.match(/^\/servers\/[a-f0-9]{32}\/(?:snapshot|remove|limits)$/)?'host.'+route.split('/').at(-1):'server.request'},buffered=>handle(req,buffered));
   }
   if(url.pathname.startsWith('/remote/v1/')){
    if(url.pathname==='/remote/v1/pair'){assert(req.method==='POST','Not found.',404);return json(res,200,await hosts.accept(await requestJSON(req)));}
@@ -98,7 +98,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/update-status')return json(res,200,await noManagedUpdater(version).refresh());
   const match=url.pathname.match(/^\/servers\/([a-f0-9]{32})(?:\/(.*))?$/);assert(match,'Not found.',404);const item=manager.server(match[1]),tail=match[2]||'';
   if(!tail&&req.method==='GET')return json(res,200,manager.publicServer(item));
-  if(req.method==='POST'&&['snapshot','remove'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit(tail==='snapshot'?'publish':'remove',{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
+  if(req.method==='POST'&&['snapshot','remove','limits'].includes(tail)){const body=await requestJSON(req);return json(res,202,await manager.submit({snapshot:'publish',remove:'remove',limits:'resize'}[tail],{...body,serverId:item.id},req.headers['x-panel-user']||'administrator'));}
   assert(tail.startsWith('controller/')&&item.state!=='removed','This server is unavailable. Its stored data has been preserved.',409);const route='/'+tail.slice(11),module=selectedApplication(item.game);
   assert(controllerAccess(module,req.method,route),'Not found.',404);
   assert(['GET','POST'].includes(req.method),'Not found.',404);assert(req.method==='GET'||!item.maintenance&&manager.active?.action!=='image-migration','A host operation is using this server. Wait for it to finish.',409);

@@ -145,17 +145,15 @@ space, archive sizes, verification results, next run and warnings.
 ## Map
 
 Saved explored Nauvis is exported from an isolated copy of a completed save.
-The active game receives no Lua from normal map export. Automatic refresh follows
-completed autosaves, manual saves, last-player disconnect saves and shutdown saves;
-it does not recursively request another save. Pending exports are coalesced and
-persist across controller restarts. Open maps check for updates every five seconds
-and preserve pan, zoom and enabled layers.
+Automatic refresh follows completed autosaves, manual saves, last-player
+disconnect saves and shutdown saves. Its private worker leaves server controls
+and backups available. Newer completed saves replace queued work, which persists
+across controller restarts. Open maps preserve pan, zoom and enabled layers
+when a new snapshot arrives.
 Administrators can open **Map refresh settings** on the map to turn automatic
-refresh off or choose a minimum interval of 0–1440 whole minutes. Zero preserves
-the existing refresh-after-every-save behavior. A positive interval limits export
-starts; newer saves replace queued work until the next permitted refresh. Settings
-and the last automatic start time persist across restarts. This does not change
-game autosave frequency, live-player polling or the manual Refresh map action.
+refresh off or choose a minimum interval of 15–1440 whole minutes. Older shorter
+settings use the 15-minute minimum. Settings and the last refresh start time
+persist across restarts. **Refresh map** still saves current progress on request.
 Members need the separate **Configure automatic saved map refresh** permission.
 Export helpers use lower CPU priority (`CpuShares: 128`) so the active game takes
 precedence when CPU is contested. They can use idle CPU without a hard quota;

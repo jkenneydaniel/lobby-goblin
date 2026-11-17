@@ -372,6 +372,7 @@ test('status filtering combines fleet filters and follows refresh, offline statu
 
 test('viewer status filtering distinguishes unavailable status data, attention and creation without writes', async ({page}) => {
   const state = await fleet(page);
+  state.remote[0].resourceLimits = {minMemoryGiB: 1, maxMemoryGiB: 32};
   state.local[0].state = 'attention'; state.local[1].state = 'creating';
   state.status['/servers/' + 'b'.repeat(32) + '/api/status'] = null;
   state.status['/servers/' + 'c'.repeat(32) + '/api/status'] = null;
@@ -387,7 +388,45 @@ test('viewer status filtering distinguishes unavailable status data, attention a
   await status.selectOption('Checking'); await expect(cards(page)).toContainText('Other factory');
   await expect(cards(page).locator('.status')).toHaveText('Checking');
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Edit limits', exact: true})).toHaveCount(0);
   expect(requests).toEqual([]);
+});
+
+test('edit limits updates only the selected remote allocation when server IDs overlap', async ({page}) => {
+  const state = await fleet(page), item = state.remote[0], submissions = [];
+  item.id = state.local[0].id;
+  item.resourceLimits = {minMemoryGiB: 1, maxMemoryGiB: 32};
+  const prefix = '/api/hosts/' + remote, job = {
+    id: 'fixture-resize', action: 'resize', state: 'succeeded', message: 'CPU and memory limits updated.',
+  };
+  await page.route('**' + prefix + '/servers/' + item.id + '/limits', route => {
+    const body = route.request().postDataJSON();
+    submissions.push(body);
+    Object.assign(item, {cpu: body.cpu, memoryGiB: body.memoryGiB});
+    return route.fulfill({status: 202, json: job});
+  });
+  await page.route(new RegExp(prefix + '/jobs\\?'), route => {
+    const watching = new URL(route.request().url()).searchParams.getAll('job').includes(job.id);
+    return route.fulfill({json: {jobs: watching ? [job] : [], active: null}});
+  });
+  await login(page);
+  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  const row = name => page.getByRole('row').filter({has: page.getByRole('rowheader', {name, exact: true})});
+  await row(item.name).getByRole('button', {name: 'Edit limits', exact: true}).click();
+  const dialog = page.getByRole('dialog', {name: 'Edit server limits'});
+  await expect(dialog).toContainText('Weekend host');
+  const cpu = dialog.getByLabel('CPU limit (cores)'), memory = dialog.getByLabel('Memory limit (GiB)');
+  await expect(cpu).toHaveValue('1');
+  await expect(memory).toHaveValue('2');
+  await cpu.fill('2.5'); await memory.fill('4');
+  await dialog.getByRole('button', {name: 'Save limits', exact: true}).click();
+  await expect(dialog).toBeHidden();
+  await expect(row(item.name)).toContainText('2.5 cores');
+  await expect(row(item.name)).toContainText('4 GiB');
+  await expect(row(state.local[0].name)).toContainText('2 GiB');
+  await expect(page.locator('.product-feedback')).toContainText(job.message);
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0]).toMatchObject({cpu: 2.5, memoryGiB: 4, current: {cpu: 1, memoryGiB: 2}, requestId: expect.any(String)});
 });
 
 test('a failed snapshot stays visible when polling clears a connection error', async ({page}) => {

@@ -73,9 +73,11 @@ function statusLabel(server, presentation) {
   return `<span class="status ${presentation.unavailable || server.state === 'attention' ? 'attention' : ''}">${esc(presentation.state)}</span>`;
 }
 function serverActions(server, {removed, unavailable, busy}, admin) {
+  const target = serverKey(server),
+    disabled = busy || unavailable ? 'disabled' : '';
   return removed
     ? '<p class="remove-note">Your isolated storage and published snapshots were retained.</p>'
-    : `<div class="actions"><a class="button primary" href="${esc(server.manageUrl)}">${server.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a>${applicationLink(server, unavailable)}${admin ? `<button data-snapshot="${serverKey(server)}" ${busy || unavailable ? 'disabled' : ''}>Publish snapshot</button><button class="quiet" data-remove="${serverKey(server)}" ${busy || unavailable ? 'disabled' : ''}>Remove</button>` : ''}</div>`;
+    : `<div class="actions"><a class="button primary" href="${esc(server.manageUrl)}">${server.applicationKind === 'application' ? 'Manage application' : 'Open server'}</a>${applicationLink(server, unavailable)}${admin ? `${server.resourceLimits ? `<button class="quiet" data-edit-limits="${esc(target)}" ${disabled}>Edit limits</button>` : ''}<button data-snapshot="${esc(target)}" ${disabled}>Publish snapshot</button><button class="quiet" data-remove="${esc(target)}" ${disabled}>Remove</button>` : ''}</div>`;
 }
 export function serverCards(snapshot, admin) {
   const {servers, assigned} = snapshot;

@@ -22,10 +22,11 @@ server, existing save, Docker daemon or deployed panel was used.
   per chunk. Run-length terrain is painted in row spans. A uniform chunk takes
   16 fill calls instead of 256; a 2,048-chunk map uses one atlas instead of 2,048
   canvas objects. The atlas is approximately 2 MiB of RGBA pixels at that limit.
-- Map refresh settings persist automatic refresh on/off and a minimum interval
-  of 0–1440 whole minutes. Zero preserves every-save refresh. The queue retains
-  only the latest completed save, persists the last export start, and retains
-  existing retries. Preferences become active only after durable storage succeeds.
+- Map refresh settings persist automatic refresh on/off and an interval of
+  15–1440 whole minutes. Older shorter settings use the 15-minute minimum.
+  The queue retains the latest completed save and the last export start.
+  An automatic export uses a private copy and leaves ordinary server operations
+  available. The Map screen shows its progress and retry status.
   The separate server-scoped `application.factorio.map.configure` permission
   controls changes; manual export, autosaves and live-player polling are separate.
 - Cancel draft settles pending autosaves, uses the saved revision/draft identity,
@@ -109,9 +110,9 @@ and requesting a fresh export is an explicit, rate-limited operation.
    automatic exports count toward it. The budget survives restart and applies
    across users. Browser timing is presentation only. Manual refresh still saves
    current progress; automatic refresh uses completed saves without an extra save.
-6. New automatic-refresh settings default to 15 minutes. Existing saved intervals,
-   including explicit every-save refresh, remain unchanged. Save detection polls
-   every five seconds and skips log work while automatic refresh is disabled.
+6. Automatic refresh defaults to 15 minutes and respects longer saved intervals.
+   Save detection polls every 15 seconds while the controller is idle and
+   automatic refresh is enabled.
 
 ### Browser measurement
 

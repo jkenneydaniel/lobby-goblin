@@ -92,6 +92,22 @@ test('manual refresh shows a shared cooldown, becomes available locally, and sta
  await page.screenshot({path:info.outputPath('map-cooldown.png')});
  expect(submissions).toHaveLength(1);
 });
+test('automatic rendering disables the duplicate Map refresh without taking the operation banner',async({page})=>{
+ await page.clock.install();
+ const automatic={enabled:true,intervalMinutes:15,running:true};
+ await page.route(/\/api\/map(?:\?.*)?$/,async route=>{
+  const response=await route.fetch();
+  await route.fulfill({json:{...await response.json(),revision,automatic}});
+ });
+ await page.route('**/api/map-status',route=>route.fulfill({json:{revision,automatic}}));
+ await open(page);
+ await expect(page.locator('[data-map-refresh]')).toBeDisabled();
+ await expect(page.locator('#map-refresh-state')).toContainText('latest completed save');
+ await expect(page.locator('.product-operation')).toBeHidden();
+ automatic.running=false;
+ await page.clock.fastForward(6000);
+ await expect(page.locator('[data-map-refresh]')).toBeEnabled();
+});
 test('a hidden map tab performs no snapshot or player polling',async({page})=>{
  await page.clock.install();let reads=0;
  await page.addInitScript(()=>{globalThis.mapTestHidden=false;Object.defineProperty(globalThis.document,'hidden',{configurable:true,get:()=>globalThis.mapTestHidden});});

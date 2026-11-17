@@ -20,12 +20,45 @@ export function createFleetScreens({
 }) {
   const $ = (selector) => document.querySelector(selector),
     admin = () => getSession()?.role === 'admin';
+  let limitsDraft = null;
   const apiFor = (ctx) => (route, body) =>
     ctx.request(route, body === undefined ? {} : {method: 'POST', body});
   const showError = (ctx) => (message) => {
     if (ctx.isCurrent()) error(message);
   };
   function bindDialogs(ctx) {
+    const limits = $('#limits-dialog'),
+      form = $('#edit-limits');
+    ctx.on($('#cancel-limits'), 'click', () => limits.close());
+    ctx.on(form, 'submit', async (event) => {
+      event.preventDefault();
+      const draft = limitsDraft,
+        save = form.querySelector('[type=submit]');
+      if (!draft || save.disabled) return;
+      save.disabled = true;
+      error('', '#limits-error');
+      try {
+        const job = await ctx.request(
+          model.route(draft.hostId, '/servers/' + draft.id + '/limits'),
+          {
+            method: 'POST',
+            body: {
+              cpu: form.elements.cpu.valueAsNumber,
+              memoryGiB: form.elements.memoryGiB.valueAsNumber,
+              current: draft.current,
+            },
+          },
+        );
+        model.trackJob(draft.hostId, job.id);
+        if (limitsDraft === draft) limits.close();
+        await model.refresh();
+      } catch (problem) {
+        if (ctx.isCurrent() && limitsDraft === draft && limits.open)
+          error(problem.message, '#limits-error');
+      } finally {
+        if (limitsDraft === draft) save.disabled = false;
+      }
+    });
     for (const id of ['publish', 'remove'])
       ctx.on($('#' + id), 'submit', async (event) => {
         event.preventDefault();
@@ -155,14 +188,37 @@ export function createFleetScreens({
         paintServers(ctx, filters, true);
         return;
       }
-      const button = event.target.closest('[data-snapshot],[data-remove]');
+      const button = event.target.closest(
+        '[data-edit-limits],[data-snapshot],[data-remove]',
+      );
       if (!button || !ctx.root.contains(button)) return;
       const item = model.snapshot.servers.find(
         (server) =>
           serverKey(server) ===
-          (button.dataset.snapshot || button.dataset.remove),
+          (button.dataset.editLimits ||
+            button.dataset.snapshot ||
+            button.dataset.remove),
       );
       if (!item) return;
+      if (button.dataset.editLimits) {
+        if (!item.resourceLimits) return;
+        const form = $('#edit-limits');
+        limitsDraft = {
+          id: item.id,
+          hostId: item.hostId,
+          current: {cpu: item.cpu, memoryGiB: item.memoryGiB},
+        };
+        $('#limits-server').textContent = item.name + ' · ' + item.hostName;
+        form.elements.cpu.value = item.cpu;
+        const memory = form.elements.memoryGiB;
+        memory.min = item.resourceLimits.minMemoryGiB;
+        memory.max = item.resourceLimits.maxMemoryGiB;
+        memory.value = item.memoryGiB;
+        form.querySelector('[type=submit]').disabled = false;
+        error('', '#limits-error');
+        $('#limits-dialog').showModal();
+        return;
+      }
       const publish = !!button.dataset.snapshot,
         form = $('#' + (publish ? 'publish' : 'remove'));
       form.reset();
@@ -220,6 +276,8 @@ export function createFleetScreens({
             filters.composing = false;
             $('#snapshot-dialog').close();
             $('#remove-dialog').close();
+            $('#limits-dialog').close();
+            limitsDraft = null;
             creation.cancel();
           });
         },
