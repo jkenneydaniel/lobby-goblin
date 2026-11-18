@@ -1,3 +1,4 @@
+import {followPanelLink, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -49,12 +50,10 @@ async function login(page, user = 'Preview') {
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
   await expect(page.locator('.product-shell')).toBeVisible();
   if (user !== 'Assigned')
-    await nav(page)
-      .getByRole('link', {name: 'Snapshot library', exact: true})
-      .click();
+    await followPanelLink(page, 'Snapshot library');
 }
 async function logout(page) {
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
 }
 async function fixture(page) {

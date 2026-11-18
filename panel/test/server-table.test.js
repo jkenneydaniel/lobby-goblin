@@ -10,11 +10,11 @@ const filters = {search: '', application: '', host: '', status: '', sort: 'host'
 test('table shares filtered name order, counts and empty states with cards', () => {
   const data = snapshot([item({name: 'Zulu'}), item({id: 'other', name: 'Alpha', manageUrl: '/servers/other/'})]);
   const html = serverCollection(data, false, {...filters, sort: 'name'});
-  assert.match(html, /<caption>Fleet servers.*Configured CPU and memory are limits.*Most recently received resource sample/);
-  assert.match(html, /<th scope="row">Alpha<\/th>.*<th scope="row">Zulu<\/th>/s);
-  assert.equal((html.match(/scope="col"/g) || []).length, 11);
+  assert.match(html, /<caption class="fleet-visually-hidden">Fleet servers.*Configured CPU and memory are limits.*Most recently received resource sample/);
+  assert.match(html, /role="rowheader" aria-label="Alpha".*role="rowheader" aria-label="Zulu"/s);
+  assert.equal((html.match(/scope="col"/g) || []).length, 6);
   assert.match(html, /Showing 2 of 2 servers/);
-  assert.match(html, /data-clear-server-filters disabled/);
+  assert.match(html, /data-clear-server-filters hidden disabled/);
   for (const view of ['cards', 'table']) {
     const noMatches = serverCollection(data, false, {...filters, view, search: 'missing'});
     assert.match(noMatches, /Showing 0 of 2 servers/);
@@ -33,8 +33,8 @@ test('cards and table preserve removed, busy, offline and viewer fences', () => 
     assert.doesNotMatch(removed, /Open server|data-snapshot|data-remove/);
     for (const patch of [{hosts: []}, {hostJobs: new Map([['local', {id: 'busy'}]])}]) {
       const html = render(snapshot([item()], patch), true);
-      assert.match(html, /data-snapshot="local:same" disabled/);
-      assert.match(html, /data-remove="local:same" disabled/);
+      assert.match(html, /data-snapshot="local:same"[^>]* disabled/);
+      assert.match(html, /data-remove="local:same"[^>]* disabled/);
       assert.match(html, /href="\/servers\/same\/"/);
     }
     const viewer = render(snapshot([item()]), false);
@@ -51,10 +51,10 @@ test('table keeps escaped labels, exact scoped links and configured resource val
   assert.match(html, /data-copy-address="\/hosts\/remote\/servers\/same\/"/);
   assert.match(html, /href="\/hosts\/remote\/servers\/same\/"/);
   assert.match(html, /data-snapshot="remote:same"/);
-  assert.match(html, /<td>2 cores<\/td><td>4 GiB<\/td><td>2<\/td>/);
+  assert.match(html, /<dt>CPU limit<\/dt><dd>2 cores<\/dd><dt>Memory limit<\/dt><dd>4 GiB<\/dd>/);
   const app = serverTable(snapshot([item({applicationKind: 'application', applicationName: 'Status Page'})]), false);
   assert.match(app, /Manage application/);
-  assert.match(app, /<td>—<\/td>/);
+  assert.match(app, /class="server-players" role="cell">—<\/td>/);
   assert.doesNotMatch(app, /Open server/);
 });
 
@@ -65,4 +65,13 @@ test('assigned table requests fall back to minimal cards without host or resourc
   assert.match(html, /<article class="card"/);
   assert.match(html, /Copy address/);
   assert.match(serverTable(snapshot([], {assigned: true}), false), /No servers have been assigned/);
+});
+
+test('table groups matching records by scoped host and keeps host collapse local', () => {
+  const remote = item({hostId: 'remote', hostName: 'This host', name: 'Remote server'});
+  const html = serverCollection(snapshot([item(), remote]), true, {...filters, collapsed: new Set(['remote'])});
+  assert.match(html, /data-server-host="local" aria-expanded="true" aria-controls="host-servers-local"/);
+  assert.match(html, /data-server-host="remote" aria-expanded="false" aria-controls="host-servers-remote"/);
+  assert.match(html, /id="host-servers-remote" hidden>/);
+  assert.match(html, /Showing 2 of 2 servers/);
 });

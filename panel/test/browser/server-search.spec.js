@@ -1,3 +1,4 @@
+import {followPanelLink, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -19,14 +20,26 @@ const local = 'a'.repeat(32), remote = 'd'.repeat(32), remoteServer = 'e'.repeat
 const cards = page => page.locator('#servers article.card');
 const search = page => page.getByRole('searchbox', {name: 'Find servers', exact: true});
 const count = page => page.locator('#servers .server-count');
-const nav = page => page.getByRole('navigation', {name: /navigation/});
-async function login(page, username = 'Preview') {
+const statusChip = (page, value) => page.locator(`[data-server-choice="status"][value="${value}"]`);
+const statusCounts = async (page, counts) => {
+  for (const [value, count] of Object.entries(counts))
+    await expect(statusChip(page, value).locator('strong')).toHaveText(String(count));
+};
+const viewChoice = (page, mode) => page.locator(`[data-server-choice="view"][value="${mode}"]`);
+async function showFilters(page) {
+  const toggle = page.locator('[data-toggle-server-filters][aria-expanded="false"]');
+  if (await toggle.isVisible()) await toggle.click();
+}
+async function login(page, username = 'Preview', mode = 'cards') {
   await page.goto(origins.fleet);
   await page.getByLabel('Username', {exact: true}).fill(username);
   await page.getByLabel('Password', {exact: true}).fill('isolated-panel-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
   await expect(page.locator('.product-shell')).toBeVisible();
   await expect(search(page)).toBeVisible();
+  if (mode === 'default') return;
+  await showFilters(page);
+  if (username !== 'Assigned') await viewChoice(page, mode).click();
 }
 async function fleet(page) {
   const server = (id, name, game, address) => ({id, name, game, applicationName: {factorio: 'Factorio', rust: 'Rust', 'status-page': 'Status Page'}[game], address, state: 'installed', cpu: 1, memoryGiB: 2});
@@ -73,7 +86,7 @@ test('server name sorting keeps host order by default and combines with filters 
   await search(page).fill('CREW');
   await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
   await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(remote);
-  await page.getByRole('combobox', {name: 'Filter by status', exact: true}).selectOption('Ready');
+  await statusChip(page, 'Ready').click();
   await expect(names()).toHaveText(['alpha crew']);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
   await expect(order).toHaveValue('name-desc');
@@ -93,11 +106,11 @@ test('server name order survives refresh and navigation and resets for the next 
   await expect.poll(() => state.reads).toBeGreaterThan(before);
   await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
   await expect(order).toBeFocused();
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
+  await followPanelLink(page, 'Servers');
   await expect(order).toHaveValue('name-desc');
   await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await login(page, 'Viewer');
   await expect(order).toHaveValue('host');
   await expect(cards(page).locator('h2')).toHaveText(['Zulu factory', 'Island crew', 'Other factory <crew>']);
@@ -127,8 +140,8 @@ test('assigned inventory name sorting uses only authorized minimal records', asy
   await expect.poll(() => reads.length).toBeGreaterThan(before.length);
   await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
   await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('region', {name: 'Loaded server availability', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('group', {name: 'Filter by status', exact: true})).toHaveCount(0);
+  await expect(page.locator('.server-inventory-note')).toHaveCount(0);
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
   expect(reads.some(path => /\/servers\/.*\/api\/status$/.test(path))).toBe(false);
@@ -179,8 +192,8 @@ test('fleet filters and typing caret survive live refresh, offline/busy fences a
   await page.clock.fastForward(6000);
   await expect(cards(page)).toContainText('Host unavailable');
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toBeDisabled();
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
+  await followPanelLink(page, 'Servers');
   await expect(search(page)).toHaveValue('Friday');
   await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true})).toHaveValue('factorio');
   state.hosts[0].connected = true; state.local = [];
@@ -199,7 +212,7 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await login(page, 'Assigned');
   await expect(count(page)).toHaveText('Showing 1 of 1 server');
   await expect(page.getByRole('combobox', {name: 'Filter by host', exact: true})).toHaveCount(0);
-  await expect(page.getByRole('combobox', {name: 'Filter by status', exact: true})).toHaveCount(0);
+  await expect(page.getByRole('group', {name: 'Filter by status', exact: true})).toHaveCount(0);
   await expect(page.getByRole('combobox', {name: 'Filter by application', exact: true}).locator('option')).toHaveText(['All applications', 'Factorio']);
   await search(page).fill('Island'); await expect(cards(page)).toHaveCount(0);
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
@@ -209,7 +222,7 @@ test('assigned server search exposes only the minimal authorized list and sessio
   await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/servers/' + 'b'.repeat(32) + '/');
   expect(reads.some(path => /^\/api\/(?:hosts|servers|snapshots|jobs)(?:[/?]|$)/.test(path))).toBe(false);
   await search(page).fill('Friday');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await login(page, 'Viewer');
   await expect(search(page)).toHaveValue('');
   await expect(cards(page)).toHaveCount(2);
@@ -270,7 +283,7 @@ test('copy address uses the exact selected host and supports keyboard and read-o
   expect(await page.evaluate(() => globalThis.copiedAddresses)).toEqual(['weekend.example.test:35006']);
   await expect(search(page)).toHaveValue('Other factory');
   await expect(cards(page).getByRole('link', {name: 'Open server'})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   // The minimal assigned projection deliberately omits hostId. Its scoped
   // management URL still distinguishes identical IDs across hosts.
   await page.route('**/api/assigned-servers', route => route.fulfill({json: {servers: [
@@ -325,39 +338,37 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   const rustStatus = '/servers/' + 'c'.repeat(32) + '/api/status';
   state.status[rustStatus] = {ready: false, running: false, state: 'exited', players: []};
   await login(page);
-  const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
-  await expect(status.locator('option')).toHaveText(['All statuses', 'Ready (2)', 'Stopped (1)']);
-  await status.selectOption('Stopped');
-  await expect(status).toHaveValue('Stopped');
+  await statusCounts(page, {'': 3, Ready: 2, Stopped: 1});
+  await statusChip(page, 'Stopped').click();
+  await expect(statusChip(page, 'Stopped')).toHaveAttribute('aria-pressed', 'true');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page)).toContainText('Island crew');
   await search(page).fill('Island');
   await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('rust');
   await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(local);
   await expect(count(page)).toHaveText('Showing 1 of 3 servers');
-  await status.selectOption('Ready'); await expect(cards(page)).toHaveCount(0);
-  await expect(page.getByRole('region', {name: 'Loaded server availability', exact: true})).toContainText('Stopped: 1');
-  await expect(status.locator('option')).toHaveText(['All statuses', 'Ready (0)', 'Stopped (1)']);
+  await statusChip(page, 'Ready').click(); await expect(cards(page)).toHaveCount(0);
+  await statusCounts(page, {'': 1, Ready: 0, Stopped: 1});
   await expect(page.getByRole('heading', {name: 'No matching servers'})).toBeVisible();
   const clear = page.getByRole('button', {name: 'Clear filters', exact: true});
   await clear.focus(); await clear.press('Enter');
   await expect(search(page)).toBeFocused(); await expect(cards(page)).toHaveCount(3);
-  await expect(status).toHaveValue('');
-  await status.selectOption('Stopped');
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await expect(statusChip(page, '')).toHaveAttribute('aria-pressed', 'true');
+  await statusChip(page, 'Stopped').click();
+  await followPanelLink(page, 'Accounts');
   state.local[1].name = 'Island crew renamed';
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await followPanelLink(page, 'Servers');
   // Wait for the Servers refresh to finish before advancing the poll timer.
   await expect(cards(page)).toContainText('Island crew renamed');
-  await expect(status).toHaveValue('Stopped');
+  await expect(statusChip(page, 'Stopped')).toHaveAttribute('aria-pressed', 'true');
   state.status[rustStatus] = {ready: false, running: true, players: []};
   const before = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(before);
   await expect(count(page)).toHaveText('Showing 0 of 3 servers');
-  await expect(status).toHaveValue('Stopped');
-  await status.selectOption('Starting'); await expect(cards(page)).toContainText('Island crew');
+  await expect(statusChip(page, 'Stopped')).toHaveAttribute('aria-pressed', 'true');
+  await statusChip(page, 'Starting').click(); await expect(cards(page)).toContainText('Island crew');
   state.hosts[0].connected = false; await page.clock.fastForward(6000);
   await expect(cards(page)).toHaveCount(0);
-  await status.selectOption('Host unavailable'); await expect(cards(page)).toHaveCount(2);
+  await statusChip(page, 'Host unavailable').click(); await expect(cards(page)).toHaveCount(2);
   await expect(cards(page).locator('.status')).toHaveText(['Host unavailable', 'Host unavailable']);
   for (const card of await cards(page).all()) {
     await expect(card.getByRole('button', {name: 'Remove', exact: true})).toBeDisabled();
@@ -366,8 +377,8 @@ test('status filtering combines fleet filters and follows refresh, offline statu
   await page.screenshot({path: info.outputPath('fleet-status-filter.png'), fullPage: true});
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
   state.hosts[0].connected = true;
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
-  await login(page, 'Viewer'); await expect(status).toHaveValue('');
+  await signOutOfPanel(page);
+  await login(page, 'Viewer'); await expect(statusChip(page, '')).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('viewer status filtering distinguishes unavailable status data, attention and creation without writes', async ({page}) => {
@@ -378,14 +389,13 @@ test('viewer status filtering distinguishes unavailable status data, attention a
   state.status['/servers/' + 'c'.repeat(32) + '/api/status'] = null;
   state.status['/hosts/' + remote + '/servers/' + remoteServer + '/api/status'] = null;
   await login(page, 'Viewer');
-  await expect(page.getByRole('region', {name: 'Loaded server availability', exact: true})).toContainText('Checking: 1 · Creating: 1 · Needs attention: 1');
+  await statusCounts(page, {Checking: 1, Creating: 1, 'Needs attention': 1});
   const requests = []; page.on('request', request => {if (request.method() !== 'GET') requests.push(request.url());});
-  const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
-  await status.selectOption('Needs attention'); await expect(cards(page)).toContainText('Friday factory');
+  await statusChip(page, 'Needs attention').click(); await expect(cards(page)).toContainText('Friday factory');
   await expect(cards(page)).toHaveCount(1); await expect(cards(page).locator('.status')).toHaveText('Needs attention');
-  await status.selectOption('Creating'); await expect(cards(page)).toContainText('Island crew');
+  await statusChip(page, 'Creating').click(); await expect(cards(page)).toContainText('Island crew');
   await expect(cards(page).locator('.status')).toHaveText('Creating');
-  await status.selectOption('Checking'); await expect(cards(page)).toContainText('Other factory');
+  await statusChip(page, 'Checking').click(); await expect(cards(page)).toContainText('Other factory');
   await expect(cards(page).locator('.status')).toHaveText('Checking');
   await expect(cards(page).getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Edit limits', exact: true})).toHaveCount(0);
@@ -410,8 +420,9 @@ test('edit limits updates only the selected remote allocation when server IDs ov
     return route.fulfill({json: {jobs: watching ? [job] : [], active: null}});
   });
   await login(page);
-  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  await viewChoice(page, 'table').click();
   const row = name => page.getByRole('row').filter({has: page.getByRole('rowheader', {name, exact: true})});
+  await row(item.name).locator('summary').click();
   await row(item.name).getByRole('button', {name: 'Edit limits', exact: true}).click();
   const dialog = page.getByRole('dialog', {name: 'Edit server limits'});
   await expect(dialog).toContainText('Weekend host');
@@ -478,21 +489,21 @@ test('table view uses the loaded filtered order, supports keyboard and contains 
   state.remote[0].id = state.local[0].id;
   state.remote[0].name = 'Other factory <crew> ' + 'long'.repeat(45);
   await login(page);
-  const view = page.getByRole('combobox', {name: 'View servers', exact: true});
+  const view = viewChoice(page, 'table');
   const table = page.getByRole('table', {name: /Fleet servers/});
-  await expect(view).toHaveValue('cards');
+  await expect(viewChoice(page, 'cards')).toHaveAttribute('aria-pressed', 'true');
   const requests = [];
   page.on('request', request => {if (request.url().includes('/api/')) requests.push(request.method() + ' ' + new URL(request.url()).pathname);});
-  await view.focus(); await view.press('ArrowDown'); await view.press('Enter');
-  await expect(view).toHaveValue('table'); await expect(view).toBeFocused();
+  await view.focus(); await view.press('Enter');
+  await expect(view).toHaveAttribute('aria-pressed', 'true'); await expect(view).toBeFocused();
   await expect(cards(page)).toHaveCount(0);
-  await expect(table.getByRole('columnheader')).toHaveText(['Name', 'Application', 'Host', 'Status', 'Address', 'Configured CPU', 'Configured memory', 'Players', 'Sampled CPU', 'Sampled container memory', 'Actions']);
+  await expect(table.locator('thead th')).toHaveText(['Server', 'Status', 'Players', 'CPU', 'Memory', 'Actions']);
   await page.getByRole('combobox', {name: 'Sort servers', exact: true}).selectOption('name-desc');
-  await expect(table.getByRole('rowheader')).toHaveText([state.remote[0].name, 'Island crew', 'Friday factory']);
+  await expect(table.getByRole('rowheader').locator('strong')).toHaveText([state.remote[0].name, 'Island crew', 'Friday factory']);
   await search(page).fill('factory');
   await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(remote);
   await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
-  await page.getByRole('combobox', {name: 'Filter by status', exact: true}).selectOption('Ready');
+  await statusChip(page, 'Ready').click();
   await expect(count(page)).toHaveText('Showing 1 of 3 servers');
   await expect(table.getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
   const copy = table.getByRole('button', {name: 'Copy address', exact: true});
@@ -502,16 +513,12 @@ test('table view uses the loaded filtered order, supports keyboard and contains 
   await expect(table).toHaveCount(0);
   await expect(page.getByRole('heading', {name: 'No matching servers'})).toBeVisible();
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
-  await expect(view).toHaveValue('table');
+  await expect(view).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('combobox', {name: 'Sort servers', exact: true})).toHaveValue('name-desc');
-  await expect(table.getByRole('rowheader')).toHaveText([state.remote[0].name, 'Island crew', 'Friday factory']);
+  await expect(table.getByRole('rowheader').locator('strong')).toHaveText([state.remote[0].name, 'Island crew', 'Friday factory']);
   const region = page.getByRole('region', {name: 'Fleet servers table', exact: true});
   await region.focus(); await expect(region).toBeFocused();
-  if (info.project.name === 'mobile') {
-    expect(await region.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
-    await region.press('ArrowRight');
-    await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-  }
+  expect(await region.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
   expect(requests).toEqual([]);
   await page.evaluate(() => globalThis.scrollTo(0, 0));
@@ -520,25 +527,25 @@ test('table view uses the loaded filtered order, supports keyboard and contains 
 
 test('table selection and order survive refresh and navigation, while sign-out resets the view', async ({page}) => {
   await page.clock.install(); const state = await fleet(page); await login(page);
-  const view = page.getByRole('combobox', {name: 'View servers', exact: true});
+  const view = viewChoice(page, 'table');
   const table = page.getByRole('table', {name: /Fleet servers/});
-  await view.selectOption('table');
+  await view.click();
   await page.getByRole('combobox', {name: 'Sort servers', exact: true}).selectOption('name-desc');
   await view.focus();
   state.local[0].name = 'Zulu factory';
   const before = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(before);
   await expect(view).toBeFocused();
-  await expect(table.getByRole('rowheader')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
+  await expect(table.getByRole('rowheader').locator('strong')).toHaveText(['Zulu factory', 'Other factory <crew>', 'Island crew']);
   const region = page.getByRole('region', {name: 'Fleet servers table', exact: true});
   await region.focus();
   const scrollLeft = await region.evaluate(element => {element.scrollLeft = 350; return element.scrollLeft;});
-  if (page.viewportSize().width < 600) expect(scrollLeft).toBeGreaterThan(0);
+  expect(scrollLeft).toBe(0);
   const beforeScrollRefresh = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(beforeScrollRefresh);
   await expect(region).toBeFocused();
   expect(await region.evaluate(element => element.scrollLeft)).toBe(scrollLeft);
-  // A filter retaining focus must not reset the table's horizontal position.
+  // A filter retains its focus when the inventory repaints.
   await view.focus();
   const beforeFilterRefresh = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(beforeFilterRefresh);
@@ -546,22 +553,23 @@ test('table selection and order survive refresh and navigation, while sign-out r
   expect(await region.evaluate(element => element.scrollLeft)).toBe(scrollLeft);
   state.active = {id: 'fixture-busy', state: 'running', action: 'create', message: 'Synthetic host busy'};
   await page.clock.fastForward(6000);
+  await table.locator('.server-row-details summary').first().click();
   await expect(table.getByRole('button', {name: 'Publish snapshot'}).first()).toBeDisabled();
   state.active = null; state.hosts[0].connected = false;
   await page.clock.fastForward(6000);
   await expect(table.getByRole('row').filter({has: page.getByRole('rowheader', {name: 'Zulu factory', exact: true})})).toContainText('Host unavailable');
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
-  await expect(view).toHaveValue('table');
+  await followPanelLink(page, 'Accounts');
+  await followPanelLink(page, 'Servers');
+  await expect(view).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('combobox', {name: 'Sort servers', exact: true})).toHaveValue('name-desc');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
-  await login(page, 'Viewer');
-  await expect(view).toHaveValue('cards');
-  await view.selectOption('table');
+  await login(page, 'Viewer', 'default');
+  await showFilters(page);
+  await expect(view).toHaveAttribute('aria-pressed', 'true');
   await expect(table.getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   await expect(table.getByRole('button', {name: 'Publish snapshot'})).toHaveCount(0);
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
   await login(page, 'Assigned');
   await expect(view).toHaveCount(0); await expect(table).toHaveCount(0);
@@ -575,19 +583,20 @@ test('table distinguishes public applications from games and scopes dialog actio
   state.local[0].applicationKind = 'application'; state.local[0].webProtocol = 'http';
   state.remote[0].id = state.local[0].id;
   await login(page);
-  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  await viewChoice(page, 'table').click();
   const table = page.getByRole('table', {name: /Fleet servers/});
   const app = table.getByRole('row').filter({has: page.getByRole('rowheader', {name: 'Friday factory', exact: true})});
   await expect(app.getByRole('link', {name: 'Manage application', exact: true})).toHaveAttribute('href', '/servers/' + state.local[0].id + '/');
   await expect(app.getByRole('link', {name: 'Open application', exact: true})).toHaveAttribute('href', 'http://factory.example.test:35000/');
   await expect(app.getByRole('link', {name: 'Open application', exact: true})).toHaveAttribute('rel', 'noopener noreferrer');
   await app.getByRole('button', {name: 'Copy address', exact: true}).click();
-  await expect(page.locator('#error')).toHaveText('Clipboard unavailable. Select and copy the address shown in the server table.');
+  await expect(page.locator('#error')).toHaveText('Clipboard unavailable. Select and copy the address shown in the server details.');
   await expect(app).toContainText('factory.example.test:35000');
-  await expect(app.getByRole('cell').nth(6)).toHaveText('—');
+  await expect(app.locator('.server-players')).toHaveText('—');
   await expect(app.getByRole('link', {name: 'Open server', exact: true})).toHaveCount(0);
   const other = table.getByRole('row').filter({has: page.getByRole('rowheader', {name: 'Other factory <crew>', exact: true})});
   await expect(other.getByRole('link', {name: 'Open application', exact: true})).toHaveCount(0);
+  await other.locator('summary').click();
   await other.getByRole('button', {name: 'Publish snapshot', exact: true}).click();
   await expect(page.locator('#publish input[name="hostId"]')).toHaveValue(remote);
   await expect(page.locator('#publish input[name="serverId"]')).toHaveValue(state.remote[0].id);
@@ -625,18 +634,19 @@ test('fleet resource samples use scoped status for local Factorio, remote Rust a
   await page.screenshot({path: info.outputPath('fleet-resource-cards.png'), fullPage: true});
   const reads = [...state.statusReads], requests = [];
   page.on('request', request => {if (request.url().includes('/api/')) requests.push(request.method() + ' ' + new URL(request.url()).pathname);});
-  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  await viewChoice(page, 'table').click();
   const table = page.getByRole('table', {name: /Fleet servers/});
-  const rows = table.getByRole('row');
-  for (const [index, values] of [[1, ['0%', '0 B']], [2, ['12.3%', '512.0 MiB']], [3, ['240%', '1.5 GiB']]]) {
-    await expect(rows.nth(index).getByRole('cell').nth(7)).toHaveText(values[0]);
-    await expect(rows.nth(index).getByRole('cell').nth(8)).toHaveText(values[1]);
-    await expect(rows.nth(index).getByRole('cell').nth(4)).toHaveText('1 cores');
-    await expect(rows.nth(index).getByRole('cell').nth(5)).toHaveText('2 GiB');
+  const rows = table.locator('.server-row');
+  for (const [index, values] of [[0, ['0%', '0 B']], [1, ['12.3%', '512.0 MiB']], [2, ['240%', '1.5 GiB']]]) {
+    const row = rows.nth(index);
+    await expect(row.locator('.server-metric').first()).toHaveText(values[0]);
+    await expect(row.locator('.server-metric').last()).toHaveText(values[1] + ' / 2 GiB');
+    await expect(row.locator('.server-detail-panel dd').nth(1)).toHaveText('1 cores');
+    await expect(row.locator('.server-detail-panel dd').nth(2)).toHaveText('2 GiB');
   }
-  await expect(rows.nth(2).getByRole('cell').nth(6)).toHaveText('—');
-  await expect(rows.nth(2).getByRole('link', {name: 'Manage application', exact: true})).toBeVisible();
-  await expect(rows.nth(3).getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
+  await expect(rows.nth(1).locator('.server-players')).toHaveText('—');
+  await expect(rows.nth(1).getByRole('link', {name: 'Manage application', exact: true})).toBeVisible();
+  await expect(rows.nth(2).getByRole('link', {name: 'Open server', exact: true})).toHaveAttribute('href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/');
   await expect(table.getByRole('button', {name: 'Remove', exact: true})).toHaveCount(0);
   expect(state.statusReads).toEqual(reads); expect(requests).toEqual([]);
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
@@ -672,10 +682,10 @@ test('refresh replaces sampled values and hides retained samples for stopped, fa
   await expect(sample()).toHaveText(['240%', '1.5 GiB']);
   state.hosts[0].connected = false; await page.clock.fastForward(6000);
   await expect(sample()).toHaveText(['Unavailable', 'Unavailable']);
-  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  await viewChoice(page, 'table').click();
   const row = page.getByRole('row').filter({has: page.getByRole('rowheader', {name: 'Friday factory', exact: true})});
-  await expect(row.getByRole('cell').nth(7)).toHaveText('Unavailable');
-  await expect(row.getByRole('cell').nth(8)).toHaveText('Unavailable');
+  await expect(row.locator('.server-metric').first()).toHaveText('Unavailable');
+  await expect(row.locator('.server-metric').last()).toHaveText('Unavailable / 2 GiB');
   state.hosts[0].connected = true; state.local[0].state = 'removed'; await page.clock.fastForward(6000);
   await expect(row).toHaveCount(0);
   await expect(count(page)).toHaveText('Showing 2 of 2 servers');
@@ -731,22 +741,21 @@ test('sampled resource ordering uses raw scoped values in both views without add
     if (request.url().includes('/api/'))
       requests.push(request.method() + ' ' + new URL(request.url()).pathname);
   });
-  const sort = page.getByRole('combobox', {name: 'Sort servers', exact: true}),
-    view = page.getByRole('combobox', {name: 'View servers', exact: true});
+  const sort = page.getByRole('combobox', {name: 'Sort servers', exact: true});
   await expect(sort.locator('option')).toHaveText([
-    'Current host order',
+    'Group by host',
     'Name A–Z',
     'Name Z–A',
     'Sampled CPU, high to low',
     'Sampled memory, high to low',
   ]);
   for (const mode of ['cards', 'table']) {
-    await view.selectOption(mode);
+    await viewChoice(page, mode).click();
     const names = () =>
       mode === 'table'
         ? page
             .getByRole('table', {name: /Fleet servers/})
-            .getByRole('rowheader')
+            .getByRole('rowheader').locator('strong')
         : cards(page).locator('h2');
     for (const [order, expected] of [
       [
@@ -797,6 +806,7 @@ test('sampled resource ordering uses raw scoped values in both views without add
     await selected
       .getByRole('button', {name: 'Copy address', exact: true})
       .click();
+    if (mode === 'table') await selected.locator('summary').click();
     await selected
       .getByRole('button', {name: 'Publish snapshot', exact: true})
       .click();
@@ -819,9 +829,7 @@ test('sampled resource ordering uses raw scoped values in both views without add
     await page
       .getByRole('combobox', {name: 'Filter by host', exact: true})
       .selectOption(remote);
-    await page
-      .getByRole('combobox', {name: 'Filter by status', exact: true})
-      .selectOption('Ready');
+    await statusChip(page, 'Ready').click();
     await expect(names()).toHaveText(['Zulu rounded']);
     await expect(count(page)).toHaveText('Showing 1 of 5 servers');
     await search(page).fill('missing');
@@ -831,7 +839,7 @@ test('sampled resource ordering uses raw scoped values in both views without add
       .click();
     await expect(search(page)).toBeFocused();
     await expect(sort).toHaveValue('sample-memory');
-    await expect(view).toHaveValue(mode);
+    await expect(viewChoice(page, mode)).toHaveAttribute('aria-pressed', 'true');
     await expect(names()).toHaveText([
       'Zulu rounded',
       'Alpha rounded',
@@ -879,12 +887,12 @@ test('sampled resource order follows refreshed eligibility while preserving quer
   };
   await login(page, 'Viewer');
   const sort = page.getByRole('combobox', {name: 'Sort servers', exact: true}),
-    view = page.getByRole('combobox', {name: 'View servers', exact: true});
+    view = viewChoice(page, 'table');
   await sort.selectOption('sample-cpu');
-  await view.selectOption('table');
+  await view.click();
   await search(page).fill('crew');
   const table = page.getByRole('table', {name: /Fleet servers/}),
-    names = table.getByRole('rowheader'),
+    names = table.getByRole('rowheader').locator('strong'),
     region = page.getByRole('region', {
       name: 'Fleet servers table',
       exact: true,
@@ -936,19 +944,17 @@ test('sampled resource order follows refreshed eligibility while preserving quer
         has: page.getByRole('rowheader', {name: 'Remote crew', exact: true}),
       }),
   ).toContainText('Unavailable');
-  await nav(page)
-    .getByRole('link', {name: 'Snapshot library', exact: true})
-    .click();
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+  await followPanelLink(page, 'Snapshot library');
+  await followPanelLink(page, 'Servers');
   await expect(sort).toHaveValue('sample-cpu');
-  await expect(view).toHaveValue('table');
+  await expect(view).toHaveAttribute('aria-pressed', 'true');
   await expect(search(page)).toHaveValue('crew');
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
   await login(page, 'Assigned');
   await expect(sort).toHaveValue('host');
   await expect(sort.locator('option')).toHaveText([
-    'Current host order',
+    'Current order',
     'Name A–Z',
     'Name Z–A',
   ]);
@@ -963,47 +969,43 @@ test('loaded availability keeps context across status choices and updates with e
   const rustStatus = '/servers/' + state.local[1].id + '/api/status';
   state.status[rustStatus] = {state: 'exited', running: false, ready: false};
   await login(page);
-  const summary = page.getByRole('region', {name: 'Loaded server availability', exact: true});
-  const status = page.getByRole('combobox', {name: 'Filter by status', exact: true});
-  await expect(summary).toContainText('3 servers matching search, application and host filters (before status).');
-  await expect(summary).toContainText('Ready: 2 · Stopped: 1');
+  const inventoryNote = page.locator('.server-inventory-note');
+  await statusCounts(page, {'': 3, Ready: 2, Stopped: 1});
   const requests = [];
   page.on('request', request => {if (request.url().includes('/api/')) requests.push(request.method() + ' ' + new URL(request.url()).pathname);});
-  await status.selectOption('Stopped');
+  await statusChip(page, 'Stopped').click();
   await expect(cards(page)).toHaveCount(1);
-  await expect(summary).toContainText('Ready: 2 · Stopped: 1');
+  await statusCounts(page, {'': 3, Ready: 2, Stopped: 1});
   await search(page).fill('factory');
   await page.getByRole('combobox', {name: 'Filter by application', exact: true}).selectOption('factorio');
   await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(remote);
-  await expect(summary).toContainText('1 server matching');
-  await expect(summary).toContainText('Ready: 1');
-  await expect(status.locator('option')).toHaveText(['All statuses', 'Ready (1)', 'Stopped (0)']);
+  await statusCounts(page, {'': 1, Ready: 1, Stopped: 0});
   await expect(cards(page)).toHaveCount(0);
-  await status.selectOption('Ready');
-  await page.getByRole('combobox', {name: 'View servers', exact: true}).selectOption('table');
+  await statusChip(page, 'Ready').click();
+  await viewChoice(page, 'table').click();
   await expect(page.getByRole('table').locator('.status')).toHaveText('Ready');
   expect(requests).toEqual([]);
   await search(page).evaluate(input => {input.focus(); input.setSelectionRange(1, 4);});
   state.hosts[1].connected = false;
   const before = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(before);
-  await expect(summary).toContainText('Host unavailable: 1');
-  await expect(summary).toContainText('Unavailable hosts may have servers missing from this loaded inventory.');
-  await expect(status).toHaveValue('Ready');
-  await expect(status.locator('option:checked')).toHaveText('Ready (0)');
+  await statusCounts(page, {'Host unavailable': 1});
+  await expect(inventoryNote).toContainText('Unavailable hosts may have servers missing');
+  await expect(statusChip(page, 'Ready')).toHaveAttribute('aria-pressed', 'true');
+  await statusCounts(page, {Ready: 0});
   await expect(search(page)).toBeFocused();
   expect(await search(page).evaluate(input => [input.selectionStart, input.selectionEnd])).toEqual([1, 4]);
-  await status.selectOption('Host unavailable'); await status.focus();
+  await statusChip(page, 'Host unavailable').click(); await statusChip(page, 'Host unavailable').focus();
   await expect(page.getByRole('table').locator('.status')).toHaveText('Host unavailable');
   state.hosts[1].connected = true;
   const refresh = state.reads; await page.clock.fastForward(6000);
   await expect.poll(() => state.reads).toBeGreaterThan(refresh);
-  await expect(summary).toContainText('Ready: 1');
-  await expect(summary).not.toContainText('Unavailable hosts');
-  await expect(status).toBeFocused();
-  await search(page).fill('missing'); await expect(summary).toContainText('No matching loaded servers.');
+  await statusCounts(page, {Ready: 1});
+  await expect(inventoryNote).toHaveCount(0);
+  await expect(statusChip(page, 'Host unavailable')).toBeFocused();
+  await search(page).fill('missing'); await statusCounts(page, {'': 0});
   await page.getByRole('button', {name: 'Clear filters', exact: true}).click();
-  await expect(summary).toContainText('Ready: 2 · Stopped: 1');
+  await statusCounts(page, {'': 3, Ready: 2, Stopped: 1});
   await page.screenshot({path: info.outputPath('loaded-availability.png'), fullPage: true});
   expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
 });
@@ -1012,13 +1014,12 @@ test('cold unavailable host does not make loaded availability claim a complete i
   await page.clock.install(); const state = await fleet(page);
   state.hosts[1].connected = false;
   await login(page, 'Viewer');
-  const summary = page.getByRole('region', {name: 'Loaded server availability', exact: true});
-  await expect(summary).toContainText('2 servers matching');
-  await expect(summary).toContainText('Ready: 2');
-  await expect(summary).toContainText('Unavailable hosts may have servers missing');
+  const inventoryNote = page.locator('.server-inventory-note');
+  await statusCounts(page, {'': 2, Ready: 2});
+  await expect(inventoryNote).toContainText('Unavailable hosts may have servers missing');
   await page.getByRole('combobox', {name: 'Filter by host', exact: true}).selectOption(local);
-  await expect(summary).not.toContainText('Unavailable hosts');
-  await expect(summary).toContainText('Ready: 2');
+  await expect(inventoryNote).toHaveCount(0);
+  await statusCounts(page, {Ready: 2});
 });
 
 test('fleet pagination limits cards and table rows while keeping the complete filtered inventory', async ({page}) => {
@@ -1038,8 +1039,8 @@ test('fleet pagination limits cards and table rows while keeping the complete fi
   await next.click();
   await expect(cards(page)).toHaveCount(3);
   await expect(pages.getByRole('status')).toHaveText('Showing 21–23 of 23');
-  await page.getByRole('combobox', {name: 'View servers'}).selectOption('table');
-  const rows = page.locator('.server-table tbody tr');
+  await viewChoice(page, 'table').click();
+  const rows = page.locator('.server-table .server-row');
   await expect(rows).toHaveCount(20);
   await next.click();
   await expect(rows).toHaveCount(3);
@@ -1047,4 +1048,56 @@ test('fleet pagination limits cards and table rows while keeping the complete fi
   await expect(rows).toHaveCount(11);
   await expect(pages).toHaveCount(0);
   expect(state.reads).toBe(before);
+});
+
+test('default fleet layout groups hosts and keeps key actions usable with the responsive menu', async ({page}, info) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {writeText: async value => {globalThis.copiedServerAddress = value;}},
+    });
+  });
+  const state = await fleet(page);
+  state.remote[0].id = state.local[0].id;
+  state.local[1].address = '';
+  await login(page, 'Preview', 'default');
+  const table = page.getByRole('table', {name: /Fleet servers/}),
+    host = table.getByRole('button', {name: 'Weekend host 1 server'}),
+    remoteRow = table.locator('.server-row').filter({
+      has: table.getByRole('rowheader', {name: 'Other factory <crew>', exact: true}),
+    });
+  await expect(host).toHaveAttribute('aria-expanded', 'true');
+  await expect(remoteRow.getByRole('link', {name: 'Open server'})).toHaveAttribute(
+    'href', '/hosts/' + remote + '/servers/' + state.remote[0].id + '/',
+  );
+  await remoteRow.getByRole('button', {name: 'Copy address'}).click();
+  expect(await page.evaluate(() => globalThis.copiedServerAddress)).toBe('weekend.example.test:35006');
+  await expect(table.locator('.server-row').nth(1).getByRole('button', {name: 'Copy address'})).toBeDisabled();
+  await host.focus();
+  await host.press('Enter');
+  await expect(host).toHaveAttribute('aria-expanded', 'false');
+  await expect(host).toBeFocused();
+  await expect(remoteRow).toHaveCount(0);
+  await page.clock.fastForward(6000);
+  await expect(host).toHaveAttribute('aria-expanded', 'false');
+  await host.click();
+  await expect(remoteRow).toBeVisible();
+  await expect(page.locator('.product-mark')).toHaveJSProperty('complete', true);
+  expect(await page.evaluate(() => globalThis.document.documentElement.scrollWidth <= globalThis.innerWidth)).toBe(true);
+  await page.screenshot({path: info.outputPath('fleet-default.png')});
+  const menu = page.locator('.fleet-menu-toggle'),
+    panelNavigation = page.getByRole('navigation', {name: 'Panel navigation'});
+  if (info.project.name === 'mobile') {
+    await expect(panelNavigation).toHaveCount(0);
+    await menu.click();
+    await expect(panelNavigation.getByRole('link', {name: 'Servers', exact: true})).toBeFocused();
+    await expect(menu).toHaveAccessibleName('Close');
+    await page.screenshot({path: info.outputPath('fleet-menu.png')});
+    await page.keyboard.press('Escape');
+    await expect(menu).toBeFocused();
+    await expect(panelNavigation).toHaveCount(0);
+  } else await expect(panelNavigation).toBeVisible();
+  await followPanelLink(page, 'Snapshot library');
+  await expect(page).toHaveURL(/#library$/);
+  if (info.project.name === 'mobile') await expect(menu).toHaveAttribute('aria-expanded', 'false');
 });

@@ -1,3 +1,4 @@
+import {followPanelLink} from './fleet-navigation.js';
 import {test,expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 
@@ -24,7 +25,7 @@ test('administrator can enable release checks, choose a channel, and recover fro
   await page.getByLabel('Username',{exact:true}).fill('Preview');
   await page.getByLabel('Password',{exact:true}).fill('isolated-panel-preview-password');
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
-  await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Updates',exact:true}).click();
+  await followPanelLink(page, 'Updates');
   await expect(page.getByText(/Release checks are off/)).toBeVisible();
   await expect(page.getByRole('button',{name:'Check for updates',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'Configure release checks',exact:true}).click();

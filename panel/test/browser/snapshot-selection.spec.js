@@ -1,3 +1,4 @@
+import {followPanelLink, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -25,7 +26,7 @@ async function login(page, user = 'Preview') {
   await expect(page.getByRole('searchbox', {name: 'Find servers', exact: true})).toBeVisible();
 }
 async function signOut(page) {
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
 }
 async function snapshots(page) {
@@ -105,7 +106,7 @@ test('snapshot choices show source and date, preserve compatible host identity a
 
 test('milestone journey finds, inspects and selects the remote snapshot before cancel or submit independent creation', async ({page}) => {
   const state = await snapshots(page); await login(page);
-  await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+  await followPanelLink(page, 'Snapshot library');
   await page.getByRole('searchbox', {name: 'Find snapshots', exact: true}).fill('Remote factory');
   await page.getByRole('combobox', {name: 'Filter snapshots by application'}).selectOption('factorio');
   await page.getByRole('combobox', {name: 'Filter snapshots by host'}).selectOption(remote);
@@ -139,7 +140,7 @@ test('milestone journey finds, inspects and selects the remote snapshot before c
 test('snapshot selection adds no creation controls or library reads to restricted accounts', async ({page}) => {
   const state = await snapshots(page); await login(page, 'Viewer');
   await expect(page.getByRole('button', {name: 'Create server', exact: true})).toHaveCount(0);
-  await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+  await followPanelLink(page, 'Snapshot library');
   await expect(page.locator('#snapshots article.card').getByRole('button')).toHaveCount(0);
   await expect(context(page)).toBeEmpty();
   await signOut(page); const reads = state.snapshotReads; await login(page, 'Assigned');
@@ -166,7 +167,7 @@ test('a cancelled clone catalogue cannot restore snapshot context in a later dia
     return route.fulfill({json: {games: Object.values(catalog)}});
   });
   try {
-    await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+    await followPanelLink(page, 'Snapshot library');
     await page.getByRole('searchbox', {name: 'Find snapshots', exact: true}).fill('Remote factory');
     await page.locator('#snapshots article.card').getByRole('button', {name: 'Create server on this host'}).click();
     await oldRequest;

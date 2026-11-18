@@ -1,5 +1,13 @@
 // Official Tabler outline icons v3.49.0. MIT; see LICENSE-tabler.md.
 const icons = {
+  'menu-2':
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l16 0" /><path d="M4 12l16 0" /><path d="M4 18l16 0" /></svg>',
+  'layout-grid':
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6v6h-6z" /><path d="M14 4h6v6h-6z" /><path d="M4 14h6v6h-6z" /><path d="M14 14h6v6h-6z" /></svg>',
+  'grid-dots':
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="5" r="1.75" /><circle cx="12" cy="5" r="1.75" /><circle cx="19" cy="5" r="1.75" /><circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" /><circle cx="5" cy="19" r="1.75" /><circle cx="12" cy="19" r="1.75" /><circle cx="19" cy="19" r="1.75" /></svg>',
+  'device-desktop':
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4m0 2a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v9a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z" /><path d="M7 20h10" /><path d="M9 17v3" /><path d="M15 17v3" /></svg>',
   home: '<!--\ntags: [home, house, homepage, main, start, dashboard, building, residence, real-estate]\ncategory: Buildings\nversion: "1.0"\nunicode: "eac1"\n-->\n<svg\n  xmlns="http://www.w3.org/2000/svg"\n  width="24"\n  height="24"\n  viewBox="0 0 24 24"\n  fill="none"\n  stroke="currentColor"\n  stroke-width="2"\n  stroke-linecap="round"\n  stroke-linejoin="round"\n>\n  <path d="M5 12l-2 0l9 -9l9 9l-2 0" />\n  <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-7" />\n  <path d="M9 21v-6a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v6" />\n</svg>',
   world:
     '<!--\ntags: [globe, earth, world, internet, global, web, international, language, planet]\ncategory: Map\nversion: "1.0"\nunicode: "eb54"\n-->\n<svg\n  xmlns="http://www.w3.org/2000/svg"\n  width="24"\n  height="24"\n  viewBox="0 0 24 24"\n  fill="none"\n  stroke="currentColor"\n  stroke-width="2"\n  stroke-linecap="round"\n  stroke-linejoin="round"\n>\n  <path d="M3 12a9 9 0 1 0 18 0a9 9 0 0 0 -18 0" />\n  <path d="M3.6 9h16.8" />\n  <path d="M3.6 15h16.8" />\n  <path d="M11.5 3a17 17 0 0 0 0 18" />\n  <path d="M12.5 3a17 17 0 0 1 0 18" />\n</svg>',
@@ -77,3 +85,41 @@ export const icon = (name) =>
     /<svg\b/,
     '<svg aria-hidden="true" focusable="false" class="icon" ',
   );
+
+// Raster mark from the approved Fleet design, encoded for the text-only update bundle.
+export const fleetMarkPng =
+  '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' +
+  'YdVXvIufAAAAAElFTkSuQmCC';

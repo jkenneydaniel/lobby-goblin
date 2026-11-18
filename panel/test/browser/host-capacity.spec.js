@@ -1,3 +1,4 @@
+import {followPanelLink} from './fleet-navigation.js';
 import {test as base,expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -31,7 +32,7 @@ async function fixture(page,username='Preview'){
 }
 for(const username of ['Preview','Viewer'])test('compare authoritative host allocations without mutations for '+username,async({page},info)=>{
  await page.clock.install();const state=await fixture(page,username);expect(state.capacityReads).toEqual([]);
- await nav(page).getByRole('link',{name:'Hosts',exact:true}).click();await expect(cards(page)).toHaveCount(2);
+ await followPanelLink(page, 'Hosts');await expect(cards(page)).toHaveCount(2);
  await expect(cards(page).first().locator('.capacity-summary dd')).toHaveText(['24 GiB','17 GiB','7 GiB','32.0 GiB']);
  await expect(cards(page).nth(1).locator('.capacity-summary dd')).toHaveText(['64 GiB','30 GiB','34 GiB','96.0 GiB']);
  await expect(cards(page).first()).toContainText('Configured allocations, not live RAM usage. Checked');
@@ -43,7 +44,7 @@ for(const username of ['Preview','Viewer'])test('compare authoritative host allo
  expect(state.mutations).toEqual([]);expect(await page.evaluate(()=>globalThis.document.documentElement.scrollWidth<=globalThis.innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('host-capacity-'+username+'.png'),fullPage:true});
 });
 test('capacity handles partial failures, Docker unknown and offline hosts without fabricated headroom',async({page})=>{
- await page.clock.install();const state=await fixture(page);state.failRemote=true;state.local.dockerMemoryGiB=null;await nav(page).getByRole('link',{name:'Hosts',exact:true}).click();
+ await page.clock.install();const state=await fixture(page);state.failRemote=true;state.local.dockerMemoryGiB=null;await followPanelLink(page, 'Hosts');
  await expect(cards(page).first()).toContainText('Not reported');await expect(cards(page).nth(1)).toContainText('Capacity unavailable. Refresh capacity');
  state.failRemote=false;await page.getByRole('button',{name:'Refresh capacity',exact:true}).click();await expect(cards(page).nth(1)).toContainText('34 GiB');
  state.hosts[1].connected=false;await page.clock.fastForward(6000);await expect(cards(page).nth(1)).toContainText('Capacity unavailable while this host is offline');await expect(cards(page).nth(1).locator('.capacity-summary')).toHaveCount(0);await expect(cards(page).nth(1).getByRole('button',{name:'Create server here'})).toBeDisabled();expect(state.mutations).toEqual([]);

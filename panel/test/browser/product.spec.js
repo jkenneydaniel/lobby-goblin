@@ -1,3 +1,4 @@
+import {followPanelLink, openFleetMenu, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {scope, origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -784,7 +785,7 @@ test('a non-game definition shares configuration, services, logs, accounts and o
     .getByRole('button', {name: 'Continue', exact: true})
     .click();
   await expect(page.locator('#connection-state')).toHaveText('Stopped');
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
   await expect(
     page.getByRole('heading', {name: 'Signed-in sessions', exact: true}),
   ).toBeVisible();
@@ -910,7 +911,7 @@ test('fleet sign-out cancels pending host reads before an assigned account signs
   });
   await login(page, 'fleet', 'Preview');
   await started;
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   await expect(
     page.getByRole('button', {name: 'Sign in', exact: true}),
   ).toBeVisible();
@@ -1267,9 +1268,7 @@ test('expired fleet sessions clear the shell and return to sign-in', async ({
     data: {},
   });
   expect(logout.ok()).toBe(true);
-  await nav(page)
-    .getByRole('link', {name: 'Host settings', exact: true})
-    .click();
+  await followPanelLink(page, 'Host settings');
   await expect(page.locator('.product-shell')).toBeHidden();
   await expect(
     page.getByRole('button', {name: 'Sign in', exact: true}),
@@ -1310,7 +1309,7 @@ for (const remote of [false, true])
       data: {},
     });
     expect(expired.ok()).toBe(true);
-    await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+    await followPanelLink(page, 'Accounts');
     await expect(page.locator('#shell')).toBeHidden();
     await expect(page.locator('#auth')).toBeVisible();
     await page.getByLabel('Username', {exact: true}).fill(username);
@@ -1370,7 +1369,7 @@ test('signing in as an account without the current server returns to its server 
     headers: {'x-csrf-token': previous.csrf, origin: origins.fleet},
     data: {},
   });
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
   await expect(page.locator('#auth')).toBeVisible();
   await page.getByLabel('Username', {exact: true}).fill('Assigned');
   await page
@@ -1437,9 +1436,7 @@ for (const game of ['factorio', 'rust', 'fleet']) {
         await factorio(page, '#accounts');
       } else {
         await login(page, game, game === 'fleet' ? 'Preview' : 'admin');
-        await nav(page)
-          .getByRole('link', {name: 'Accounts', exact: true})
-          .click();
+        await followPanelLink(page, 'Accounts');
       }
       await expect(
         page.getByRole('heading', {
@@ -1778,16 +1775,12 @@ test('extracted fleet host settings preserve a draft across navigation and expli
   page,
 }) => {
   await login(page, 'fleet', 'Preview');
-  await nav(page)
-    .getByRole('link', {name: 'Host settings', exact: true})
-    .click();
+  await followPanelLink(page, 'Host settings');
   await expect(page.locator('#host-budget')).toBeEnabled();
   const budget = await page.locator('#host-budget').inputValue();
   await page.locator('#host-budget').fill('15');
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
-  await nav(page)
-    .getByRole('link', {name: 'Host settings', exact: true})
-    .click();
+  await followPanelLink(page, 'Servers');
+  await followPanelLink(page, 'Host settings');
   await expect(page.locator('#host-budget')).toBeEnabled();
   await expect(page.locator('#host-budget')).toHaveValue('15');
   await page
@@ -1825,7 +1818,7 @@ test('assigned-server accounts see only assigned servers and permitted tools', a
     origins.fleet + '/servers/' + 'c'.repeat(32) + '/api/status',
   );
   expect(denied.status()).toBe(404);
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
   await expect(
     page.getByRole('heading', {name: 'Signed-in sessions', exact: true}),
   ).toBeVisible();
@@ -1838,7 +1831,7 @@ test('administrators can review assigned-server permissions and audit access cha
   page,
 }, testInfo) => {
   await login(page, 'fleet', 'Preview');
-  await nav(page).getByRole('link', {name: 'Accounts', exact: true}).click();
+  await followPanelLink(page, 'Accounts');
   const form = page.locator('[data-assignments]');
   await expect(form.locator('[name=username]')).toHaveValue('Assigned');
   await expect(form.locator('[name=scope]')).toHaveValue(
@@ -2091,7 +2084,7 @@ test('broker-isolated hosts require an operator update without offering the lega
       : route.continue(),
   );
   await login(page, 'fleet', 'Preview');
-  await nav(page).getByRole('link', {name: 'Hosts', exact: true}).click();
+  await followPanelLink(page, 'Hosts');
   const host = page.locator('.host-card').filter({hasText: 'Isolated host'});
   await expect(host).toContainText(
     'An operator must update this host’s broker and management services together.',
@@ -2305,7 +2298,7 @@ test('shared operation history filters workflows and reviews recovery inside the
     return route.fulfill({json: value.operations[0]});
   });
   await factorio(page);
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await page
     .getByLabel('Show operations', {exact: true})
     .selectOption('review');
@@ -2366,7 +2359,7 @@ test('shared Rust operation history keeps an unavailable workflow explicit until
     }),
   );
   await login(page, 'rust');
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await expect(page.locator('[data-operation-sources]')).toContainText(
     'Image updates: Outcome unavailable',
   );
@@ -2421,7 +2414,7 @@ test('fleet operation history clears stale counts and expansion across hosts wit
     await route.fulfill({json: historyFixture('remote-backup')});
   });
   await login(page, 'fleet', 'Preview');
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   const list = page.locator('[data-operation-list]'),
     count = page.locator('[data-operation-count]'),
     host = page.locator('#operations-view').getByLabel('Host', {exact: true}),
@@ -2464,7 +2457,7 @@ test('fleet keeps jobs and recovery visible while Operations history waits for a
   await login(page, 'fleet', 'Preview');
   await expect(page.locator('.product-operation')).toContainText(job.message);
   expect(historyReads).toBe(0);
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await expect(page.locator('[data-operation-list]')).toContainText('fleet backup');
   expect(historyReads).toBe(1);
 
@@ -2494,7 +2487,12 @@ for (const username of ['Viewer', 'Assigned'])
         exact: true,
       });
       // Existing fleet navigation keeps owner-only links for unscoped viewers.
-      if (username === 'Viewer') await expect(operations).toBeVisible();
+      if (username === 'Viewer') {
+        await openFleetMenu(page);
+        await expect(operations).toBeVisible();
+        if (await page.locator('.fleet-menu-toggle[aria-expanded="true"]').isVisible())
+          await page.keyboard.press('Escape');
+      }
       else {
         await expect(operations).toBeHidden();
         await page.goto(origins.fleet + '/#operations');
@@ -2552,7 +2550,7 @@ test('fleet operation history drops a delayed previous host result and keeps rec
     },
   );
   await login(page, 'fleet', 'Preview');
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await requested;
   await page
     .locator('#operations-view')
@@ -2623,7 +2621,7 @@ test('a non-game application receives the same operation history from its defini
       );
     })
     .toBe('succeeded');
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await expect(
     page.getByRole('heading', {name: 'Operation history', exact: true}),
   ).toBeVisible();
@@ -2717,7 +2715,7 @@ test('native update progress and specialized recovery share the global shell wit
   );
   await expect(page.locator('[data-action=start]')).toBeDisabled();
   expect(historyReads).toBe(0);
-  await nav(page).getByRole('link', {name: 'Operations', exact: true}).click();
+  await followPanelLink(page, 'Operations');
   await expect(page.locator('[data-operation-list]')).toContainText('archived backup');
   expect(historyReads).toBe(1);
   native.state = 'interrupted';

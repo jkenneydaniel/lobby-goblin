@@ -109,32 +109,37 @@ export function createFleetScreens({
   function paintServers(ctx, filters, focusSearch = false) {
     if (!ctx.isCurrent() || filters.composing) return;
     const active = document.activeElement,
-      previousTable = ctx.root.querySelector('.server-table-scroll'),
-      tableScrollLeft = previousTable?.scrollLeft ?? 0,
       pageFocused = ctx.root.contains(active) && active.closest('.list-pages'),
-      focused = ctx.root.contains(active)
-        ? active?.dataset?.serverFilter
-        : null,
+      focused = ctx.root.contains(active) ? active.dataset.serverFilter : null,
+      focusKey = ctx.root.contains(active) ? active.dataset.serverFocus : null,
+      openDetails = [
+        ...ctx.root.querySelectorAll('[data-server-details][open]'),
+      ].map((node) => node.dataset.serverDetails),
       range =
         focused === 'search' && active.selectionStart != null
           ? [active.selectionStart, active.selectionEnd]
           : null;
     ctx.render(serverCollection(model.snapshot, admin(), filters));
-    const table = ctx.root.querySelector('.server-table-scroll'),
-      input = ctx.root.querySelector(
-        `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
-      );
-    if (previousTable && table) {
-      if (active === previousTable && !focusSearch)
-        table.focus({preventScroll: true});
-      table.scrollLeft = tableScrollLeft;
-    }
+    const input = ctx.root.querySelector(
+      `[data-server-filter="${focusSearch ? 'search' : focused}"]`,
+    );
+    for (const key of openDetails)
+      ctx.root
+        .querySelector(`[data-server-details="${CSS.escape(key)}"]`)
+        ?.setAttribute('open', '');
     if (pageFocused && !focusSearch)
       ctx.root.querySelector('[data-list-range]')?.focus();
     if (input) {
       input.focus({preventScroll: !focusSearch});
       if (range && !focusSearch) input.setSelectionRange(...range);
-    }
+    } else if (focusKey)
+      ctx.root
+        .querySelector(`[data-server-focus="${CSS.escape(focusKey)}"]`)
+        ?.focus({preventScroll: true});
+    else if (active?.classList.contains('server-table-scroll'))
+      ctx.root
+        .querySelector('.server-table-scroll')
+        ?.focus({preventScroll: true});
     ctx.on(ctx.root, 'input', (event) => {
       if (event.target.dataset.serverFilter !== 'search') return;
       filters.search = event.target.value;
@@ -155,13 +160,32 @@ export function createFleetScreens({
     });
     ctx.on(ctx.root, 'change', (event) => {
       const key = event.target.dataset.serverFilter;
-      if (!['application', 'host', 'status', 'sort', 'view'].includes(key))
-        return;
+      if (!['application', 'host', 'sort'].includes(key)) return;
       filters[key] = event.target.value;
       filters.page = 1;
       paintServers(ctx, filters);
     });
     ctx.on(ctx.root, 'click', async (event) => {
+      const choice = event.target.closest('[data-server-choice]');
+      if (choice) {
+        filters[choice.dataset.serverChoice] = choice.value;
+        filters.page = 1;
+        paintServers(ctx, filters);
+        return;
+      }
+      if (event.target.closest('[data-toggle-server-filters]')) {
+        filters.showOptions = !filters.showOptions;
+        paintServers(ctx, filters);
+        return;
+      }
+      const host =
+        event.target.closest('[data-server-host]')?.dataset.serverHost;
+      if (host) {
+        if (filters.collapsed.has(host)) filters.collapsed.delete(host);
+        else filters.collapsed.add(host);
+        paintServers(ctx, filters);
+        return;
+      }
       const pageButton = event.target.closest(
         '[data-list-page]:not(:disabled)',
       );
@@ -183,13 +207,16 @@ export function createFleetScreens({
           await navigator.clipboard.writeText(item.address);
           if (ctx.isCurrent()) notice('Server address copied.');
         } catch {
-          if (ctx.isCurrent())
+          if (ctx.isCurrent()) {
+            const details = ctx.root.querySelector(
+              `[data-server-details="${CSS.escape(item.manageUrl)}"]`,
+            );
+            if (details) details.open = true;
             error(
               'Clipboard unavailable. Select and copy the address shown ' +
-                (filters.view === 'table'
-                  ? 'in the server table.'
-                  : 'on the server card.'),
+                (details ? 'in the server details.' : 'on the server card.'),
             );
+          }
         }
         return;
       }
@@ -280,7 +307,9 @@ export function createFleetScreens({
         host: '',
         status: '',
         sort: 'host',
-        view: 'cards',
+        view: 'table',
+        showOptions: false,
+        collapsed: new Set(),
         composing: false,
         page: 1,
       };

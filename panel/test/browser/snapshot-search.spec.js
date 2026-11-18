@@ -1,3 +1,4 @@
+import {followPanelLink, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -19,10 +20,10 @@ async function login(page, user = 'Preview') {
   await page.getByLabel('Password', {exact: true}).fill('isolated-panel-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
   await expect(page.locator('.product-shell')).toBeVisible();
-  if (user !== 'Assigned') await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+  if (user !== 'Assigned') await followPanelLink(page, 'Snapshot library');
 }
 async function signOut(page) {
-  await page.getByRole('button', {name: 'Sign out', exact: true}).click();
+  await signOutOfPanel(page);
   // Logout clears the session asynchronously; navigation must not abort it.
   await expect(page.getByLabel('Username', {exact: true})).toBeVisible();
 }
@@ -96,8 +97,8 @@ test('snapshot filter focus, caret, IME and choices survive refresh and navigati
   const cached = cards(page).filter({hasText: 'Weekend host'});
   await expect(cached).toContainText('Host unavailable · last known snapshot information.');
   for (const name of ['View contents', 'Delete snapshot', 'Create server on this host']) await expect(cached.getByRole('button', {name, exact: true})).toBeDisabled();
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
-  await nav(page).getByRole('link', {name: 'Snapshot library', exact: true}).click();
+  await followPanelLink(page, 'Servers');
+  await followPanelLink(page, 'Snapshot library');
   await expect(search(page)).toHaveValue('Friday'); await expect(sort(page)).toHaveValue('oldest');
   state.hosts[1].connected = true; await page.clock.fastForward(6000);
   await expect(cached.getByRole('button', {name: 'View contents'})).toBeEnabled();

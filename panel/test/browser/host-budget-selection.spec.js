@@ -1,3 +1,4 @@
+import {followPanelLink} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -151,10 +152,8 @@ test('direct settings entry discovers hosts and saves only the selected host wit
   expect(state.local.memoryBudgetGiB).toBe(24);
   await picker(page).selectOption('/host-settings');
   await expect(budget(page)).toHaveValue('25');
-  await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
-  await nav(page)
-    .getByRole('link', {name: 'Host settings', exact: true})
-    .click();
+  await followPanelLink(page, 'Servers');
+  await followPanelLink(page, 'Host settings');
   await expect(budget(page)).toHaveValue('25');
   await reload(page).click();
   await expect(budget(page)).toHaveValue('24');
@@ -266,11 +265,9 @@ test('pending saves lock selection and navigation requires inspection before ano
     await save(page).click();
     await expect.poll(() => state.writes.length).toBe(1);
     await expect(picker(page)).toBeDisabled();
-    await nav(page).getByRole('link', {name: 'Servers', exact: true}).click();
+    await followPanelLink(page, 'Servers');
     release();
-    await nav(page)
-      .getByRole('link', {name: 'Host settings', exact: true})
-      .click();
+    await followPanelLink(page, 'Host settings');
     await expect(picker(page)).toHaveValue(
       '/hosts/' + remote + '/host-settings',
     );
@@ -356,7 +353,7 @@ test('compare hosts, review and adjust the intended budget, then refresh the cap
   page,
 }, info) => {
   const state = await fixture(page);
-  await nav(page).getByRole('link', {name: 'Hosts', exact: true}).click();
+  await followPanelLink(page, 'Hosts');
   const cards = page.locator('#hosts-list article');
   await expect(cards).toHaveCount(2);
   await expect(cards.first().locator('.capacity-summary dd')).toHaveText([
@@ -371,9 +368,7 @@ test('compare hosts, review and adjust the intended budget, then refresh the cap
     '13 GiB',
     '24.0 GiB',
   ]);
-  await nav(page)
-    .getByRole('link', {name: 'Host settings', exact: true})
-    .click();
+  await followPanelLink(page, 'Host settings');
   await selectRemote(page);
   await expect(page.locator('#host-allocations')).toContainText(
     'Remote factory',
@@ -383,7 +378,7 @@ test('compare hosts, review and adjust the intended budget, then refresh the cap
   await expect(page.locator('#host-saved')).toContainText('Weekend host');
   await reload(page).click();
   await expect(budget(page)).toHaveValue('20');
-  await nav(page).getByRole('link', {name: 'Hosts', exact: true}).click();
+  await followPanelLink(page, 'Hosts');
   await page
     .getByRole('button', {name: 'Refresh capacity', exact: true})
     .click();

@@ -31,6 +31,11 @@ async function fixture(page,{assigned=false}={}){
  await page.getByLabel('Password',{exact:true}).fill('isolated-panel-preview-password');
  await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.getByRole('searchbox',{name:'Find servers',exact:true})).toBeVisible();
+ if (!assigned) {
+   const filters = page.locator('[data-toggle-server-filters]');
+   if (await filters.isVisible()) await filters.click();
+   await page.getByRole('button', {name:'Card view',exact:true}).click();
+ }
  return state;
 }
 test('application cards distinguish management from a user-opened public endpoint on desktop and mobile',async({page},info)=>{
