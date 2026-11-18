@@ -1066,7 +1066,7 @@ test('default fleet layout groups hosts and keeps key actions usable with the re
   const table = page.getByRole('table', {name: /Fleet servers/}),
     host = table.getByRole('button', {name: 'Weekend host 1 server'}),
     remoteRow = table.locator('.server-row').filter({
-      has: table.getByRole('rowheader', {name: 'Other factory <crew>', exact: true}),
+      has: page.getByRole('rowheader', {name: 'Other factory <crew>', exact: true}),
     });
   await expect(host).toHaveAttribute('aria-expanded', 'true');
   await expect(remoteRow.getByRole('link', {name: 'Open server'})).toHaveAttribute(

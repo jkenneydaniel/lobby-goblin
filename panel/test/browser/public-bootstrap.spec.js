@@ -1,4 +1,5 @@
 import {test as base,expect} from '@playwright/test';
+import {followPanelLink} from './fleet-navigation.js';
 import {origins} from './playwright.config.js';
 const test=base.extend({page:async({page},use)=>{
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
@@ -7,7 +8,7 @@ const test=base.extend({page:async({page},use)=>{
 }});
 async function open(page){
  await page.goto(origins.fleet);await page.getByLabel('Username',{exact:true}).fill('Preview');await page.getByLabel('Password',{exact:true}).fill('isolated-panel-preview-password');await page.getByRole('button',{name:'Sign in',exact:true}).click();
- await page.getByRole('navigation',{name:/navigation/}).getByRole('link',{name:'Hosts',exact:true}).click();await page.locator('#add-host').click();await page.locator('#choose-manual').click();await page.getByText('I need to install the agent',{exact:true}).click();
+ await followPanelLink(page, 'Hosts');await page.locator('#add-host').click();await page.locator('#choose-manual').click();await page.getByText('I need to install the agent',{exact:true}).click();
 }
 test('manual host pairing offers copyable curl/wget commands pinned to the panel release',async({page},info)=>{
  await page.addInitScript(()=>{globalThis.bootstrapClipboard=[];Object.defineProperty(navigator,'clipboard',{value:{writeText:async text=>{globalThis.bootstrapClipboard.push(text);}}});});

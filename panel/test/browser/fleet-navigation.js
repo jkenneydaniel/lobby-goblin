@@ -1,6 +1,12 @@
 export async function openFleetMenu(page) {
+  await page.locator('.product-shell').waitFor({state: 'visible'});
   const menu = page.locator('.fleet-menu-toggle[aria-expanded="false"]');
   if (await menu.isVisible()) await menu.click();
+}
+
+export async function closeFleetMenu(page) {
+  const menu = page.locator('.fleet-menu-toggle[aria-expanded="true"]');
+  if (await menu.isVisible()) await page.keyboard.press('Escape');
 }
 
 export async function followPanelLink(page, name) {

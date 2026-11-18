@@ -1,4 +1,4 @@
-import {followPanelLink, openFleetMenu, signOutOfPanel} from './fleet-navigation.js';
+import {closeFleetMenu, followPanelLink, openFleetMenu, signOutOfPanel} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {scope, origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -188,7 +188,7 @@ test('runtime snapshot creation sends its disabled installation selector directl
   });
   await page.route('**/api/servers', async route => {if (route.request().method() !== 'POST') return route.continue(); created.push(route.request().postDataJSON()); return route.fulfill({status: 202, json: {id: 'copied-runtime', state: 'queued'}});});
   await login(page, 'fleet', 'Preview');
-  await expect(page.getByRole('heading', {name: 'Friday factory', exact: true})).toBeVisible();
+  await expect(page.getByRole('rowheader', {name: 'Friday factory', exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Create server', exact: true}).click();
   const form = page.locator('#create'); await form.locator('[name=name]').fill('Runtime copy');
   await form.locator('[name=snapshotId]').selectOption('f'.repeat(32));
@@ -1795,6 +1795,7 @@ test('assigned-server accounts see only assigned servers and permitted tools', a
   await login(page, 'fleet', 'Assigned');
   await expect(page.locator('#servers')).toContainText('Friday factory');
   await expect(page.locator('#servers')).not.toContainText('Island crew');
+  await openFleetMenu(page);
   await expect(
     nav(page).getByRole('link', {name: 'Hosts', exact: true}),
   ).toBeHidden();
@@ -1804,6 +1805,7 @@ test('assigned-server accounts see only assigned servers and permitted tools', a
   await expect(
     nav(page).getByRole('link', {name: 'Accounts', exact: true}),
   ).toBeVisible();
+  await closeFleetMenu(page);
   await page.getByRole('link', {name: 'Open server', exact: true}).click();
   await expect(
     page.getByRole('button', {name: 'Save now', exact: true}),
@@ -2490,8 +2492,7 @@ for (const username of ['Viewer', 'Assigned'])
       if (username === 'Viewer') {
         await openFleetMenu(page);
         await expect(operations).toBeVisible();
-        if (await page.locator('.fleet-menu-toggle[aria-expanded="true"]').isVisible())
-          await page.keyboard.press('Escape');
+        await closeFleetMenu(page);
       }
       else {
         await expect(operations).toBeHidden();
