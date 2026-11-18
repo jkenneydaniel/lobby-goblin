@@ -79,12 +79,8 @@ const api = async (route, body) => {
 const sessionController = createSessionController({
   request,
   onChange(value) {
-    const servers = value.servers.length,
-      hosts = new Set(value.servers.map((server) => server.hostId)).size;
-    $('#server-fleet-count').textContent = value.assigned
-      ? `${servers} assigned ${servers === 1 ? 'server' : 'servers'}`
-      : `${servers} ${servers === 1 ? 'server' : 'servers'}${hosts ? ` across ${hosts} ${hosts === 1 ? 'host' : 'hosts'}` : ''}`;
     if (!value || session?.username !== value.username) {
+      $('#server-fleet-count').textContent = '';
       model.reset();
       screenRouter.reset();
       creation.cancel();
@@ -111,6 +107,11 @@ const model = createFleetModel({
   onSettled: (job) =>
     shell.notify(job.message, {error: job.state !== 'succeeded'}),
   onChange(value) {
+    const servers = value.servers.length,
+      hosts = new Set(value.servers.map((server) => server.hostId)).size;
+    $('#server-fleet-count').textContent = value.assigned
+      ? `${servers} assigned ${servers === 1 ? 'server' : 'servers'}`
+      : `${servers} ${servers === 1 ? 'server' : 'servers'}${hosts ? ` across ${hosts} ${hosts === 1 ? 'host' : 'hosts'}` : ''}`;
     $('#new-server').disabled = !value.hosts.some(
       (host) =>
         host.connected && host.aligned !== false && !model.busy(host.id),

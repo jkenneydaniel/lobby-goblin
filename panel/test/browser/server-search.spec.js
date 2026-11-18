@@ -129,6 +129,7 @@ test('assigned inventory name sorting uses only authorized minimal records', asy
   const reads = [];
   page.on('request', request => {if (request.url().includes('/api/')) reads.push(new URL(request.url()).pathname);});
   await login(page, 'Assigned');
+  await expect(page.locator('#server-fleet-count')).toHaveText('2 assigned servers');
   const order = page.getByRole('combobox', {name: 'Sort servers', exact: true});
   const before = [...reads]; await order.selectOption('name');
   await expect(cards(page).locator('h2')).toHaveText(['Alpha assigned', 'alpha assigned']);
@@ -1061,6 +1062,7 @@ test('default fleet layout groups hosts and keeps key actions usable with the re
   state.remote[0].id = state.local[0].id;
   state.local[1].address = '';
   await login(page, 'Preview', 'default');
+  await expect(page.locator('#server-fleet-count')).toHaveText('3 servers across 2 hosts');
   const table = page.getByRole('table', {name: /Fleet servers/}),
     host = table.getByRole('button', {name: 'Weekend host 1 server'}),
     remoteRow = table.locator('.server-row').filter({
