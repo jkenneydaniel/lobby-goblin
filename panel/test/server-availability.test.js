@@ -10,62 +10,67 @@ const fixture = () => ({
   games: [], hostJobs: new Map(),
   live: new Map([['a:ready', {ready: true}], ['a:starting', {running: true}], ['a:stopped', {state: 'exited'}], ['b:ready', {ready: true}]]),
 });
-const summary = html => html.match(/<section class="server-availability"[^>]*>(.*?)<\/section>/s)?.[1];
+const chip = (html, value) => {
+  const buttons = html.match(/<button[^>]*data-server-choice="status"[^>]*>.*?<\/button>/g) || [];
+  return buttons.find(button => button.includes('value="' + value + '"'));
+};
+const count = (html, value, total, pressed = false) => {
+  const button = chip(html, value);
+  assert.ok(button, 'Missing status: ' + value);
+  assert.ok(button.includes('aria-pressed="' + pressed + '"'));
+  assert.ok(button.includes('<strong>' + total + '</strong>'));
+};
 
-test('loaded availability shares displayed statuses and scoped IDs without mutating source', () => {
+test('status chips share displayed states and scoped IDs without mutating source', () => {
   const data = fixture(), before = structuredClone(data);
   for (const view of ['cards', 'table']) {
     const html = serverCollection(data, false, {...filters, view});
-    for (const status of ['Ready', 'Starting', 'Stopped', 'Needs attention', 'Creating', 'Checking', 'Removed · data kept', 'Host unavailable']) {
-      assert.ok(summary(html).includes(status + ': 1'), status);
-      assert.ok(html.includes('>' + status + ' (1)</option>'), status);
-    }
-    assert.match(summary(html), /8 servers matching search, application and host filters \(before status\)/);
-    assert.match(summary(html), /Most recently received observations/);
-    assert.match(summary(html), /Unavailable hosts may have servers missing/);
-    assert.equal((html.match(/role="status"/g) || []).length, 1);
+    for (const status of ['Ready', 'Starting', 'Stopped', 'Needs attention', 'Creating', 'Checking', 'Removed · data kept', 'Host unavailable'])
+      count(html, status, 1);
+    count(html, '', 8, true);
+    assert.match(html, /Unavailable hosts may have servers missing/);
   }
   assert.deepEqual(data, before);
 });
 
-test('context counts follow search application and host but retain distribution across status choices', () => {
+test('status counts follow search, application and host while retaining the selected status', () => {
   const data = fixture();
   const chosen = {...filters, search: 'ready', application: 'factorio', host: 'a', status: 'Stopped'};
   const html = serverCollection(data, true, chosen);
   assert.match(html, /Showing 0 of 8 servers/);
-  assert.match(summary(html), /1 server matching/);
-  assert.match(summary(html), /Ready: 1/);
-  assert.doesNotMatch(summary(html), /Host unavailable|Unavailable hosts/);
-  assert.match(html, /value="Stopped" selected>Stopped \(0\)/);
-  assert.match(html, /value="Ready" >Ready \(1\)/);
+  count(html, '', 1);
+  count(html, 'Ready', 1);
+  count(html, 'Stopped', 0, true);
+  assert.doesNotMatch(html, /Unavailable hosts may have servers missing/);
   const noMatches = serverCollection(data, false, {...filters, search: '<missing>'});
-  assert.match(summary(noMatches), /No matching loaded servers/);
+  count(noMatches, '', 0, true);
   assert.match(noMatches, /No matching servers/);
-  const stale = serverCollection(data, false, {...filters, status: 'Old <state>'});
-  assert.match(stale, /value="Old &lt;state&gt;" selected>Old &lt;state&gt; \(0\)/);
+  count(serverCollection(data, false, {...filters, status: 'Old <state>'}), 'Old &lt;state&gt;', 0, true);
 });
 
 test('cold unavailable hosts disclose incomplete loaded inventory even without cached servers', () => {
   const data = {...fixture(), servers: [], live: new Map()};
-  assert.match(summary(serverCollection(data, false, filters)), /0 servers matching.*Unavailable hosts may have servers missing/s);
-  assert.doesNotMatch(summary(serverCollection(data, false, {...filters, host: 'a'})), /Unavailable hosts/);
+  const html = serverCollection(data, false, filters);
+  count(html, '', 0, true);
+  assert.match(html, /Unavailable hosts may have servers missing/);
+  assert.doesNotMatch(serverCollection(data, false, {...filters, host: 'a'}), /Unavailable hosts/);
   const cached = fixture(); cached.hosts[1].connected = true; cached.servers[7].unavailable = true;
-  assert.match(summary(serverCollection(cached, false, filters)), /Host unavailable: 1.*Unavailable hosts may have servers missing/s);
+  const fallback = serverCollection(cached, false, filters);
+  count(fallback, 'Host unavailable', 1);
+  assert.match(fallback, /Unavailable hosts may have servers missing/);
 });
 
-test('refresh observations update summary and selected absent status keeps its value with zero count', () => {
+test('refresh observations update the counts and preserve an absent status at zero', () => {
   const data = fixture();
   data.live.set('a:ready', {state: 'exited'});
   const html = serverCollection(data, false, {...filters, status: 'Ready'});
   assert.match(html, /Showing 0 of 8 servers/);
-  assert.match(html, /value="Ready" selected>Ready \(0\)/);
-  assert.match(summary(html), /Stopped: 2/);
-  assert.doesNotMatch(summary(html), /Ready: /);
+  count(html, 'Ready', 0, true);
+  count(html, 'Stopped', 2);
 });
 
 test('assigned accounts retain minimal output with no status or completeness disclosures', () => {
   const html = serverCollection({...fixture(), assigned: true}, false, {...filters, status: 'Ready'});
-  assert.equal(summary(html), undefined);
-  assert.doesNotMatch(html, /Loaded availability|Most recently received|Host unavailable|Filter by status|Unavailable hosts|Ready \(/);
+  assert.doesNotMatch(html, /data-server-choice="status"|Most recently received|Host unavailable|Filter by status|Unavailable hosts/);
   assert.match(html, /Showing 8 of 8 servers/);
 });

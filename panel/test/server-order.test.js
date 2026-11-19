@@ -42,7 +42,7 @@ test('sort choice is presentation-only and does not activate Clear filters or hi
   const html = serverCollection(snapshot, false, {...filters, sort: 'name-desc'});
   assert.match(html, /Sort servers/);
   assert.match(html, /value="name-desc" selected/);
-  assert.match(html, /data-clear-server-filters disabled/);
+  assert.match(html, /data-clear-server-filters hidden disabled/);
   assert.match(html, /Showing 4 of 4 servers/);
   assert.match(serverCollection(snapshot, false, {...filters, sort: 'name', search: 'missing'}), /No matching servers/);
   assert.match(serverCollection({...snapshot, servers: []}, false, {...filters, sort: 'name'}), /Your first server starts here/);

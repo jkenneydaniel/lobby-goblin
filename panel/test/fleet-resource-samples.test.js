@@ -6,6 +6,7 @@ import {createFleetModel} from '../public/fleet/model.js';
 const server = (patch = {}) => ({id: 'same', hostId: 'local', hostName: 'Local', name: 'Factory', game: 'factorio', state: 'installed', cpu: 2, memoryGiB: 4, manageUrl: '/servers/same/', ...patch});
 const snapshot = (patch = {}) => ({servers: [server()], hosts: [{id: 'local', connected: true}], live: new Map([['local:same', {running: true, ready: true, cpu: 240, memory: 1.5 * 1024 ** 3}]]), hostJobs: new Map(), ...patch});
 const renders = [serverCards, serverTable];
+const inventory = html => html.replace(/<div class="server-detail-panel">.*?<\/div><\/details>/gs, "");
 
 test('cards and table show scoped mixed game/application samples alongside configured limits', () => {
   const data = snapshot({
@@ -40,7 +41,7 @@ test('each optional sample independently rejects missing, null, nonfinite, negat
     for (const render of renders) {
       for (const [cpu, memory] of [[invalid, invalid], [invalid, 1024], [100, invalid]]) {
         const html = render(snapshot({live: new Map([['local:same', {running: true, cpu, memory}]])}), false);
-        assert.equal((html.match(/Unavailable/g) || []).length, (cpu === 100 || memory === 1024) ? 1 : 2);
+        assert.equal((inventory(html).match(/Unavailable/g) || []).length, (cpu === 100 || memory === 1024) ? 1 : 2);
         if (memory === 1024) assert.match(html, /1.0 KiB/);
         if (cpu === 100) assert.match(html, />100%</);
         assert.doesNotMatch(html, /NaN|Infinity|\[object Object\]/);
@@ -62,7 +63,7 @@ test('retained samples are unavailable for removed, stopped, missing status and 
   ];
   for (const render of renders) for (const patch of patches) {
     const html = render(snapshot(patch), true);
-    assert.equal((html.match(/Unavailable/g) || []).length, 2);
+    assert.equal((inventory(html).match(/Unavailable/g) || []).length, 2);
     assert.doesNotMatch(html, /240%|1.5 GiB/);
   }
 });
@@ -70,7 +71,7 @@ test('retained samples are unavailable for removed, stopped, missing status and 
 test('busy hosts retain read-only samples and existing action fences; assigned cards disclose no resources', () => {
   for (const render of renders) {
     const busy = render(snapshot({hostJobs: new Map([['local', {id: 'busy'}]])}), true);
-    assert.match(busy, /240%/); assert.match(busy, /data-snapshot="local:same" disabled/); assert.match(busy, /data-remove="local:same" disabled/);
+    assert.match(busy, /240%/); assert.match(busy, /data-snapshot="local:same"[^>]* disabled/); assert.match(busy, /data-remove="local:same"[^>]* disabled/);
     const assigned = render(snapshot({assigned: true}), false);
     assert.doesNotMatch(assigned, /sample|CPU|memory|240%|1.5 GiB|2 cores|4 GiB|<table/);
     assert.match(assigned, /Open server/);

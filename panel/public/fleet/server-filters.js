@@ -7,6 +7,7 @@ import {
   serverResourceSample,
 } from './cards.js';
 import {serverKey} from './host-paths.js';
+import {icon} from '../icons.js';
 
 // Presentation only: use the session-scoped model, never fetch more resources.
 export function selectServers(snapshot, filters) {
@@ -99,13 +100,10 @@ export function serverCollection(snapshot, admin, filters) {
     context = snapshot.assigned
       ? []
       : selectServers(snapshot, {...filters, status: '', sort: 'host'}),
-    statuses = new Map(
+    statuses = new Set(
       snapshot.assigned
         ? []
-        : snapshot.servers.map((item) => {
-            const state = serverStatus(item, snapshot);
-            return [state, state];
-          }),
+        : snapshot.servers.map((item) => serverStatus(item, snapshot)),
     ),
     active = !!(
       filters.search ||
@@ -113,12 +111,11 @@ export function serverCollection(snapshot, admin, filters) {
       filters.host ||
       filters.status
     );
+  if (filters.status) statuses.add(filters.status);
   for (const item of context) {
     const state = serverStatus(item, snapshot);
     availability.set(state, (availability.get(state) || 0) + 1);
   }
-  for (const state of statuses.keys())
-    statuses.set(state, `${state} (${availability.get(state) || 0})`);
   const incomplete =
     !snapshot.assigned &&
     (snapshot.hosts.some(
@@ -128,14 +125,18 @@ export function serverCollection(snapshot, admin, filters) {
         (item) =>
           (!filters.host || item.hostId === filters.host) && item.unavailable,
       ));
-  const availabilitySummary = snapshot.assigned
+  const statusOrder = [
+    'Ready',
+    'Stopped',
+    'Needs attention',
+    'Host unavailable',
+    'Starting',
+    'Creating',
+    'Checking',
+  ];
+  const statusButtons = snapshot.assigned
     ? ''
-    : `<section class="server-availability" aria-label="Loaded server availability"><p><strong>Loaded availability</strong> · ${context.length} ${context.length === 1 ? 'server' : 'servers'} matching search, application and host filters (before status).</p><p>${
-        [...availability]
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([state, count]) => `${esc(state)}: ${count}`)
-          .join(' · ') || 'No matching loaded servers.'
-      }</p><p class="hint">Most recently received observations.${incomplete ? ' Unavailable hosts may have servers missing from this loaded inventory.' : ''}</p></section>`;
+    : `<div class="server-status-filters" role="group" aria-label="Filter by status">${['', ...[...statuses].sort((a, b) => (statusOrder.indexOf(a) + 1 || 99) - (statusOrder.indexOf(b) + 1 || 99) || a.localeCompare(b))].map((status) => `<button type="button" aria-pressed="${status === filters.status}" data-server-choice="status" data-server-focus="status:${esc(status)}" value="${esc(status)}">${status ? `<span aria-hidden="true" class="status-dot" data-availability="${esc(status)}"></span>` : ''}<span>${esc(status || 'All')}</span><strong>${status ? availability.get(status) || 0 : context.length}</strong></button>`).join('')}</div>`;
   const options = (items, selected, missing) => {
     const values = [...items].sort((a, b) =>
       String(a[1]).localeCompare(String(b[1])),
@@ -148,9 +149,31 @@ export function serverCollection(snapshot, admin, filters) {
       )
       .join('');
   };
-  return `<div class="server-filters" role="search" aria-label="Find servers"><label>Find servers<input type="search" data-server-filter="search" maxlength="200" value="${esc(filters.search)}" placeholder="Name, application, host or address"></label><label>Filter by application<select data-server-filter="application"><option value="">All applications</option>${options(applications, filters.application, 'Selected application (not in current list)')}</select></label>${snapshot.assigned ? '' : `<label>Filter by host<select data-server-filter="host"><option value="">All hosts</option>${options(hosts, filters.host, 'Selected host (not in current list)')}</select></label><label>Filter by status<select data-server-filter="status"><option value="">All statuses</option>${options(statuses, filters.status, `${filters.status} (0)`)}</select></label>`}<label>Sort servers<select data-server-filter="sort"><option value="host" ${(filters.sort || 'host') === 'host' ? 'selected' : ''}>Current host order</option><option value="name" ${filters.sort === 'name' ? 'selected' : ''}>Name A–Z</option><option value="name-desc" ${filters.sort === 'name-desc' ? 'selected' : ''}>Name Z–A</option>${snapshot.assigned ? '' : `<option value="sample-cpu" ${filters.sort === 'sample-cpu' ? 'selected' : ''}>Sampled CPU, high to low</option><option value="sample-memory" ${filters.sort === 'sample-memory' ? 'selected' : ''}>Sampled memory, high to low</option>`}</select></label>${snapshot.assigned ? '' : `<label>View servers<select data-server-filter="view"><option value="cards" ${filters.view !== 'table' ? 'selected' : ''}>Cards</option><option value="table" ${filters.view === 'table' ? 'selected' : ''}>Table</option></select></label>`}<button type="button" data-clear-server-filters ${active ? '' : 'disabled'}>Clear filters</button></div>
-    <p class="server-count" role="status" aria-live="polite" aria-atomic="true">${visible.pages > 1 ? '' : 'Showing '}${servers.length}${visible.pages > 1 ? ' matching' : ''} of ${snapshot.servers.length} ${snapshot.servers.length === 1 ? 'server' : 'servers'}</p>
-    ${availabilitySummary}
+  const table = filters.view === 'table',
+    toolbar = `<div class="server-filters" role="search" aria-label="Find servers"><label class="server-search">${icon('search')}<input aria-label="Find servers" type="search" data-server-filter="search" maxlength="200" value="${esc(filters.search)}" placeholder="Search servers"></label><button type="button" class="server-filter-toggle" data-toggle-server-filters data-server-focus="filters" aria-controls="server-filter-options" aria-expanded="${!!filters.showOptions}">${icon('adjustments')} Filters</button><div id="server-filter-options" class="server-filter-options" data-expanded="${!!filters.showOptions}"><select aria-label="Filter by application" data-server-filter="application"><option value="">All applications</option>${options(applications, filters.application, 'Selected application (not in current list)')}</select>${snapshot.assigned ? '' : `<select aria-label="Filter by host" data-server-filter="host"><option value="">All hosts</option>${options(hosts, filters.host, 'Selected host (not in current list)')}</select>`}<select aria-label="Sort servers" data-server-filter="sort"><option value="host" ${(filters.sort || 'host') === 'host' ? 'selected' : ''}>${snapshot.assigned ? 'Current order' : 'Group by host'}</option><option value="name" ${filters.sort === 'name' ? 'selected' : ''}>Name A–Z</option><option value="name-desc" ${filters.sort === 'name-desc' ? 'selected' : ''}>Name Z–A</option>${snapshot.assigned ? '' : `<option value="sample-cpu" ${filters.sort === 'sample-cpu' ? 'selected' : ''}>Sampled CPU, high to low</option><option value="sample-memory" ${filters.sort === 'sample-memory' ? 'selected' : ''}>Sampled memory, high to low</option>`}</select>${
+      snapshot.assigned
+        ? ''
+        : `<div class="server-view-choice" role="group" aria-label="View servers">${[
+            ['table', 'list', 'List view'],
+            ['cards', 'layout-grid', 'Card view'],
+          ]
+            .map(
+              ([value, glyph, label]) =>
+                `<button type="button" data-server-choice="view" data-server-focus="view:${value}" value="${value}" aria-label="${label}" title="${label}" aria-pressed="${(value === 'table') === table}">${icon(glyph)}</button>`,
+            )
+            .join('')}</div>`
+    }</div></div>`,
+    inventory =
+      !servers.length && snapshot.servers.length
+        ? '<div class="empty server-no-matches"><h2>No matching servers</h2><p>Try another search or clear the filters to see all your servers.</p></div>'
+        : (table ? serverTable : serverCards)(
+            {...snapshot, servers: visible.items},
+            admin,
+            filters.sort === 'host' ? filters.collapsed || new Set() : null,
+          );
+  return `<div class="server-collection">${statusButtons}${toolbar}
     ${listPageControls(visible)}
-    ${!servers.length && snapshot.servers.length ? '<div class="empty server-no-matches"><h2>No matching servers</h2><p>Try another search or clear the filters to see all your servers.</p></div>' : (filters.view === 'table' ? serverTable : serverCards)({...snapshot, servers: visible.items}, admin)}`;
+    ${inventory}
+    <div class="server-list-footer"><p class="server-count" role="status" aria-live="polite" aria-atomic="true">${visible.pages > 1 ? '' : 'Showing '}${servers.length}${visible.pages > 1 ? ' matching' : ''} of ${snapshot.servers.length} ${snapshot.servers.length === 1 ? 'server' : 'servers'}</p><button type="button" class="quiet" data-clear-server-filters ${active ? '' : 'hidden disabled'}>Clear filters</button></div>
+    ${incomplete ? '<p class="server-inventory-note" role="status">Unavailable hosts may have servers missing from this loaded inventory.</p>' : ''}</div>`;
 }

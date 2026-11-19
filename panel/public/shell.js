@@ -1,4 +1,5 @@
 import {navigationAllowed} from './shared/access.js';
+import {fleetMarkPng, icon} from './icons.js';
 import {pagePath, serverPath} from './scope.js';
 import {serverState} from './client.js';
 
@@ -42,17 +43,96 @@ export function mountProductShell({
   recovery.setAttribute('aria-label', 'Operation recovery');
   root.append(recovery);
   let recoverySignature = '';
+  const fleet = area === 'fleet',
+    nav = find('.product-navigation'),
+    account = find('.product-account'),
+    username = find('.product-user');
+  let closeNavigation = () => {};
+  if (fleet) {
+    const main = document.querySelector('main'),
+      header = find('.product-header'),
+      sidebar = document.createElement('div'),
+      menu = document.createElement('button'),
+      backdrop = document.createElement('div'),
+      compact = matchMedia('(max-width: 860px)');
+    sidebar.className = 'fleet-sidebar';
+    sidebar.id = 'fleet-sidebar';
+    menu.type = 'button';
+    menu.className = 'fleet-menu-toggle';
+    menu.setAttribute('aria-controls', sidebar.id);
+    backdrop.className = 'fleet-menu-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    const mark = document.createElement('img'),
+      markUrl = URL.createObjectURL(
+        new Blob(
+          [Uint8Array.from(atob(fleetMarkPng), (char) => char.charCodeAt(0))],
+          {type: 'image/png'},
+        ),
+      );
+    mark.className = 'product-mark';
+    mark.alt = '';
+    mark.addEventListener('load', () => URL.revokeObjectURL(markUrl), {
+      once: true,
+    });
+    mark.src = markUrl;
+    find('.product-mark').replaceWith(mark);
+    sidebar.append(nav, account);
+    header.prepend(menu);
+    header.after(backdrop, sidebar);
+    const items = () =>
+      [...sidebar.querySelectorAll('a, button')].filter(
+        (node) => node.getClientRects().length,
+      );
+    function toggle(open, restoreFocus = false) {
+      sidebar.inert = compact.matches && !open;
+      main.inert = open;
+      backdrop.hidden = !open;
+      root.classList.toggle('fleet-menu-open', open);
+      menu.setAttribute('aria-expanded', String(open));
+      menu.innerHTML = icon(open ? 'x' : 'menu-2') + (open ? 'Close' : 'Menu');
+      if (open)
+        (nav.querySelector('[aria-current="page"]') || items()[0])?.focus();
+      else if (restoreFocus && compact.matches) menu.focus();
+    }
+    closeNavigation = () => toggle(false);
+    toggle(false);
+    menu.addEventListener('click', () => {
+      const open = menu.getAttribute('aria-expanded') === 'true';
+      toggle(!open);
+    });
+    backdrop.addEventListener('click', () => toggle(false, true));
+    compact.addEventListener('change', closeNavigation);
+    document.addEventListener('keydown', (event) => {
+      if (backdrop.hidden) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        toggle(false, true);
+      } else if (event.key === 'Tab') {
+        const last = items().at(-1);
+        if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          menu.focus();
+        } else if (event.shiftKey && document.activeElement === menu && last) {
+          event.preventDefault();
+          last.focus();
+        }
+      }
+    });
+    nav.addEventListener('click', (event) => {
+      if (backdrop.hidden || !event.target.closest('a')) return;
+      toggle(false, true);
+    });
+  }
   const scoped = serverPath('/') !== '/';
   find('.product-brand').href =
     area === 'fleet' || scoped ? '/' : pagePath('#overview');
   find('.product-back').href = '/';
   find('.product-back').hidden = !scoped;
-  find('.product-context-label').textContent =
-    area === 'fleet'
-      ? 'YOUR PANEL'
-      : kind === 'game'
-        ? game + ' SERVER'
-        : kind.toUpperCase();
+  find('.product-context-label').textContent = fleet
+    ? 'Fleet'
+    : kind === 'game'
+      ? game + ' SERVER'
+      : kind.toUpperCase();
   if (area !== 'fleet' && kind !== 'game') {
     find('.product-navigation').setAttribute(
       'aria-label',
@@ -60,15 +140,28 @@ export function mountProductShell({
     );
     find('.product-eyebrow').textContent = 'APPLICATION OPERATION';
   }
-  find('.product-context-name').textContent =
-    area === 'fleet' ? 'Your servers' : game;
+  find('.product-context-name').textContent = fleet ? 'Servers' : game;
   find('.product-signout').addEventListener('click', onLogout);
+  const groups = new Map();
   const links = navigation.map((item) => {
     const link = document.createElement('a');
     link.href = pagePath('#' + item.id);
     link.textContent = item.label;
     link.dataset.shellPage = item.id;
-    find('.product-navigation').append(link);
+    if (fleet) {
+      const name = item.group || 'Fleet';
+      if (!groups.has(name)) {
+        const group = document.createElement('div'),
+          title = document.createElement('p');
+        group.className = 'fleet-navigation-group';
+        title.textContent = name;
+        group.append(title);
+        nav.append(group);
+        groups.set(name, group);
+      }
+      if (item.icon) link.insertAdjacentHTML('afterbegin', icon(item.icon));
+      groups.get(name).append(link);
+    } else nav.append(link);
     return {item, link};
   });
   let timer,
@@ -86,27 +179,39 @@ export function mountProductShell({
         recoveryEpoch++;
         recoverySignature = '';
         if (find('.product-confirm').open) find('.product-confirm').close();
+        closeNavigation();
       }
       root.hidden = !user;
       document.body.dataset.productSession = user ? 'signed-in' : 'signed-out';
-      find('.product-user').textContent = user
-        ? user.username +
-          ' · ' +
-          (user.role === 'admin'
-            ? 'Administrator'
-            : user.role === 'member'
-              ? 'Assigned servers'
-              : 'Read-only')
+      const role = user
+        ? user.role === 'admin'
+          ? 'Administrator'
+          : user.role === 'member'
+            ? 'Assigned servers'
+            : 'Read-only'
         : '';
+      if (fleet && user) {
+        const avatar = document.createElement('span'),
+          identity = document.createElement('strong'),
+          permission = document.createElement('small');
+        avatar.className = 'fleet-avatar';
+        avatar.setAttribute('aria-hidden', 'true');
+        avatar.textContent = Array.from(user.username)[0]?.toUpperCase();
+        identity.textContent = user.username;
+        permission.textContent = role;
+        username.replaceChildren(avatar, identity, permission);
+      } else username.textContent = user ? user.username + ' · ' + role : '';
       const guided =
         typeof onboarding === 'function' ? onboarding() : onboarding;
-      find('.product-navigation').hidden =
+      nav.hidden =
         guided &&
         !!user &&
         user.role === 'admin' &&
         user.onboarding?.completed === false;
       for (const {item, link} of links)
         link.hidden = !navigationAllowed(item, user);
+      for (const group of groups.values())
+        group.hidden = !group.querySelector('a:not([hidden])');
       if (!user) {
         recovery.hidden = true;
         recoveryAction = null;
@@ -120,6 +225,9 @@ export function mountProductShell({
       for (const {item, link} of links)
         if (item.id === page) link.setAttribute('aria-current', 'page');
         else link.removeAttribute('aria-current');
+      if (fleet)
+        find('.product-context-name').textContent =
+          links.find(({item}) => item.id === page)?.item.label || 'Servers';
     },
     attention(page, message = '') {
       const entry = links.find(({item}) => item.id === page);

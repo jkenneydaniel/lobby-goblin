@@ -1,3 +1,4 @@
+import {followPanelLink} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 import {trackPageRoutes} from './route-drain.js';
@@ -17,7 +18,7 @@ async function open(page, user = 'Preview') {
   await page.goto(origins.fleet); await page.getByLabel('Username', {exact: true}).fill(user);
   await page.getByLabel('Password', {exact: true}).fill('isolated-panel-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
-  if (user === 'Preview') await page.getByRole('navigation', {name: /navigation/}).getByRole('link', {name: 'Updates', exact: true}).click();
+  if (user === 'Preview') await followPanelLink(page, 'Updates');
 }
 const review = () => ({id, version: '99.0.0-alpha', state: 'reviewed', expires: Date.now() + 900000, image: 'ghcr.io/jkenneydaniel/lobby-goblin@sha256:' + 'a'.repeat(64), phase: 'planned', committed: false, actions: ['apply', 'cancel'], services: {management: 5, applications: 2}, message: 'Review complete. Management services will restart together; game containers keep running.'});
 test('review, confirm, survive a lost install response and reconnect to durable completion', async ({page}, info) => {

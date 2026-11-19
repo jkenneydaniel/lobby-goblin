@@ -1,3 +1,4 @@
+import {followPanelLink} from './fleet-navigation.js';
 import {test as base, expect} from '@playwright/test';
 import {origins} from './playwright.config.js';
 
@@ -18,7 +19,7 @@ async function open(page, user = 'Preview') {
   await page.getByLabel('Username', {exact: true}).fill(user);
   await page.getByLabel('Password', {exact: true}).fill('isolated-panel-preview-password');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
-  if (user === 'Preview') await page.getByRole('navigation', {name: /navigation/}).getByRole('link', {name: 'Server storage', exact: true}).click();
+  if (user === 'Preview') await followPanelLink(page, 'Server storage');
 }
 async function mockStorage(page, item, options = {}) {
   const prefix = options.host ? '/hosts/' + options.host : '', requests = [], jobs = [];
@@ -252,9 +253,9 @@ test('leaving during a check and returning never repeats the check or submits th
   await open(page);
   await card(page).getByRole('button', {name: 'Delete data', exact: true}).click();
   await expect(card(page).getByText(/Checking storage size/)).toBeVisible();
-  await page.getByRole('navigation', {name: /navigation/}).getByRole('link', {name: 'Servers', exact: true}).click();
+  await followPanelLink(page, 'Servers');
   fixture.complete();
-  await page.getByRole('navigation', {name: /navigation/}).getByRole('link', {name: 'Server storage', exact: true}).click();
+  await followPanelLink(page, 'Server storage');
   await expect(card(page).locator('[data-delete-storage]')).toBeVisible();
   expect(fixture.requests.map(request => request.path.split('/').at(-1))).toEqual(['inspect']);
 });

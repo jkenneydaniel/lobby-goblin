@@ -12,16 +12,42 @@ import {createFleetAuth} from './auth.js';
 const $ = (selector) => document.querySelector(selector);
 let session = null;
 const navigation = [
-  {id: 'servers', label: 'Servers'},
-  {id: 'library', label: 'Snapshot library', ownerOnly: true},
-  {id: 'storage', label: 'Server storage', adminOnly: true},
-  {id: 'updates', label: 'Updates', adminOnly: true},
-  {id: 'hosts', label: 'Hosts', ownerOnly: true},
-  {id: 'host', label: 'Host settings', ownerOnly: true},
-  {id: 'operations', label: 'Operations', ownerOnly: true},
+  {id: 'servers', label: 'Servers', icon: 'server'},
+  {id: 'library', label: 'Snapshot library', icon: 'folder', ownerOnly: true},
+  {id: 'storage', label: 'Server storage', icon: 'database', adminOnly: true},
+  {
+    id: 'hosts',
+    label: 'Hosts',
+    icon: 'device-desktop',
+    ownerOnly: true,
+    group: 'Administration',
+  },
+  {
+    id: 'host',
+    label: 'Host settings',
+    icon: 'settings',
+    ownerOnly: true,
+    group: 'Administration',
+  },
+  {
+    id: 'updates',
+    label: 'Updates',
+    icon: 'refresh',
+    adminOnly: true,
+    group: 'Administration',
+  },
+  {
+    id: 'operations',
+    label: 'Operations',
+    icon: 'clock',
+    ownerOnly: true,
+    group: 'Administration',
+  },
   {
     id: 'access',
     label: 'Accounts',
+    icon: 'users',
+    group: 'Administration',
     adminOnly: true,
     permission: 'account.self',
   },
@@ -54,6 +80,7 @@ const sessionController = createSessionController({
   request,
   onChange(value) {
     if (!value || session?.username !== value.username) {
+      $('#server-fleet-count').textContent = '';
       model.reset();
       screenRouter.reset();
       creation.cancel();
@@ -80,6 +107,11 @@ const model = createFleetModel({
   onSettled: (job) =>
     shell.notify(job.message, {error: job.state !== 'succeeded'}),
   onChange(value) {
+    const servers = value.servers.length,
+      hosts = new Set(value.servers.map((server) => server.hostId)).size;
+    $('#server-fleet-count').textContent = value.assigned
+      ? `${servers} assigned ${servers === 1 ? 'server' : 'servers'}`
+      : `${servers} ${servers === 1 ? 'server' : 'servers'}${hosts ? ` across ${hosts} ${hosts === 1 ? 'host' : 'hosts'}` : ''}`;
     $('#new-server').disabled = !value.hosts.some(
       (host) =>
         host.connected && host.aligned !== false && !model.busy(host.id),
@@ -201,14 +233,15 @@ function selectView(next) {
   )
     ? next
     : 'servers';
-  $('#dashboard > .heading').hidden = [
+  $('.fleet-servers-heading > div').hidden = next !== 'servers';
+  $('.fleet-servers-heading').hidden = [
     'access',
     'operations',
     'updates',
     'storage',
   ].includes(next);
   $('#dashboard > .operations').hidden =
-    ['access', 'operations', 'updates', 'storage'].includes(next) ||
+    ['servers', 'access', 'operations', 'updates', 'storage'].includes(next) ||
     session?.role === 'member';
   shell.active(next);
   history.replaceState(null, '', '/#' + next);
