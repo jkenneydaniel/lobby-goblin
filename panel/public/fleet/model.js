@@ -22,6 +22,7 @@ export function createFleetModel({
   /** @returns {import('./contracts.js').FleetSnapshot} */
   const empty = () => ({
     hosts: [],
+    hostClockOffset: 0,
     servers: [],
     snapshots: [],
     jobs: [],
@@ -56,10 +57,14 @@ export function createFleetModel({
       onChange(snapshot);
       return snapshot;
     }
-    const {hosts} =
-      /** @type {{hosts:import('./contracts.js').FleetHost[]}} */ (
+    const {hosts, observedAt} =
+      /** @type {{hosts:import('./contracts.js').FleetHost[],observedAt?:number}} */ (
         await api('/hosts')
       );
+    const hostClockOffset =
+      typeof observedAt === 'number' && Number.isFinite(observedAt)
+        ? observedAt - Date.now()
+        : 0;
     /** @type {import('./contracts.js').FleetServer[]} */ const servers = [];
     /** @type {import('./contracts.js').FleetSnapshotRecord[]} */ const snapshots =
       [];
@@ -186,6 +191,7 @@ export function createFleetModel({
     const next = {
       ...snapshot,
       hosts,
+      hostClockOffset,
       servers,
       snapshots,
       jobs,

@@ -2057,6 +2057,15 @@ test('accounts without assignments open their own account tools without server p
 test('broker-isolated hosts require an operator update without offering the legacy privileged helper', async ({
   page,
 }) => {
+  const id = 'd'.repeat(32);
+  await page.route('**/api/hosts/' + id + '/**', (route) => {
+    const {pathname} = new URL(route.request().url());
+    if (route.request().method() !== 'GET') return route.fallback();
+    if (pathname.endsWith('/servers')) return route.fulfill({json: {servers: []}});
+    if (pathname.endsWith('/snapshots')) return route.fulfill({json: {snapshots: []}});
+    if (pathname.endsWith('/jobs')) return route.fulfill({json: {jobs: [], active: null}});
+    return route.fallback();
+  });
   await page.route('**/api/hosts', (route) =>
     route.request().method() === 'GET'
       ? route.fulfill({
@@ -2069,7 +2078,7 @@ test('broker-isolated hosts require an operator update without offering the lega
                 connected: true,
               },
               {
-                id: 'd'.repeat(32),
+                id,
                 name: 'Isolated host',
                 local: false,
                 connected: true,
@@ -2087,16 +2096,27 @@ test('broker-isolated hosts require an operator update without offering the lega
   );
   await login(page, 'fleet', 'Preview');
   await followPanelLink(page, 'Hosts');
-  const host = page.locator('.host-card').filter({hasText: 'Isolated host'});
-  await expect(host).toContainText(
+  const host = page
+    .locator('#hosts-list tr')
+    .filter({hasText: 'Isolated host'});
+  await expect(
+    host.getByRole('button', {
+      name: 'Create server on Isolated host',
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await host
+    .getByRole('button', {name: 'Host details for Isolated host'})
+    .click();
+  const details = page.getByRole('dialog', {
+    name: 'Host details for Isolated host',
+  });
+  await expect(details).toContainText(
     'An operator must update this host’s broker and management services together.',
   );
   await expect(
-    host.getByRole('button', {name: 'Update agent', exact: true}),
+    details.getByRole('button', {name: 'Update agent', exact: true}),
   ).toHaveCount(0);
-  await expect(
-    host.getByRole('button', {name: 'Create server here', exact: true}),
-  ).toBeDisabled();
 });
 
 function historyFixture(label = 'save', {required = true} = {}) {

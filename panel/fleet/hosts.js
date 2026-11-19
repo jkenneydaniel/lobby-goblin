@@ -9,6 +9,7 @@ import {proxyResponse} from '../core/proxy.js';
 import {agentVersion} from './agent-update.js';
 import {AgentConnection} from './agent-connection.js';
 import {pairingCode} from './agent-identity.js';
+import {hostCpuSample} from './host-cpu.js';
 
 const hash=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
 const secret=()=>crypto.randomBytes(32).toString('base64url');
@@ -44,7 +45,18 @@ export function remoteRoute(method,route){
 }
 
 export class RemoteHosts{
- constructor(manager,{fetcher=fetch,now=Date.now,identity}={}){this.identity=identity;this.connections=new Map();this.manager=manager;this.fetcher=fetcher;this.now=now;this.file=path.join(manager.root,'remote-hosts.json');this.queue=Promise.resolve();this.pairing=false;}
+ constructor(manager,{fetcher=fetch,now=Date.now,identity,readCpu=()=>null}={}){
+  this.identity=identity;
+  this.readCpu=readCpu;
+  this.lastSeen=new Map();
+  this.connections=new Map();
+  this.manager=manager;
+  this.fetcher=fetcher;
+  this.now=now;
+  this.file=path.join(manager.root,'remote-hosts.json');
+  this.queue=Promise.resolve();
+  this.pairing=false;
+ }
  async init({connect=true}={}){
   this.repository=new RemoteHostsRepository(this.manager.root);this.storageSnapshot=await this.repository.read();this.state=this.storageSnapshot.value;
   assert(this.state.version===1&&Array.isArray(this.state.outgoing)&&Array.isArray(this.state.incoming)&&Array.isArray(this.state.pending),'Unsupported remote host registry.',409);
@@ -58,11 +70,11 @@ export class RemoteHosts{
   if(!connection){connection=new AgentConnection(origin,fingerprint);this.connections.set(origin,connection);}return connection;
  }
  fetchFor(origin,fingerprint){const connection=this.connection(origin,fingerprint);return connection?connection.fetch.bind(connection):this.fetcher;}
- close(){for(const connection of this.connections.values())connection.close();this.connections.clear();}
+ close(){for(const connection of this.connections.values())connection.close();this.connections.clear();this.lastSeen.clear();}
  async change(fn){
   const next=this.queue.then(async()=>{const draft=structuredClone(this.state),result=await fn(draft);await this.repository.save(this.storageSnapshot,draft);this.state=draft;return result;});this.queue=next.catch(()=>{});return next;
  }
- local(){return {id:this.manager.fleet,name:'This host',local:true,connected:true};}
+ local(){return {id:this.manager.fleet,name:'This host',local:true,connected:true,cpuSample:hostCpuSample(this.readCpu(),this.now())};}
  host(hostId){assert(validId(hostId),'Invalid host.');const item=this.state.outgoing.find(h=>h.id===hostId);assert(item,'Remote host not found. It may have been disconnected.',404);return item;}
  async enrollment(input){
   assert(input&&typeof input==='object'&&!Array.isArray(input),'Choose a pairing operation.');
@@ -118,15 +130,37 @@ export class RemoteHosts{
  async list(){
   const hosts=[this.local()];
   // Bounded parallel probes. A failed host never hides the local host or others.
-  for(let n=0;n<this.state.outgoing.length;n+=4)hosts.push(...await Promise.all(this.state.outgoing.slice(n,n+4).map(async item=>{
-   const {id,name,origin,created}=item;try{const status=await this.request(origin,'/status',{token:item.token,timeout:3000});assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);const panelVersion=await agentVersion();return {id,name,origin,created,local:false,connected:true,connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate,agentUpdateSupported:status.agentUpdateSupported,managementUpdateSupported:status.managementUpdateSupported,isolation:status.isolation};}
-   catch(error){return {id,name,origin,created,local:false,connected:false,error:error.message};}
-  })));return {hosts};
+  for(let n=0;n<this.state.outgoing.length;n+=4){
+   const batch=this.state.outgoing.slice(n,n+4);
+   const results=await Promise.all(batch.map(async item=>{
+    const {id,name,origin,created,pairId}=item;
+    const identity={id,name,origin,created,local:false};
+    try{
+     const status=await this.request(origin,'/status',{token:item.token,timeout:3000});
+     assert(status.hostId===id&&status.protocol===1,'Remote host identity changed.',409);
+     const seen=this.now();
+     if(this.state.outgoing.some(peer=>peer.pairId===pairId))
+      this.lastSeen.set(pairId,seen);
+     const panelVersion=await agentVersion();
+     return {
+      ...identity,connected:true,lastSeenAt:seen,cpuSample:hostCpuSample(status.cpu,seen),
+      connection:item.fingerprint?'persistent':'https',version:status.version,panelVersion,
+      aligned:status.version===panelVersion,agentOnly:status.agentOnly,agentUpdate:status.agentUpdate,
+      agentUpdateSupported:status.agentUpdateSupported,
+      managementUpdateSupported:status.managementUpdateSupported,isolation:status.isolation,
+     };
+    }catch(error){
+     return {...identity,connected:false,lastSeenAt:this.lastSeen.get(pairId)??null,error:error.message};
+    }
+   }));
+   hosts.push(...results);
+  }
+  return {hosts,observedAt:this.now()};
  }
  async disconnect(hostId,input){
   const host=this.host(hostId);assert(input?.confirm===true&&input.name===host.name,'Type the host name to disconnect it.');
   let revoked=false;try{await this.request(host.origin,'/disconnect',{token:host.token,body:{}});revoked=true;}catch{}
-  await this.change(state=>{state.outgoing=state.outgoing.filter(h=>h.id!==hostId);});this.connections.get(host.origin)?.close();this.connections.delete(host.origin);
+  await this.change(state=>{state.outgoing=state.outgoing.filter(h=>h.id!==hostId);});this.connections.get(host.origin)?.close();this.connections.delete(host.origin);this.lastSeen.delete(host.pairId);
   return {disconnected:true,revoked,message:revoked?'Host disconnected. Its servers and worlds were left unchanged.':'Host removed from this panel. Revoke this panel under Hosts on the remote installation when it is reachable. Its servers and worlds were left unchanged.'};
  }
  async handle(req,res,url){

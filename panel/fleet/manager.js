@@ -19,6 +19,7 @@ import {repairMigrationHistory} from '../core/migration-history.js';
 import {RegistryRepository} from '../core/storage/state-repositories.js';
 import {dockerLimits,giB} from '../core/container-limits.js';
 import {validateServerLimits,resizeServer,inspectServerLimits,settleServerLimits} from './server-limits.js';
+const controllerMemoryGiB=1;
 export class FleetManager{
  constructor({docker,broker=null,brokerVolume,root='/fleet',library='/library',fleet,stateVolume,libraryVolume,image,hostContainer,address='localhost',bind='0.0.0.0',memoryBudgetGiB=16,portBase=35000,gameModules=registeredApplications()}){
   assert(validId(fleet),'FLEET_ID must be a fresh 32-character lowercase hex ID.');assert(stateVolume===`lobby-goblin-fleet-${fleet}-state`&&libraryVolume===`lobby-goblin-fleet-${fleet}-library`,'Unexpected host-manager storage names.');
@@ -49,11 +50,19 @@ export class FleetManager{
  publicServer(item){const {controllerToken,rconPassword,software,...publicFields}=item,game=this.catalog[item.game];const bounds=game?.creation;return {...publicFields,...(software?{software:publicSoftwareDelivery(software)}:{}),...(bounds&&item.state==='installed'&&(!item.migration||item.migration.state==='complete')&&{resourceLimits:{minMemoryGiB:bounds.minMemoryGiB,maxMemoryGiB:bounds.maxMemoryGiB}}),applicationName:game?.name||item.game,applicationKind:game?.kind||'game',webProtocol:game?.webProtocol,address:`${this.address}:${item.gamePort}`,manageUrl:`/servers/${item.id}/`};}
  list(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>this.publicServer(s));}
  removedServers(){return this.state.servers.filter(s=>s.state==='removed').map(({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,storageReview})=>({id,name,game,volume,created,removedAt,removalSnapshotId,storageDeletedAt,storageStatus,...(storageReview?{storageReview:((({identity:_identity,...review})=>review)(storageReview))}:{})}));}
- allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:1,totalGiB:s.memoryGiB+1}));}
+ allocations(){return this.state.servers.filter(s=>s.state!=='removed').map(s=>({id:s.id,name:s.name,game:s.game,state:s.state,gameGiB:s.memoryGiB,controllerGiB:controllerMemoryGiB,totalGiB:s.memoryGiB+controllerMemoryGiB}));}
  async hostSettings(){
   const allocations=this.allocations(),allocatedMemoryGiB=allocations.reduce((sum,s)=>sum+s.totalGiB,0);let dockerMemoryGiB=null;
   try{const info=await this.docker('GET','/info');if(Number.isFinite(info.MemTotal)&&info.MemTotal>0)dockerMemoryGiB=info.MemTotal/giB;}catch{}
-  return {memoryBudgetGiB:this.memoryBudgetGiB,revision:this.state.settings?.revision??0,allocatedMemoryGiB,availableMemoryGiB:Math.max(0,this.memoryBudgetGiB-allocatedMemoryGiB),dockerMemoryGiB,minMemoryBudgetGiB:Math.max(2,allocatedMemoryGiB),maxMemoryBudgetGiB:dockerMemoryGiB===null?null:Math.min(128,Math.max(0,Math.floor(dockerMemoryGiB)-2)),hostHeadroomGiB:2,allocations,updatedAt:this.state.settings?.updatedAt??null};
+  const requirements=Object.values(this.catalog).map(game=>game.creation.minMemoryGiB+controllerMemoryGiB);
+  return {
+   minimumCreationMemoryGiB:requirements.length?Math.min(...requirements):null,
+   memoryBudgetGiB:this.memoryBudgetGiB,revision:this.state.settings?.revision??0,
+   allocatedMemoryGiB,availableMemoryGiB:Math.max(0,this.memoryBudgetGiB-allocatedMemoryGiB),
+   dockerMemoryGiB,minMemoryBudgetGiB:Math.max(2,allocatedMemoryGiB),
+   maxMemoryBudgetGiB:dockerMemoryGiB===null?null:Math.min(128,Math.max(0,Math.floor(dockerMemoryGiB)-2)),
+   hostHeadroomGiB:2,allocations,updatedAt:this.state.settings?.updatedAt??null,
+  };
  }
  async updateHostSettings(input,actor='administrator'){
   assert(!this.operations?.blocked,'Review interrupted host operations before changing the budget.',409);
@@ -158,7 +167,7 @@ export class FleetManager{
  async recoverStorage(input,job){return this.retained.recover(input,job);}
  async create(input,job,recovery=null){
   const info=await this.docker('GET','/info');assert(info.OSType==='linux'&&['x86_64','amd64'].includes(info.Architecture),'This first host-manager version requires Linux containers on an amd64 host.');assert(Number(String(info.ServerVersion).split('.')[0])>=26,'Docker Engine 26 or newer is required for isolated volume subdirectories.');
-  const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0);assert(reserved+input.memoryGiB+1<=this.memoryBudgetGiB,`This server needs ${input.memoryGiB+1} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+input.memoryGiB+3)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
+  const reserved=this.allocations().reduce((n,s)=>n+s.totalGiB,0),requiredMemoryGiB=input.memoryGiB+controllerMemoryGiB;assert(reserved+requiredMemoryGiB<=this.memoryBudgetGiB,`This server needs ${requiredMemoryGiB} GiB including its controller, but only ${Math.max(0,this.memoryBudgetGiB-reserved)} GiB remains in the ${this.memoryBudgetGiB} GiB host budget. Open Host settings to review allocations.`,409);assert((reserved+requiredMemoryGiB+2)*giB<=info.MemTotal,'Keep at least 2 GiB outside the managed server memory budget.',409);
   const module=this.module(input.game),managed=module.managed,defaults=this.catalog[input.game];let snapshot=null;
   if(input.snapshotId){snapshot=this.snapshot(input.snapshotId);const manifest=await verifySnapshot(this.library,snapshot.id,snapshot.manifestSha256);assert(snapshot.game===input.game,'This snapshot belongs to a different application.',409);input=managed.creationFromSnapshot(input,manifest);}
   const runtime=selectedRuntime(managed,input);assert(!runtime?.controllerPrepared||this.broker,'Managed software preparation requires an updated brokered host.',409);

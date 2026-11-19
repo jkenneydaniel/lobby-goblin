@@ -1,15 +1,74 @@
 import {createHostCapacity, hostCapacityView} from './host-capacity.js';
-import {hostRoute} from './host-paths.js';
 import {createEventScope} from '../shared/events.js';
-const $ = (selector) => document.querySelector(selector),
-  esc = (value) =>
-    String(value ?? '').replace(
-      /[&<>"']/g,
-      (c) =>
-        ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'})[
-          c
-        ],
-    );
+import {escapeHTML as esc, formatDate} from '../shared/view.js';
+import {icon} from '../icons.js';
+const $ = (selector) => document.querySelector(selector);
+const staleCpuMs = 30_000;
+
+function timestamp(at, now) {
+  if (!Number.isFinite(at) || at <= 0 || at > 8.64e15) return 'unknown';
+  const seconds = Math.max(0, Math.floor((now - at) / 1000));
+  const age =
+    seconds < 5
+      ? 'just now'
+      : seconds < 60
+        ? `${seconds}s ago`
+        : seconds < 3600
+          ? `${Math.floor(seconds / 60)}m ago`
+          : seconds < 86400
+            ? `${Math.floor(seconds / 3600)}h ago`
+            : `${Math.floor(seconds / 86400)}d ago`;
+  const date = new Date(at).toISOString();
+  return `<time datetime="${date}" title="${esc(formatDate(date))}">${age}</time>`;
+}
+
+function connectionView(host, now) {
+  const {connected} = host;
+  const description = !connected
+    ? host.local
+      ? 'Manager unavailable'
+      : 'Agent unavailable'
+    : host.local
+      ? 'Local manager'
+      : host.connection === 'persistent'
+        ? 'Encrypted link'
+        : 'Paired host';
+  return `<span class="status ${connected ? 'host-connected' : 'host-unavailable'}">${connected ? 'Connected' : 'Unavailable'}</span>
+    <small class="host-muted">${description}</small>${!connected ? `<small class="host-muted">Last seen ${timestamp(host.lastSeenAt, now)}</small>` : ''}`;
+}
+
+function cpuView(host, now) {
+  const sample = host.cpuSample;
+  if (
+    !host.connected ||
+    !Number.isFinite(sample?.percent) ||
+    sample.percent < 0 ||
+    sample.percent > 100 ||
+    !Number.isFinite(sample.sampledAt) ||
+    sample.sampledAt <= 0
+  )
+    return '<span class="host-muted" aria-label="CPU sample unavailable">—</span>';
+  const stale = now - sample.sampledAt >= staleCpuMs;
+  const percent = Math.round(sample.percent);
+  return `<strong>${percent}%</strong>
+    <meter class="host-meter ${stale ? 'host-stale' : ''}" min="0" max="100" value="${percent}" aria-hidden="true"></meter>
+    <small class="host-muted host-sample-age">${stale ? '<strong class="host-unavailable">Stale</strong>' : '<span class="fleet-visually-hidden">Sampled</span>'} ${timestamp(sample.sampledAt, now)}</small>`;
+}
+
+function memoryView(host, record) {
+  if (!host.connected) return '<span class="host-muted">Unavailable</span>';
+  if (!record || record.state === 'loading')
+    return '<span class="host-muted">Checking…</span>';
+  if (record.state !== 'ready')
+    return '<span class="host-muted">Capacity unavailable. Refresh metrics.</span>';
+  const data = record.data;
+  const tight =
+    data.minimumCreationMemoryGiB !== null &&
+    data.availableMemoryGiB < data.minimumCreationMemoryGiB;
+  return `<strong>${esc(data.allocatedMemoryGiB)} <span class="host-muted">/ ${esc(data.memoryBudgetGiB)} GiB</span></strong>
+    <meter class="host-meter ${tight ? 'host-low-memory' : ''}" min="0" max="${Math.max(1, data.memoryBudgetGiB)}" value="${Math.min(data.allocatedMemoryGiB, data.memoryBudgetGiB)}" aria-hidden="true"></meter>
+    <small class="host-muted">${esc(data.availableMemoryGiB)} GiB available</small>`;
+}
 export {hostRoute, serverKey} from './host-paths.js';
 export function mountHosts({
   api,
@@ -19,11 +78,21 @@ export function mountHosts({
   getSession,
   onChange,
   onCreate,
+  hostBusy,
 }) {
-  const events = createEventScope((problem) => error(problem.message)),
-    rows = createEventScope((problem) => error(problem.message));
+  const events = createEventScope((problem) =>
+    error(problem.message, '#hosts-error'),
+  );
+  const rendered = new Map();
   let panelVersion = null,
     hosts = [],
+    serverCounts = new Map(),
+    hostClockOffset = 0,
+    loaded = false,
+    disposed = false,
+    refreshing = false,
+    connectionFilter = 'all',
+    detailsHost = null,
     expires = null,
     setupPlan = null,
     watchedSetup = null,
@@ -32,88 +101,319 @@ export function mountHosts({
     setupReviewing = false;
   const capacity = createHostCapacity({
     request: readCapacity,
-    onChange: paintCapacity,
+    onChange: render,
   });
-  function paintCapacity() {
-    for (const node of document.querySelectorAll('[data-host-capacity]')) {
-      const host = hosts.find(
-        (item) =>
-          hostRoute(item, '/host-settings') === node.dataset.hostCapacity,
-      );
-      if (host) node.innerHTML = hostCapacityView(host, capacity.get(host));
-    }
-    $('#refresh-capacity').disabled = capacity.loading;
-  }
-  events.set($('#refresh-capacity'), 'click', () => capacity.refresh());
 
   function render() {
-    rows.clear();
+    if (disposed) return;
     const admin = getSession()?.role === 'admin';
-    $('#hosts-list').innerHTML = hosts
+    const search = $('#host-search').value.trim().toLowerCase();
+    const counts = {
+      all: hosts.length,
+      connected: hosts.filter((host) => host.connected).length,
+    };
+    counts.unavailable = counts.all - counts.connected;
+    $('#host-fleet-count').textContent = counts.all
+      ? `${counts.all} ${counts.all === 1 ? 'host' : 'hosts'}`
+      : '';
+    const options = [
+      ['all', 'All', ''],
+      ['connected', 'Connected', 'host-connected'],
+      ['unavailable', 'Unavailable', 'host-unavailable'],
+    ];
+    const filters = $('#host-status-filters');
+    const filterMarkup = options
       .map(
-        (host) =>
-          `<article class="card host-card"><span class="game">${host.local ? 'PANEL HOST' : 'GAME HOST'}</span><h3>${esc(host.name)}</h3><span class="status ${host.connected ? '' : 'attention'}">${host.connected ? 'Connected' : 'Unavailable'}</span><p class="host-address">${esc(host.origin || 'Game servers on this machine')}</p>${host.connection === 'persistent' ? '<p class="hint">Persistent encrypted connection</p>' : ''}${host.version ? `<p class="hint">Agent ${esc(host.version)}${host.aligned ? ' · Matches panel' : ' · Panel ' + esc(host.panelVersion)}</p>` : ''}${host.agentUpdateSupported === false && host.aligned === false ? (host.managementUpdateSupported ? '<p class="hint"><a href="/#updates">Review coordinated management updates</a> and choose this host.</p>' : '<p class="hint">An operator must update this host’s broker and management services together.</p>') : ''}${host.agentUpdate ? `<p class="hint">${esc(host.agentUpdate.message)}</p>` : ''}${host.error ? `<p class="hint">${esc(host.error)}</p>` : ''}<div class="host-capacity" data-host-capacity="${esc(hostRoute(host, '/host-settings'))}" aria-label="Configured memory capacity">${hostCapacityView(host, capacity.get(host))}</div><div class="actions">${admin ? `<button data-create-on-host="${host.id}" ${host.connected && host.aligned !== false && host.agentUpdate?.state !== 'running' ? '' : 'disabled'}>Create server here</button>${host.local ? '' : `${host.connected && host.aligned === false && host.agentOnly && host.agentUpdateSupported !== false ? `<button data-update-agent="${host.id}">Update agent</button>` : ''}${host.connected && host.agentUpdateSupported !== false && host.agentUpdate?.state === 'attention' ? `<button data-recover-agent="${host.id}">Recover agent update</button>` : ''}<button class="quiet" data-disconnect-host="${host.id}">Disconnect</button>`}` : ''}</div></article>`,
+        ([key, label, tone]) =>
+          `<button type="button" aria-pressed="${connectionFilter === key}" data-host-filter="${key}">${tone ? `<span class="status-dot ${tone}" aria-hidden="true"></span>` : ''}${label} <strong>${counts[key]}</strong></button>`,
       )
       .join('');
-    document
-      .querySelectorAll('[data-create-on-host]')
-      .forEach((button) =>
-        rows.set(button, 'click', () =>
-          onCreate(hosts.find((h) => h.id === button.dataset.createOnHost)),
+    replaceInventory(filters, filterMarkup, 'data-host-filter');
+    filters.hidden = !loaded;
+    const list = $('#hosts-list');
+    const matching = hosts.filter(
+      (host) =>
+        (connectionFilter === 'all' ||
+          (connectionFilter === 'connected') === host.connected) &&
+        [host.name, host.origin, host.local ? 'Panel host' : 'Game host'].some(
+          (value) => value?.toLowerCase().includes(search),
         ),
-      );
-    document.querySelectorAll('[data-disconnect-host]').forEach((button) =>
-      rows.set(button, 'click', () => {
-        const host = hosts.find((h) => h.id === button.dataset.disconnectHost),
-          form = $('#disconnect-host-form');
-        form.reset();
-        form.elements.hostId.value = host.id;
-        $('#disconnect-host-help').textContent =
-          'Disconnect “' + host.name + '” from this panel?';
-        error('', '#disconnect-host-error');
-        $('#disconnect-host-dialog').showModal();
-      }),
     );
-    document.querySelectorAll('[data-update-agent]').forEach((button) =>
-      rows.set(button, 'click', async () => {
-        button.disabled = true;
-        try {
-          const host = hosts.find((h) => h.id === button.dataset.updateAgent),
-            plan = await api('/hosts/' + host.id + '/agent-update-plan', {});
-          updatePlan = {...plan, hostId: host.id};
-          $('#agent-update-form').reset();
-          $('#agent-update-summary').textContent =
-            host.name + ': ' + plan.current + ' → ' + plan.version + '.';
-          error('', '#agent-update-error');
-          $('#agent-update-dialog').showModal();
-        } catch (e) {
-          error(e.message, '#hosts-error');
-        } finally {
-          button.disabled = false;
-        }
-      }),
+    replaceInventory(
+      list,
+      matching
+        .map((host) => {
+          const id = esc(host.id),
+            name = esc(host.name);
+          const record = capacity.get(host);
+          const issue = creationIssue(host, record);
+          const serverCount = serverCounts.get(host.id) || 0;
+          const detailsLabel = host.connected
+            ? 'Host details'
+            : 'Connection details';
+          const showSettings =
+            host.connected && (issue?.target ?? 'settings') === 'settings';
+          return `<tr role="row" data-host-row="${id}">
+        <th scope="row" role="rowheader"><div class="host-identity">
+          <span class="host-icon">${icon(host.local ? 'device-desktop' : 'server')}</span>
+          <div>${showSettings ? `<button type="button" class="host-name" data-host-focus="name" data-host-details="${id}" aria-label="Host details for ${name}">${name}</button>` : `<strong>${name}</strong>`}
+            <small>${host.local ? 'Panel host · This machine' : esc(host.origin || 'Game host')}</small>
+          </div>
+        </div></th>
+        <td class="host-connection-cell" role="cell"></td>
+        <td class="host-servers-cell" role="cell">${
+          host.connected && serverCount
+            ? `<a class="button host-server-link" data-host-focus="servers" href="/#servers?host=${id}" aria-label="View ${serverCount} ${serverCount === 1 ? 'server' : 'servers'} on ${name}">${serverCount}<span class="host-mobile-label">${serverCount === 1 ? ' server' : ' servers'}</span>${icon('arrow-up-right')}</a>`
+            : host.connected
+              ? '<span class="host-muted">0<span class="host-mobile-label"> servers</span></span>'
+              : '<span class="host-muted" aria-label="Server inventory unavailable"><span class="host-mobile-label">Servers </span>—</span>'
+        }</td>
+        <td class="host-cpu-cell" role="cell"><span class="host-mobile-label host-muted" aria-hidden="true">CPU</span><div class="host-cpu-reading"></div></td>
+        <td class="host-memory-cell" role="cell"><span class="host-mobile-label host-muted" aria-hidden="true">Memory allocation</span>${memoryView(host, record)}</td>
+        <td class="host-actions-cell" role="cell">
+          <div class="host-row-actions">
+            ${
+              showSettings
+                ? `<a class="button" data-host-focus="primary" href="/#host?host=${id}" aria-label="Memory settings for ${name}">${icon('settings')}<span>${issue ? 'Memory<span class="host-create-long"> settings</span>' : 'Settings'}</span></a>`
+                : `<button type="button" data-host-focus="primary" data-host-details="${id}" aria-label="${detailsLabel} for ${name}">${icon(host.connected ? 'settings' : 'link')}<span>${detailsLabel}</span></button>`
+            }
+            ${admin ? `<button type="button" class="host-create" data-host-focus="create" data-create-on-host="${id}" aria-label="Create server on ${name}" ${issue ? `disabled aria-describedby="host-create-reason-${id}"` : ''}>${icon('plus')}<span>Create<span class="host-create-long"> server</span></span></button>` : ''}
+          </div>
+          ${admin && issue ? `<small class="host-create-reason" id="host-create-reason-${id}">${esc(issue.text)}</small>` : ''}
+        </td>
+      </tr>`;
+        })
+        .join(''),
+      'data-host-row',
     );
-    document.querySelectorAll('[data-recover-agent]').forEach((button) =>
-      rows.set(button, 'click', () => {
-        updatePlan = {hostId: button.dataset.recoverAgent, recover: true};
-        $('#agent-update-form').reset();
-        $('#agent-update-summary').textContent =
-          'Restore the previous management containers from this host’s interrupted update.';
-        $('#agent-update-dialog').showModal();
-      }),
-    );
+    $('#host-table-wrap').hidden = !matching.length;
+    const empty = $('#hosts-empty');
+    empty.hidden = !!matching.length;
+    const message = !loaded
+      ? 'Checking hosts…'
+      : hosts.length
+        ? 'No hosts match your filters.'
+        : 'No hosts to show.';
+    if (empty.textContent !== message) empty.textContent = message;
     const secure = location.protocol === 'https:';
     $('#pairing-https').hidden = secure;
     $('#create-pairing').disabled = !secure;
+    $('#refresh-capacity').disabled = capacity.loading || refreshing;
+    paintReadings();
+    const details = $('#host-details-dialog');
+    if (details.open) {
+      const host = hosts.find((item) => item.id === detailsHost);
+      if (host)
+        details.querySelector('.host-capacity').innerHTML = hostCapacityView(
+          host,
+          capacity.get(host),
+        );
+    }
   }
-  async function refresh() {
-    const [result, status] = await Promise.all([api('/hosts'), api('/status')]);
-    panelVersion = status.version;
-    hosts = result.hosts;
-    installCommand();
+
+  function paintReadings() {
+    const now = Date.now() + hostClockOffset;
+    for (const row of $('#hosts-list').rows) {
+      const host = hosts.find((item) => item.id === row.dataset.hostRow);
+      if (!host) continue;
+      row.querySelector('.host-connection-cell').innerHTML = connectionView(
+        host,
+        now,
+      );
+      row.querySelector('.host-cpu-reading').innerHTML = cpuView(host, now);
+    }
+  }
+  const ageTimer = setInterval(paintReadings, 5000);
+
+  function replaceInventory(node, html, focusKey) {
+    if (rendered.get(node) === html) return;
+    const focused = document.activeElement;
+    const owner = node.contains(focused) && focused.closest(`[${focusKey}]`);
+    const key = owner ? owner.getAttribute(focusKey) : null;
+    const action = key ? focused.getAttribute('data-host-focus') : null;
+    rendered.set(node, html);
+    node.innerHTML = html;
+    if (!key) return;
+    const replacement = [...node.querySelectorAll(`[${focusKey}]`)].find(
+      (item) => item.getAttribute(focusKey) === key,
+    );
+    const target = action
+      ? replacement?.querySelector(`[data-host-focus="${action}"]`)
+      : replacement;
+    const next =
+      target && !target.disabled
+        ? target
+        : replacement?.querySelector('[data-host-focus="primary"]');
+    if (next && !next.disabled) next.focus({preventScroll: true});
+    else $('#host-search').focus({preventScroll: true});
+  }
+
+  function creationIssue(host, record) {
+    if (!host.connected)
+      return {
+        target: 'details',
+        text: 'Restore the host connection to create servers.',
+      };
+    if (host.agentUpdate?.state === 'attention')
+      return {
+        target: 'details',
+        text: 'Recover the agent update before creating servers.',
+      };
+    if (host.agentUpdate?.state === 'running')
+      return {
+        target: 'details',
+        text: 'Wait for the agent update to finish.',
+      };
+    if (host.aligned === false)
+      return {
+        target: 'details',
+        text: 'Update the agent to match the panel.',
+      };
+    if (hostBusy(host.id))
+      return {
+        target: 'details',
+        text: 'Review the current host operation before creating servers.',
+      };
+    if (!record?.data) return null;
+    const data = record.data,
+      minimum = data.minimumCreationMemoryGiB;
+    if (minimum === null) return null;
+    const requiredBudget = data.allocatedMemoryGiB + minimum;
+    if (
+      data.maxMemoryBudgetGiB !== null &&
+      requiredBudget > data.maxMemoryBudgetGiB
+    )
+      return {
+        target: 'settings',
+        text: 'The host memory limit cannot fit another server. Review existing allocations.',
+      };
+    if (data.availableMemoryGiB < minimum)
+      return {
+        target: 'settings',
+        text: `A server and its controller need at least ${minimum} GiB. Raise the budget to ${requiredBudget} GiB.`,
+      };
+    return null;
+  }
+
+  const searchLabel = $('.host-toolbar .server-search');
+  if (!searchLabel.querySelector('.icon'))
+    searchLabel.insertAdjacentHTML('afterbegin', icon('search'));
+  $('#refresh-capacity').innerHTML =
+    icon('refresh') +
+    '<span>Refresh<span class="host-refresh-long"> metrics</span></span>';
+  events.set($('#host-search'), 'input', render);
+  events.set($('#host-status-filters'), 'click', (event) => {
+    const button = event.target.closest('[data-host-filter]');
+    if (!button) return;
+    connectionFilter = button.dataset.hostFilter;
     render();
-    return hosts;
+  });
+  events.set($('#refresh-capacity'), 'click', async () => {
+    refreshing = true;
+    capacity.refresh();
+    try {
+      await onChange();
+    } finally {
+      refreshing = false;
+      render();
+    }
+  });
+  events.set($('#hosts-list'), 'click', (event) => {
+    const button = event.target.closest(
+      '[data-create-on-host], [data-host-details]',
+    );
+    if (!button) return;
+    const host = hosts.find(
+      (item) =>
+        item.id === (button.dataset.createOnHost || button.dataset.hostDetails),
+    );
+    if (!host) return;
+    if (button.hasAttribute('data-host-details')) showDetails(host);
+    else if (
+      getSession()?.role === 'admin' &&
+      !creationIssue(host, capacity.get(host))
+    )
+      onCreate(host);
+  });
+
+  function showDetails(host) {
+    detailsHost = host.id;
+    const admin = getSession()?.role === 'admin';
+    const offline = !host.connected;
+    $('#host-details-title').textContent =
+      (offline ? 'Connection details for ' : 'Host details for ') + host.name;
+    error('', '#host-details-error');
+    $('#host-details-content').innerHTML =
+      `<div class="host-details-connection">${connectionView(host, Date.now() + hostClockOffset)}</div>
+      <p class="host-address">${esc(host.origin || 'Game servers on this machine')}</p>
+      ${offline ? `<p>${esc(host.error || 'The panel could not load this host.')}</p><p class="hint">${host.local ? 'Check that the local host manager and Docker are running.' : 'Check that the host is online, the Lobby Goblin agent is running, and the panel can reach its agent address. If pairing access was revoked, pair the host again.'}</p>` : ''}
+      ${host.version ? `<p class="hint">Agent ${esc(host.version)}${host.aligned ? ' · Matches panel' : ' · Panel ' + esc(host.panelVersion)}</p>` : ''}
+      ${host.agentUpdate ? `<p class="hint">${esc(host.agentUpdate.message)}</p>` : ''}
+      ${host.agentUpdateSupported === false && host.aligned === false ? (host.managementUpdateSupported ? '<p class="hint"><a href="/#updates">Review coordinated management updates</a> and choose this host.</p>' : '<p class="hint">An operator must update this host’s broker and management services together.</p>') : ''}
+      ${hostBusy(host.id) ? '<p class="hint"><a href="/#operations">Review host operations</a>.</p>' : ''}
+      <div class="host-capacity" aria-label="Configured memory capacity">${hostCapacityView(host, capacity.get(host))}</div>
+      ${
+        admin && !host.local
+          ? `<div class="actions">
+        ${host.connected && host.aligned === false && host.agentOnly && host.agentUpdateSupported !== false ? '<button type="button" data-host-admin="update">Update agent</button>' : ''}
+        ${host.connected && host.agentUpdateSupported !== false && host.agentUpdate?.state === 'attention' ? '<button type="button" data-host-admin="recover">Recover agent update</button>' : ''}
+        <button type="button" class="quiet" data-host-admin="disconnect">Disconnect</button>
+      </div>`
+          : ''
+      }`;
+    $('#host-details-dialog').showModal();
   }
+
+  events.set($('#host-details-dialog'), 'close', () => {
+    if (document.querySelector('dialog[open]')) return;
+    [...$('#hosts-list').rows]
+      .find((row) => row.dataset.hostRow === detailsHost)
+      ?.querySelector('[data-host-details]')
+      ?.focus({preventScroll: true});
+  });
+  events.set($('#host-details-content'), 'click', async (event) => {
+    const button = event.target.closest('[data-host-admin]');
+    if (!button || getSession()?.role !== 'admin') return;
+    const host = hosts.find((item) => item.id === detailsHost);
+    if (!host || host.local) return;
+    const dialog = $('#host-details-dialog');
+    const action = button.dataset.hostAdmin;
+    if (action === 'disconnect') {
+      const form = $('#disconnect-host-form');
+      form.reset();
+      form.elements.hostId.value = host.id;
+      $('#disconnect-host-help').textContent =
+        'Disconnect “' + host.name + '” from this panel?';
+      error('', '#disconnect-host-error');
+      dialog.close();
+      $('#disconnect-host-dialog').showModal();
+      return;
+    }
+    button.disabled = true;
+    try {
+      if (action === 'update') {
+        const plan = await api('/hosts/' + host.id + '/agent-update-plan', {});
+        if (!button.isConnected || !dialog.open || detailsHost !== host.id)
+          return;
+        updatePlan = {...plan, hostId: host.id};
+        $('#agent-update-summary').textContent =
+          host.name + ': ' + plan.current + ' → ' + plan.version + '.';
+      } else {
+        updatePlan = {hostId: host.id, recover: true};
+        $('#agent-update-summary').textContent =
+          'Restore the previous management containers from this host’s interrupted update.';
+      }
+      $('#agent-update-form').reset();
+      error('', '#agent-update-error');
+      dialog.close();
+      $('#agent-update-dialog').showModal();
+    } catch (problem) {
+      if (button.isConnected && dialog.open && detailsHost === host.id)
+        error(problem.message, '#host-details-error');
+    } finally {
+      button.disabled = false;
+    }
+  });
   function installCommand() {
     const version = String(panelVersion || '');
     const valid = /^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version);
@@ -470,28 +770,43 @@ export function mountHosts({
       installCommand();
     });
   return {
-    refresh,
     pairing,
-    render,
     progress,
-    setHosts(value) {
-      hosts = value;
+    setInventory(value) {
+      hosts = value.hosts;
+      hostClockOffset = value.hostClockOffset;
+      serverCounts = new Map();
+      for (const server of value.servers)
+        serverCounts.set(
+          server.hostId,
+          (serverCounts.get(server.hostId) || 0) + 1,
+        );
+      loaded = true;
       capacity.sync(
         ['admin', 'viewer'].includes(getSession()?.role) ? hosts : [],
       );
-      render();
     },
     dispose() {
+      disposed = true;
+      clearInterval(ageTimer);
       capacity.dispose();
       events.clear();
-      rows.clear();
       for (const id of [
         'add-host-dialog',
         'host-setup-review',
         'agent-update-dialog',
         'disconnect-host-dialog',
+        'host-details-dialog',
       ])
         $('#' + id)?.close();
+      rendered.clear();
+      $('#hosts-list').replaceChildren();
+      $('#host-search').value = '';
+      $('#host-table-wrap').hidden = true;
+      $('#host-status-filters').hidden = true;
+      $('#host-fleet-count').textContent = '';
+      $('#hosts-empty').textContent = 'Checking hosts…';
+      $('#hosts-empty').hidden = false;
       setupPlan = null;
       updatePlan = null;
     },

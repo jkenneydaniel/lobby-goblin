@@ -314,7 +314,18 @@ export function createFleetScreens({
         page: 1,
       };
       return {
-        async mount(ctx) {
+        async mount(ctx, {route}) {
+          if (route) {
+            Object.assign(filters, {
+              host: route,
+              search: '',
+              application: '',
+              status: '',
+              page: 1,
+              showOptions: true,
+            });
+            filters.collapsed.clear();
+          }
           await model.refresh();
           paintServers(ctx, filters);
           ctx.onDispose(() => {
@@ -363,7 +374,7 @@ export function createFleetScreens({
       let context = null,
         component = null;
       return {
-        async mount(ctx) {
+        async mount(ctx, {route}) {
           context = ctx;
           component ||= createHostSettings({
             request: (...args) => {
@@ -379,7 +390,7 @@ export function createFleetScreens({
           component.bind();
           await model.refresh();
           if (!ctx.isCurrent()) return;
-          component.setHosts(model.snapshot.hosts);
+          component.setHosts(model.snapshot.hosts, route);
           await component.load();
         },
         async refresh(ctx, options) {
@@ -411,10 +422,11 @@ export function createFleetScreens({
             },
             onChange: () => model.refresh(),
             onCreate: (host) => creation.open(null, host),
+            hostBusy: (id) => model.busy(id),
           });
           await model.refresh();
           if (!ctx.isCurrent()) return;
-          component.setHosts(model.snapshot.hosts);
+          component.setInventory(model.snapshot);
           await component.pairing();
           await component.progress();
         },
@@ -422,7 +434,7 @@ export function createFleetScreens({
           if (!['model', 'poll'].includes(options.reason))
             await model.refresh();
           if (!ctx.isCurrent()) return;
-          component.setHosts(model.snapshot.hosts);
+          component.setInventory(model.snapshot);
           if (options.reason !== 'model') await component.progress();
         },
         dispose() {
