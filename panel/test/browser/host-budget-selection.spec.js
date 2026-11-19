@@ -354,22 +354,16 @@ test('compare hosts, review and adjust the intended budget, then refresh the cap
 }, info) => {
   const state = await fixture(page);
   await followPanelLink(page, 'Hosts');
-  const cards = page.locator('#hosts-list article');
-  await expect(cards).toHaveCount(2);
-  await expect(cards.first().locator('.capacity-summary dd')).toHaveText([
-    '24 GiB',
-    '17 GiB',
-    '7 GiB',
-    '32.0 GiB',
-  ]);
-  await expect(cards.nth(1).locator('.capacity-summary dd')).toHaveText([
-    '16 GiB',
-    '3 GiB',
-    '13 GiB',
-    '24.0 GiB',
-  ]);
-  await followPanelLink(page, 'Host settings');
-  await selectRemote(page);
+  const rows = page.locator('#hosts-list tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('7 GiB available');
+  await expect(rows.nth(1)).toContainText('13 GiB available');
+  await rows
+    .nth(1)
+    .getByRole('link', {name: 'Memory settings for Weekend host'})
+    .click();
+  await expect(picker(page)).toHaveValue(remotePath.replace('/api', ''));
+  await expect(budget(page)).toHaveValue('16');
   await expect(page.locator('#host-allocations')).toContainText(
     'Remote factory',
   );
@@ -380,20 +374,10 @@ test('compare hosts, review and adjust the intended budget, then refresh the cap
   await expect(budget(page)).toHaveValue('20');
   await followPanelLink(page, 'Hosts');
   await page
-    .getByRole('button', {name: 'Refresh capacity', exact: true})
+    .getByRole('button', {name: 'Refresh metrics', exact: true})
     .click();
-  await expect(cards.nth(1).locator('.capacity-summary dd')).toHaveText([
-    '20 GiB',
-    '3 GiB',
-    '17 GiB',
-    '24.0 GiB',
-  ]);
-  await expect(cards.first().locator('.capacity-summary dd')).toHaveText([
-    '24 GiB',
-    '17 GiB',
-    '7 GiB',
-    '32.0 GiB',
-  ]);
+  await expect(rows.nth(1)).toContainText('17 GiB available');
+  await expect(rows.first()).toContainText('7 GiB available');
   expect(state.writes).toEqual([
     {path: remotePath, body: {memoryBudgetGiB: 20, revision: 7}},
   ]);

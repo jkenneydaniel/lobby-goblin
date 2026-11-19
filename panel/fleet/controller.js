@@ -14,6 +14,7 @@ import {FleetManager} from './manager.js';
 import {cleanupFleetContainers} from '../core/container-cleanup.js';
 import {migrateFleet} from './migrations.js';
 import {RemoteHosts,remoteRoute} from './hosts.js';
+import {createHostCpuSampler} from './host-cpu.js';
 import {HostSetup} from './host-setup.js';
 import {AgentUpdater,agentVersion} from './agent-update.js';
 import {proxyResponse} from '../core/proxy.js';
@@ -39,7 +40,8 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  let managementChanges=Promise.resolve();
  const coordinatedUpdate=transport.managementUpdate||((input)=>{const next=managementChanges.then(()=>legacyUpdates.handle(input));managementChanges=next.catch(()=>{});return next;});
  const identity=env.FLEET_AGENT_TRANSPORT==='persistent'?await ensureAgentIdentity(webRoot):null;
- const hosts=new RemoteHosts(manager,{fetcher:hostFetch,identity:identity?.fingerprint});await hosts.init({connect:!maintenance.held&&!coordinatedHold});
+ let cpu;
+ const hosts=new RemoteHosts(manager,{fetcher:hostFetch,identity:identity?.fingerprint,readCpu:()=>cpu?.read()});await hosts.init({connect:!maintenance.held&&!coordinatedHold});
  const setup=new HostSetup(hosts,setupDependencies);await setup.init();const agent=new AgentUpdater(manager,{enabled:env.FLEET_AGENT_ONLY==='true'}),version=await agentVersion();
  agent.coordinated=true;
  const applicationReleases=new ApplicationReleases();
@@ -82,7 +84,7 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
   if(req.method==='GET'&&url.pathname==='/application-releases'){const item=url.searchParams.has('serverId')?manager.server(url.searchParams.get('serverId')):null;assert(!item||item.state!=='removed','This server was removed.',410);const game=item?.game||url.searchParams.get('game');return json(res,200,await applicationReleases.read(game,item?.software||manager.module(game).managed.software));}
   if(req.method==='POST'&&url.pathname==='/creation-preflight')return json(res,200,await manager.preflight(await requestJSON(req)));
   if(req.method==='GET'&&url.pathname==='/catalog')return json(res,200,{games:Object.values(catalog),memoryBudgetGiB:manager.memoryBudgetGiB});
-  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:true,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
+  if(req.method==='GET'&&url.pathname==='/status')return json(res,200,{game:'fleet',ready:true,hostId:manager.fleet,protocol:1,version,cpu:cpu?.read()??null,agentOnly:env.FLEET_AGENT_ONLY==='true',agentUpdate:agentState.update,agentUpdateSupported:agentState.supported,managementUpdateSupported:true,isolation:manager.broker?'broker-v1':'legacy-socket',servers:manager.list().length,activeJob:manager.active});
   if(req.method==='GET'&&url.pathname==='/audit')return json(res,200,await manager.audit.list({before:url.searchParams.has('before')?Number(url.searchParams.get('before')):undefined,search:url.searchParams.get('search')||''}));
   if(req.method==='GET'&&url.pathname==='/jobs')return json(res,200,await readJobsSnapshot(manager.operations,operationFeed,url.searchParams));
   if(req.method==='POST'&&url.pathname==='/jobs/recovery')return json(res,200,await manager.operations.recover(await requestJSON(req),req.headers['x-panel-user']||'administrator'));
@@ -107,7 +109,8 @@ export async function startFleetController({env=process.env,docker=dockerAPI,por
  }
  const server=http.createServer((req,res)=>handle(req,res).catch(error=>{if(!res.headersSent)json(res,error.status||502,{error:publicTransportMessage(error)??(error.status?redact(error.message):'The host manager could not complete the request.')});else res.destroy();}));server.requestTimeout=300000;
  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,hostname,resolve);});
+ cpu=createHostCpuSampler();
  const sweep=()=>{if(!maintenance.held)void cleanupFleetContainers(manager).catch(error=>console.error('Container cleanup deferred:',redact(error.message)));};
- const cleanupTimer=setInterval(sweep,60000).unref();server.once('close',()=>{clearInterval(cleanupTimer);hosts.close();});
+ const cleanupTimer=setInterval(sweep,60000).unref();server.once('close',()=>{clearInterval(cleanupTimer);cpu.close();hosts.close();});
  if(!maintenance.held&&!coordinatedHold&&!manager.broker&&env.FLEET_AGENT_ONLY!=='true'&&env.FLEET_SKIP_MIGRATIONS!=='true')void migrateFleet(manager).catch(()=>console.error('Image migration needs attention; stored data was preserved.')).finally(sweep);return {server,manager,hosts,setup,agent};
 }

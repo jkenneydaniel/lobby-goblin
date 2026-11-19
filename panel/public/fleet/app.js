@@ -227,31 +227,38 @@ function authenticated() {
     .querySelectorAll('[data-admin]')
     .forEach((node) => (node.hidden = session?.role !== 'admin'));
 }
-function selectView(next) {
+function selectView(destination) {
+  let [next, parameters] = destination.split('?');
   next = navigation.some(
     (item) => item.id === next && navigationAllowed(item, session),
   )
     ? next
     : 'servers';
+  const host = new URLSearchParams(parameters).get('host');
+  const route =
+    ['host', 'servers'].includes(next) && /^[a-f0-9]{32}$/.test(host || '')
+      ? host
+      : '';
   $('.fleet-servers-heading > div').hidden = next !== 'servers';
   $('.fleet-servers-heading').hidden = [
     'access',
     'operations',
     'updates',
     'storage',
+    'hosts',
   ].includes(next);
   $('#dashboard > .operations').hidden =
     ['servers', 'access', 'operations', 'updates', 'storage'].includes(next) ||
     session?.role === 'member';
   shell.active(next);
-  history.replaceState(null, '', '/#' + next);
+  history.replaceState(null, '', '/#' + next + (route ? '?host=' + route : ''));
   for (const item of navigation) {
     document.getElementById(item.id + '-view').hidden = item.id !== next;
     document
       .getElementById('show-' + item.id)
       .setAttribute('aria-current', item.id === next ? 'page' : 'false');
   }
-  return screenRouter.open(next);
+  return screenRouter.open(next, {route});
 }
 async function refresh() {
   if (!session || needsWelcome()) return;

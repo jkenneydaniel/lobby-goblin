@@ -54,7 +54,10 @@ test('host addresses require HTTPS and remote protocol refuses account, federati
  for(const route of ['/accounts','/host-pairing','/hosts','/host-setup','/containers/json','/servers/'+serverId+'/controller/unknown'])assert.equal(remoteRoute('POST',route),false,route);assert.equal(remoteRoute('POST','/servers'),true);assert.equal(remoteRoute('GET','/agent-status'),true);assert.equal(remoteRoute('DELETE','/servers'),false);
 });
 test('agent-only pairing and scoped creation work through HTTPS-origin gateways without a remote panel or accounts',async t=>{
- const f=await pair(t);await assert.rejects(fs.stat(path.join(f.remote.root,'web/auth')),/ENOENT/);const value=await f.central.hosts.list();assert.equal(value.hosts.length,2);assert.equal(value.hosts[1].connected,true);assert.equal(value.hosts[1].aligned,true);
+ const f=await pair(t);await assert.rejects(fs.stat(path.join(f.remote.root,'web/auth')),/ENOENT/);
+ let now=Date.UTC(2026,0,1);f.central.hosts.now=()=>now;
+ f.setOffline(true);assert.equal((await f.central.hosts.list()).hosts[1].lastSeenAt,null);f.setOffline(false);
+ const value=await f.central.hosts.list();assert.equal(value.hosts[1].lastSeenAt,now);assert.equal(value.observedAt,now);assert.equal(value.hosts.length,2);assert.equal(value.hosts[1].connected,true);assert.equal(value.hosts[1].aligned,true);
  const forwarded=[];f.remote.manager.submit=async(action,input,actor)=>{forwarded.push({action,input,actor});return {id:'job',state:'running'};};
  const headers={authorization:'Bearer '+f.central.token,'content-type':'application/json','x-panel-user':'Admin'};
  const response=await fetch(f.central.origin+'/hosts/'+two+'/servers',{method:'POST',headers,body:JSON.stringify({hostId:two,game:'factorio',name:'On remote host'})});assert.equal(response.status,202);assert.equal(forwarded.length,1);assert.equal(forwarded[0].input.hostId,two);assert.match(forwarded[0].actor,/remote:.*Admin/);assert.equal(f.central.manager.state.servers.length,0);
@@ -63,7 +66,8 @@ test('agent-only pairing and scoped creation work through HTTPS-origin gateways 
  const call=(route,options={})=>wireFetch('http://127.0.0.1:'+f.edge.address().port+'/remote/v1'+route,{...options,headers:{...machineHeaders,...options.headers}});
  assert.equal((await call('/accounts')).status,404);assert.equal((await call('/hosts')).status,404);assert.equal((await call('/servers',{method:'POST',body:'{}',headers:{origin:'https://wrong.test'}})).status,403);assert.equal((await call('/status',{headers:{authorization:'Bearer invalid'}})).status,401);
  assert.equal((await wireFetch('http://127.0.0.1:'+f.edge.address().port+'/',{headers:{host:'host.example.test'}})).status,404);
- f.setOffline(true);const offline=await f.central.hosts.list();assert.equal(offline.hosts[0].connected,true);assert.equal(offline.hosts[1].connected,false);f.setOffline(false);
+ now+=60_000;f.setOffline(true);const offline=await f.central.hosts.list();assert.equal(offline.hosts[0].connected,true);assert.equal(offline.hosts[1].connected,false);assert.equal(offline.hosts[1].lastSeenAt,now-60_000);f.setOffline(false);
+ assert.equal((await f.central.hosts.list()).hosts[1].lastSeenAt,now);
  await f.remote.hosts.enrollment({operation:'revoke',id:outgoing.pairId});assert.equal((await call('/status')).status,401);assert.equal((await call('/servers',{method:'POST',body:'{}'})).status,401);assert.ok(f.central.calls.every(c=>c.method==='GET'));assert.ok(f.remote.calls.every(c=>c.method==='GET'));
 });
 test('central login keeps remote reads, administrator changes and CSRF checks scoped to host and server',async t=>{

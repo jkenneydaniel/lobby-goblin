@@ -251,11 +251,15 @@ export function createHostSettings({request, getSession, error}) {
     })();
     return call.promise;
   }
-  function setHosts(value) {
+  function setHosts(value, target) {
     const before = hostFor()?.connected,
       previous = selected;
     hosts = ['admin', 'viewer'].includes(getSession()?.role) ? value : [];
-    if (!selected)
+    if (target) {
+      const host = hosts.find((item) => item.id === target);
+      if (host) selected = keyFor(host);
+      else selected = '/hosts/' + target + '/host-settings';
+    } else if (!selected)
       selected = hosts.find((host) => host.local)?.id
         ? keyFor(hosts.find((host) => host.local))
         : hosts[0]

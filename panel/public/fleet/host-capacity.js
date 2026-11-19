@@ -17,6 +17,15 @@ function summary(value) {
     allocatedMemoryGiB: value.allocatedMemoryGiB,
     availableMemoryGiB: value.availableMemoryGiB,
     dockerMemoryGiB: value.dockerMemoryGiB ?? null,
+    minimumCreationMemoryGiB:
+      Number.isFinite(value.minimumCreationMemoryGiB) &&
+      value.minimumCreationMemoryGiB > 0
+        ? value.minimumCreationMemoryGiB
+        : null,
+    maxMemoryBudgetGiB:
+      Number.isFinite(value.maxMemoryBudgetGiB) && value.maxMemoryBudgetGiB >= 0
+        ? value.maxMemoryBudgetGiB
+        : null,
   };
 }
 
@@ -58,7 +67,10 @@ export function createHostCapacity({
           record.state = 'ready';
         })
         .catch(() => {
-          if (current(key, record)) record.state = 'unavailable';
+          if (current(key, record)) {
+            record.data = null;
+            record.state = 'unavailable';
+          }
         })
         .finally(() => {
           active--;
@@ -71,7 +83,11 @@ export function createHostCapacity({
     if (!hosts.get(key)?.connected) return;
     const previous = entries.get(key);
     if (previous && (!force || previous.state === 'loading')) return;
-    const record = {state: 'loading', abort: new AbortController()};
+    const record = {
+      state: 'loading',
+      data: previous?.data,
+      abort: new AbortController(),
+    };
     entries.set(key, record);
     queue.push({key, record});
   }
@@ -118,7 +134,7 @@ export function hostCapacityView(host, record) {
   if (!record || record.state === 'loading')
     return '<p class="hint">Checking configured capacity…</p>';
   if (record.state !== 'ready')
-    return '<p class="hint">Capacity unavailable. Refresh capacity to try again.</p>';
+    return '<p class="hint">Capacity unavailable. Refresh metrics to try again.</p>';
   const data = record.data;
   return `<h4>Configured memory</h4><dl class="capacity-summary"><div><dt>Host budget</dt><dd>${esc(data.memoryBudgetGiB)} GiB</dd></div><div><dt>Allocated, including controllers</dt><dd>${esc(data.allocatedMemoryGiB)} GiB</dd></div><div><dt>Available to allocate</dt><dd>${esc(data.availableMemoryGiB)} GiB</dd></div><div><dt>Docker capacity</dt><dd>${data.dockerMemoryGiB === null ? 'Not reported' : esc(data.dockerMemoryGiB.toFixed(1)) + ' GiB'}</dd></div></dl><p class="hint">Configured allocations, not live RAM usage. Checked ${esc(new Date(record.checkedAt).toLocaleString())}. Creation rechecks current capacity.</p>`;
 }
