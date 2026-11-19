@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.44-alpha — 2026-11-19
+
+- The Servers page groups servers by host. Each row puts Open and Copy address within reach, and status filters show how many servers match. (#197)
+- Fleet and Administration links sit in a desktop sidebar and a mobile menu. (#197)
+
 ## 0.3.43-alpha — 2026-11-17
 
 - Backups puts saved archives up front, with compact filters and expandable health details. Settings uses a responsive grid and narrower desktop inputs. (#194)
