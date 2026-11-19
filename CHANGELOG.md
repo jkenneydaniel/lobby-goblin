@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.45-alpha — 2026-11-19
+
+- Hosts uses a desktop table and stacked mobile cards with connection filters, search, and shortcuts to each host’s servers. (#199)
+- When a host blocks server creation, the row explains why and opens the relevant memory settings, connection details, or update controls. (#199)
+- Hosts shows whole-host CPU samples with their age and flags stale readings. Unavailable hosts show when the panel last reached them during the current controller run. (#199)
+
 ## 0.3.44-alpha — 2026-11-19
 
 - The Servers page groups servers by host. Each row puts Open and Copy address within reach, and status filters show how many servers match. (#197)
