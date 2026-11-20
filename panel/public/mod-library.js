@@ -61,7 +61,7 @@ export function mountModLibrary(
       tab: 'browse',
       query: '',
       page: 1,
-      mode: 'stopped',
+      preferredMode: null,
       installedQuery: '',
       installedState: 'all',
     };
@@ -146,7 +146,9 @@ export function mountModLibrary(
         ? 'Rust stays online. Plugin code will load or reload immediately; check compilation in Logs.'
         : mode === 'restart'
           ? 'Connected players will be disconnected. The server saves, stops, applies the reviewed changes, and starts again.'
-          : 'Stop the server yourself before applying changes. It will stay stopped afterward.';
+          : value.running
+            ? 'Stop the server to enable mod changes, or choose “Save, stop, apply, and start automatically”.'
+            : 'The server will stay stopped after you apply the change.';
   }
   function row(item) {
     const installed = state.tab === 'installed',
@@ -157,13 +159,14 @@ export function mountModLibrary(
     return `<article class="ml-item"><div class="ml-item-main"><h3>${esc(item.title || item.name || item.id)}</h3><p>${esc(item.summary || '')}</p><div class="ml-meta">${item.author ? `<span>By ${esc(item.author)}</span>` : ''}<span>${installedVersion ? 'Installed ' + esc(installedVersion) : 'Version ' + esc(item.version || 'unknown')}${!installed && installedVersion ? ' → ' + esc(item.version) : ''}</span>${installed ? `<span>${item.enabled ? 'Enabled' : 'Disabled'}</span>${item.modified ? '<span>Modified locally · automatic matching paused</span>' : !item.source ? '<span>Added manually</span>' : ''}` : ''}</div>${item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">View on ${esc(value.source)}</a>` : ''}</div><div class="ml-item-actions">${primary}</div></article>`;
   }
   function setModBusy() {
+    const mode = $('[data-mode]').value;
     all('[data-mod]').forEach(
       (button) =>
         (button.disabled ||=
           busy() ||
           value.recoveryRequired ||
-          (state.mode === 'stopped' && value.running) ||
-          (state.mode === 'hot' && !value.running) ||
+          (mode === 'stopped' && value.running) ||
+          (mode === 'hot' && !value.running) ||
           value.scope === 'none'),
     );
   }
@@ -208,8 +211,11 @@ export function mountModLibrary(
         'beforeend',
         '<option value="hot">Apply while running · Rust plugins</option>',
       );
-    if (!value.hotAvailable && state.mode === 'hot') state.mode = 'stopped';
-    $('[data-mode]').value = state.mode;
+    if (!value.hotAvailable && state.preferredMode === 'hot')
+      state.preferredMode = null;
+    $('[data-mode]').value =
+      state.preferredMode ??
+      (value.game === 'factorio' && value.running ? 'restart' : 'stopped');
     impact();
     $('.ml-status').textContent =
       value.source +
@@ -345,7 +351,7 @@ export function mountModLibrary(
             review = await api('/mod-library-plan', {
               id: button.dataset.mod,
               operation: button.dataset.operation,
-              mode: state.mode,
+              mode: $('[data-mode]').value,
             });
             if (disposed) return;
             $('[data-review-content]').innerHTML =
@@ -419,7 +425,7 @@ export function mountModLibrary(
     void load();
   });
   $('[data-mode]').addEventListener('change', (event) => {
-    state.mode = event.target.value;
+    state.preferredMode = event.target.value;
     if (value) render();
   });
   installedQuery.addEventListener(

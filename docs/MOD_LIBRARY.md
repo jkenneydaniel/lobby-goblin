@@ -37,10 +37,13 @@ Choose **When applying changes** before reviewing a mod:
 | Save, stop, apply, and start automatically | Save/stop if running, apply, then start | Save/stop if running, apply, then start |
 | Apply while running · Rust plugins | Unavailable: mods load at startup | Load/reload/unload through Oxide or Carbon while ready |
 
-The stopped option is the default. Automatic start is explicit, including when
-the server was already stopped. Review describes the selected behavior and
-player interruption. Reviewing downloads and verifies files without changing
-game files or stopping a server. Changes use the normal serialized job queue.
+For a running Factorio server, the panel preselects automatic restart so you can
+choose **Installed → Remove** immediately. A stopped Factorio server and Rust
+default to the stopped option. You can change the selection before review.
+Review shows how the change will affect connected players. Selecting **Remove**
+opens the review. Confirming **Apply and start server** runs the restart.
+Reviewing downloads and verifies files without changing game files or stopping
+a server. Changes use the normal serialized job queue.
 
 ## Factorio
 

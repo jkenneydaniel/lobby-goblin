@@ -96,7 +96,8 @@ for (const game of ['factorio', 'rust'])
       await page.clock.install();
       const prefix = '/servers/' + (game === 'factorio' ? 'a' : 'b').repeat(32),
         ledger = [];
-      let items = samples;
+      let items = samples,
+        running = true;
       page.on('request', (request) => {
         if (request.url().includes('/api/'))
           ledger.push({
@@ -132,7 +133,7 @@ for (const game of ['factorio', 'rust'])
             source: 'Synthetic catalogue',
             version: 'scope-version',
             tab,
-            running: true,
+            running,
             hotAvailable: game === 'rust',
             recoveryRequired: false,
             account: {connected: true},
@@ -173,6 +174,37 @@ for (const game of ['factorio', 'rust'])
         'Fallback name',
         'Visible name',
       ]);
+      if (game === 'factorio') {
+        const mode = page.locator('[data-mode]'),
+          remove = page.locator(
+            '[data-mod="target-ID"][data-operation="remove"]',
+          ),
+          refresh = page.getByRole('button', {name: 'Refresh catalogue'});
+        await expect(mode).toHaveValue('restart');
+        await remove.click();
+        await expect(
+          page.getByRole('button', {name: 'Apply and start server'}),
+        ).toBeVisible();
+        expect(
+          ledger
+            .filter((call) => call.url.endsWith('/api/mod-library-plan'))
+            .map((call) => call.body),
+        ).toEqual([{id: 'target-ID', operation: 'remove', mode: 'restart'}]);
+        await page.getByRole('button', {name: 'Cancel', exact: true}).click();
+        running = false;
+        await refresh.click();
+        await expect(mode).toHaveValue('stopped');
+        await expect(remove).toBeEnabled();
+        running = true;
+        await refresh.click();
+        await expect(mode).toHaveValue('restart');
+        await mode.selectOption('stopped');
+        await refresh.click();
+        await expect(remove).toBeDisabled();
+        await expect(page.locator('.ml-impact')).toContainText(
+          'Stop the server to enable mod changes',
+        );
+      }
       await expect(page.locator('.ml-item [data-mod]').first()).toBeDisabled();
       if (delegated) await expect(page.locator('.ml-account')).toBeHidden();
       const before = [...ledger];
@@ -240,7 +272,7 @@ for (const game of ['factorio', 'rust'])
         .getByRole('button', {name: 'Enable', exact: true})
         .click();
       await expect(page.locator('.ml-review')).toBeVisible();
-      const planned = ledger.filter((call) =>
+      const planned = ledger.slice(before.length).filter((call) =>
         call.url.endsWith('/api/mod-library-plan'),
       );
       expect(planned).toHaveLength(1);

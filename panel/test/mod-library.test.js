@@ -92,6 +92,27 @@ test('Factorio stop/apply/start is opt-in and no lifecycle action happens during
   const f=await factorio(t);await f.connect();f.run(true);await assert.rejects(f.library.plan({id:'example'}),/Stop Factorio/);
   const plan=await f.library.plan({id:'example',mode:'restart'});assert.deepEqual(f.lifecycle(),{running:true,starts:0,stops:0});await f.library.install(plan.id);assert.deepEqual(f.lifecycle(),{running:true,starts:1,stops:1});
 });
+test('a running Factorio server removes a disabled manual mod only after its restart review is applied', async t => {
+  const f = await factorio(t), mods = path.join(f.data, 'mods');
+  const list = path.join(mods, 'mod-list.json'), original = JSON.parse(await fs.readFile(list));
+  const info = {name: 'legacy', version: '1.0.0', factorio_version: '2.0'};
+  await fs.writeFile(path.join(mods, 'legacy_1.0.0.zip'), makeZip([
+    {name: 'legacy_1.0.0/info.json', data: Buffer.from(JSON.stringify(info))},
+  ]));
+  await fs.writeFile(list, JSON.stringify({mods: [...original.mods, {name: 'legacy', enabled: false}]}));
+  f.run(true);
+  const plan = await f.library.plan({id: 'legacy', operation: 'remove', mode: 'restart'});
+  assert.deepEqual(plan.files, [{name: 'legacy_1.0.0.zip', remove: true}, {name: 'mod-list.json', remove: false}]);
+  assert.deepEqual(f.lifecycle(), {running: true, starts: 0, stops: 0});
+  assert.equal((await view(f.library)).items[0].enabled, false);
+  await f.library.install(plan.id);
+  assert.deepEqual(f.lifecycle(), {running: true, starts: 1, stops: 1});
+  assert.deepEqual((await view(f.library)).items, []);
+  assert.deepEqual(JSON.parse(await fs.readFile(list)), original);
+  assert.equal(await fs.readFile(path.join(mods, 'mod-settings.dat'), 'utf8'), 'SETTINGS SENTINEL');
+  assert.equal(await fs.readFile(path.join(f.data, 'saves/world.zip'), 'utf8'), 'WORLD SENTINEL');
+  assert.deepEqual(f.calls, []);
+});
 test('automatic mode starts an already stopped server and reports startup failure separately from installed files',async t=>{
   const f=await factorio(t);await f.connect();f.failStart();const plan=await f.library.plan({id:'example',mode:'restart'});await assert.rejects(f.library.install(plan.id),/files were installed.*did not become ready/);assert.deepEqual(f.lifecycle(),{running:false,starts:1,stops:0});assert.equal((await view(f.library)).items.length,2);await f.library.assertReady();
 });
