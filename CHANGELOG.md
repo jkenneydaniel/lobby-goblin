@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.46-alpha — 2026-11-19
+
+- Running Factorio servers now default to the save-and-restart option in Mods. Select **Installed → Remove** to review a removal, then confirm to apply it. Stopped servers still default to staying stopped.
+
 ## 0.3.45-alpha — 2026-11-19
 
 - Hosts uses a desktop table and stacked mobile cards with connection filters, search, and shortcuts to each host’s servers. (#199)
